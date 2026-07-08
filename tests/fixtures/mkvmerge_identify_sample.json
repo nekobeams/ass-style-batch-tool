@@ -1,0 +1,38 @@
+{
+  "attachments": [
+    { "id": 1, "content_type": "application/x-truetype-font", "file_name": "font.ttf" }
+  ],
+  "chapters": [ { "num_entries": 12 } ],
+  "container": { "type": "Matroska" },
+  "tracks": [
+    {
+      "id": 0, "type": "video", "codec": "HEVC/H.265",
+      "properties": { "codec_id": "V_MPEGH/ISO/HEVC", "language": "und" }
+    },
+    {
+      "id": 1, "type": "audio", "codec": "FLAC",
+      "properties": { "codec_id": "A_FLAC", "language": "jpn" }
+    },
+    {
+      "id": 2, "type": "subtitles", "codec": "SubStationAlpha",
+      "properties": {
+        "codec_id": "S_TEXT/ASS", "language": "chi",
+        "track_name": "繁體中文", "default_track": true, "forced_track": false
+      }
+    },
+    {
+      "id": 3, "type": "subtitles", "codec": "SubStationAlpha",
+      "properties": {
+        "codec_id": "S_TEXT/ASS", "language": "chi",
+        "track_name": "簡體中文", "default_track": false, "forced_track": false
+      }
+    },
+    {
+      "id": 4, "type": "subtitles", "codec": "SubRip/SRT",
+      "properties": {
+        "codec_id": "S_TEXT/UTF8", "language": "eng",
+        "track_name": "English", "default_track": false, "forced_track": false
+      }
+    }
+  ]
+}
