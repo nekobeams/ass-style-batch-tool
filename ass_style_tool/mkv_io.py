@@ -46,7 +46,9 @@ def list_ass_tracks(mkv_path: Path, mkvmerge: Path) -> List[SubtitleTrack]:
     """跑 mkvmerge -J 列舉 ASS 字幕軌;任何失敗回 []。"""
     cmd = [str(mkvmerge), "-J", str(mkv_path)]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=60, encoding="utf-8"
+        )
     except (OSError, subprocess.TimeoutExpired):
         return []
     if result.returncode != 0:
@@ -107,7 +109,9 @@ def extract_track(
 ) -> bool:
     cmd = build_extract_command(mkv_path, track_id, out_path, mkvextract)
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=300, encoding="utf-8"
+        )
     except (OSError, subprocess.TimeoutExpired):
         return False
     return result.returncode == 0
@@ -124,15 +128,20 @@ def remux(
     cmd = build_remux_command(mkv_path, out_path, replacements, mkvmerge)
     try:
         proc = subprocess.Popen(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
         )
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            if progress_cb is not None:
+                pct = parse_progress(line)
+                if pct is not None:
+                    progress_cb(pct)
+        proc.wait()
+        return proc.returncode in (0, 1)
     except OSError:
         return False
-    assert proc.stdout is not None
-    for line in proc.stdout:
-        if progress_cb is not None:
-            pct = parse_progress(line)
-            if pct is not None:
-                progress_cb(pct)
-    proc.wait()
-    return proc.returncode in (0, 1)

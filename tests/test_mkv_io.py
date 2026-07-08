@@ -99,6 +99,28 @@ def test_list_ass_tracks_bad_json_returns_empty(monkeypatch):
     assert list_ass_tracks(Path("x.mkv"), Path("mkvmerge")) == []
 
 
+def test_list_ass_tracks_preserves_chinese_track_name(monkeypatch):
+    monkeypatch.setattr(
+        "ass_style_tool.mkv_io.subprocess.run",
+        lambda cmd, **k: FakeCompleted(0, FIXTURE.read_text(encoding="utf-8")),
+    )
+    tracks = list_ass_tracks(Path("show.mkv"), Path("mkvmerge"))
+    assert tracks[0].track_name == "繁體中文"
+    # 確認呼叫有指定 utf-8 編碼(避免 cp950 解 UTF-8 亂碼/例外)
+
+
+def test_list_ass_tracks_uses_utf8_encoding(monkeypatch):
+    captured = {}
+
+    def fake_run(cmd, **kwargs):
+        captured.update(kwargs)
+        return FakeCompleted(0, FIXTURE.read_text(encoding="utf-8"))
+
+    monkeypatch.setattr("ass_style_tool.mkv_io.subprocess.run", fake_run)
+    list_ass_tracks(Path("x.mkv"), Path("mkvmerge"))
+    assert captured.get("encoding") == "utf-8"
+
+
 from ass_style_tool.mkv_io import (Replacement, build_extract_command,
                                    build_remux_command, parse_progress)
 
