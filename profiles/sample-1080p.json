@@ -1,0 +1,20 @@
+{
+  "profile_name": "範例:1080p 一般對話字幕",
+  "target_style_names": ["Default"],
+  "base_resolution": { "width": 1920, "height": 1080 },
+  "style": {
+    "fontname": "思源黑體 CN",
+    "fontsize": 72.0,
+    "bold": false,
+    "italic": false,
+    "primary_colour": "&H00FFFFFF",
+    "outline_colour": "&H00000000",
+    "back_colour": "&H00000000",
+    "outline": 3.6,
+    "shadow": 1.0,
+    "alignment": 2,
+    "margin_l": 20,
+    "margin_r": 20,
+    "margin_v": 24
+  }
+}
