@@ -105,3 +105,19 @@ def test_run_batch_continues_after_error(tmp_path):
     reports = run_batch(scan, make_profile(), None, progress_cb=seen.append)
     assert [r.status for r in reports] == ["ok", "error"]
     assert len(seen) == 2
+
+
+def test_run_batch_isolates_apply_failure(tmp_path):
+    good = _write_sample(tmp_path, "[A] Show [01].ass")
+    also_good = _write_sample(tmp_path, "[A] Show [02].ass")
+    bad_profile = make_profile()
+    bad_profile.style.alignment = 99  # bypasses load_profile validation
+    scan = ScanResult(
+        matches=[
+            MatchResult(sub_path=good, episode=1),
+            MatchResult(sub_path=also_good, episode=2),
+        ],
+        warnings=[],
+    )
+    reports = run_batch(scan, bad_profile, None)
+    assert [r.status for r in reports] == ["error", "error"]  # both fail, none aborts

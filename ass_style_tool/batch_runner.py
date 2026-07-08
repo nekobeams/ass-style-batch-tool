@@ -50,27 +50,32 @@ def process_file(
     except Exception as exc:  # 單檔失敗不可中斷整批
         return FileReport(match.sub_path, "error", [f"讀取失敗: {exc}"])
 
-    report.messages.append(
-        f"ScaledBorderAndShadow: {get_scaled_border_shadow(subs)}"
-    )
-    ref_w, ref_h = reference_resolution(*get_play_res(subs))
-    report.messages.append(f"縮放參考解析度: {ref_w}x{ref_h}")
-    if match.video_resolution is not None and aspect_mismatch(
-        (ref_w, ref_h), match.video_resolution
-    ):
-        vw, vh = match.video_resolution
+    try:
         report.messages.append(
-            f"警告: PlayRes 長寬比與影片 {vw}x{vh} 不符,字幕可能變形,建議人工檢查"
+            f"ScaledBorderAndShadow: {get_scaled_border_shadow(subs)}"
         )
+        ref_w, ref_h = reference_resolution(*get_play_res(subs))
+        report.messages.append(f"縮放參考解析度: {ref_w}x{ref_h}")
+        if match.video_resolution is not None and aspect_mismatch(
+            (ref_w, ref_h), match.video_resolution
+        ):
+            vw, vh = match.video_resolution
+            report.messages.append(
+                f"警告: PlayRes 長寬比與影片 {vw}x{vh} 不符,字幕可能變形,建議人工檢查"
+            )
 
-    modified = apply_profile(subs, profile)
-    if not modified:
-        report.status = "skipped"
-        report.messages.append(
-            f"找不到目標 Style {profile.target_style_names},未修改"
+        modified = apply_profile(subs, profile)
+        if not modified:
+            report.status = "skipped"
+            report.messages.append(
+                f"找不到目標 Style {profile.target_style_names},未修改"
+            )
+            return report
+        report.messages.append(f"已套用樣式到: {', '.join(modified)}")
+    except Exception as exc:  # 單檔失敗不可中斷整批
+        return FileReport(
+            match.sub_path, "error", report.messages + [f"處理失敗: {exc}"]
         )
-        return report
-    report.messages.append(f"已套用樣式到: {', '.join(modified)}")
 
     try:
         if output_dir is None:
