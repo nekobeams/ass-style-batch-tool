@@ -36,7 +36,7 @@ ass_style_tool/
     ├── style_editor.py   # 樣式編輯面板 + profile 下拉切換 + 字型未安裝警告
     ├── file_table.py     # 檔案配對表格(字幕檔頁籤)與字幕軌表格(MKV 頁籤)
     ├── player.py         # 內嵌 mpv widget、時間軸、字幕行清單點擊跳轉
-    └── theme.py          # 深色主題 QSS
+    └── theme.py          # 深色/淺色主題 QSS + 主題模式(跟隨系統/深色/淺色)切換與偵測
 ```
 
 ## GUI 佈局(深色、分頁籤)
@@ -74,13 +74,28 @@ ass_style_tool/
 
 ## UX 完善項目
 
-1. **設定持久化**(QSettings):視窗大小、最後資料夾、輸出模式、最後 profile
+1. **設定持久化**(QSettings):視窗大小、最後資料夾、輸出模式、最後 profile、主題模式
 2. **Profile 下拉切換**:列出 `profiles/` 內所有 JSON,一鍵切換;另存/刪除按鈕
 3. **進度條 + 取消**:整批進度與當前檔案進度(MKV 模式含 mkvmerge 百分比)
 4. **字幕行點擊跳轉**(見預覽)
 5. **字型未安裝警告**:QFontDatabase 查不到樣式欄位的字型名稱時,欄位旁顯示黃色警告
 6. **全視窗拖放**
 7. **完成後「開啟輸出資料夾」按鈕**
+8. **主題模式切換**(跟隨系統 / 深色 / 淺色)——見下節
+
+## 主題模式(theme.py)
+
+三種模式,右上角工具列放一個切換控制(下拉或循環按鈕,參考 MKV Muxing Batch GUI 的「Switch To Light Mode」位置):
+
+- **跟隨系統(預設)**:依 Windows 深/淺色設定自動套用;系統設定變更時即時跟隨
+- **深色**:強制深色
+- **淺色**:強制淺色
+
+**實作**:
+- `theme.py` 提供兩份 QSS(深色、淺色)與 `apply_theme(app, mode)`;`mode` 為 `"system" | "dark" | "light"`
+- 系統深/淺色偵測用 Qt 6.5+ 的 `QStyleHints.colorScheme()`;監聽 `QStyleHints.colorSchemeChanged` 訊號,在「跟隨系統」模式下即時重套 QSS
+- 選擇用 QSettings 持久化(併入第 1 項設定持久化),重開程式沿用上次選擇
+- 純函式部分(mode → 該用哪份 QSS 的決策)可單元測試;實際套用與訊號監聽為手動冒煙驗證
 
 ## 外部工具偵測(tools.py)
 
