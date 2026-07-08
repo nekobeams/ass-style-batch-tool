@@ -97,3 +97,80 @@ def test_list_ass_tracks_bad_json_returns_empty(monkeypatch):
         lambda cmd, **k: FakeCompleted(0, "not json"),
     )
     assert list_ass_tracks(Path("x.mkv"), Path("mkvmerge")) == []
+
+
+from ass_style_tool.mkv_io import (Replacement, build_extract_command,
+                                   build_remux_command, parse_progress)
+
+
+def _track(tid, lang="chi", name="繁中", default=True, forced=False):
+    return SubtitleTrack(tid, "S_TEXT/ASS", lang, name, default, forced)
+
+
+def test_build_extract_command():
+    cmd = build_extract_command(
+        Path("show.mkv"), 2, Path("out.ass"), Path(r"C:\mkvextract.exe"))
+    assert cmd == [r"C:\mkvextract.exe", "show.mkv", "tracks", "2:out.ass"]
+
+
+def test_build_remux_excludes_replaced_subtitle_ids():
+    cmd = build_remux_command(
+        Path("show.mkv"), Path("out.mkv"),
+        [Replacement(_track(2), Path("styled2.ass"))],
+        Path(r"C:\mkvmerge.exe"),
+    )
+    # 原檔只排除被替換的字幕軌 2
+    i = cmd.index("--subtitle-tracks")
+    assert cmd[i + 1] == "!2"
+    # 原檔在被替換 .ass 之前
+    assert cmd.index("show.mkv") < cmd.index("styled2.ass")
+
+
+def test_build_remux_restores_track_flags():
+    cmd = build_remux_command(
+        Path("s.mkv"), Path("o.mkv"),
+        [Replacement(_track(2, lang="chi", name="繁中", default=True, forced=False),
+                     Path("styled.ass"))],
+        Path("mkvmerge"),
+    )
+    joined = " ".join(cmd)
+    assert "--language 0:chi" in joined
+    assert "--track-name 0:繁中" in joined
+    assert "--default-track 0:yes" in joined
+    assert "--forced-track 0:no" in joined
+
+
+def test_build_remux_multiple_replacements_exclude_list():
+    cmd = build_remux_command(
+        Path("s.mkv"), Path("o.mkv"),
+        [Replacement(_track(2), Path("a.ass")),
+         Replacement(_track(3), Path("b.ass"))],
+        Path("mkvmerge"),
+    )
+    i = cmd.index("--subtitle-tracks")
+    assert cmd[i + 1] == "!2,3"
+
+
+def test_build_remux_empty_replacements_raises():
+    import pytest
+    with pytest.raises(ValueError):
+        build_remux_command(Path("s.mkv"), Path("o.mkv"), [], Path("mkvmerge"))
+
+
+def test_build_remux_omits_empty_track_name():
+    cmd = build_remux_command(
+        Path("s.mkv"), Path("o.mkv"),
+        [Replacement(_track(2, name=""), Path("a.ass"))],
+        Path("mkvmerge"),
+    )
+    assert "--track-name" not in cmd
+
+
+def test_parse_progress():
+    assert parse_progress("Progress: 42%") == 42
+    assert parse_progress("Progress: 100%") == 100
+
+
+def test_parse_progress_none():
+    assert parse_progress("Multiplexing...") is None
+    assert parse_progress("") is None
