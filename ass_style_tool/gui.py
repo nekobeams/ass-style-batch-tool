@@ -388,14 +388,18 @@ class App:
             for message in report.messages:
                 self.log_queue.put(f"    {message}")
 
-        reports = run_batch(self.scan_result, profile, output_dir,
-                            progress_cb=on_progress)
-        ok = sum(1 for r in reports if r.status == "ok")
-        skipped = sum(1 for r in reports if r.status == "skipped")
-        errors = sum(1 for r in reports if r.status == "error")
-        self.log_queue.put(
-            f"=== 全部完成: 成功 {ok},跳過 {skipped},錯誤 {errors} ===")
-        self.root.after(0, self._after_run)
+        try:
+            reports = run_batch(self.scan_result, profile, output_dir,
+                                progress_cb=on_progress)
+            ok = sum(1 for r in reports if r.status == "ok")
+            skipped = sum(1 for r in reports if r.status == "skipped")
+            errors = sum(1 for r in reports if r.status == "error")
+            self.log_queue.put(
+                f"=== 全部完成: 成功 {ok},跳過 {skipped},錯誤 {errors} ===")
+        except Exception as exc:
+            self.log_queue.put(f"執行失敗: {exc}")
+        finally:
+            self.root.after(0, self._after_run)
 
     def _after_run(self) -> None:
         self.scan_button.configure(state="normal")
