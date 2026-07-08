@@ -80,7 +80,8 @@ def process_file(
     try:
         if output_dir is None:
             backup = match.sub_path.with_name(match.sub_path.name + ".bak")
-            shutil.copy2(match.sub_path, backup)  # 備份失敗會丟例外 -> 不寫入
+            if not backup.exists():
+                shutil.copy2(match.sub_path, backup)  # 備份失敗會丟例外 -> 不寫入
             save_subs(subs, match.sub_path)
         else:
             output_dir.mkdir(parents=True, exist_ok=True)
@@ -99,7 +100,21 @@ def run_batch(
     progress_cb: Optional[Callable[[FileReport], None]] = None,
 ) -> List[FileReport]:
     reports: List[FileReport] = []
+    seen_basenames: Optional[set[str]] = set() if output_dir is not None else None
     for match in scan.matches:
+        if output_dir is not None:
+            basename = match.sub_path.name
+            if basename in seen_basenames:
+                report = FileReport(
+                    match.sub_path, "error",
+                    ["輸出檔名衝突: 已有同名檔案寫入輸出資料夾,略過此檔"]
+                )
+                reports.append(report)
+                if progress_cb is not None:
+                    progress_cb(report)
+                continue
+            seen_basenames.add(basename)
+
         report = process_file(match, profile, output_dir)
         reports.append(report)
         if progress_cb is not None:

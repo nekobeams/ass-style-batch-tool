@@ -121,3 +121,32 @@ def test_run_batch_isolates_apply_failure(tmp_path):
     )
     reports = run_batch(scan, bad_profile, None)
     assert [r.status for r in reports] == ["error", "error"]  # both fail, none aborts
+
+
+def test_inplace_rerun_preserves_original_backup(tmp_path):
+    sub = _write_sample(tmp_path)
+    original_bytes = sub.read_bytes()
+    match = MatchResult(sub_path=sub, episode=1)
+    assert process_file(match, make_profile(), None).status == "ok"
+    assert process_file(match, make_profile(), None).status == "ok"  # 重跑
+    backup = tmp_path / "[A] Show [01].ass.bak"
+    assert backup.read_bytes() == original_bytes  # 備份仍是最初原始檔
+
+
+def test_run_batch_output_dir_name_collision_errors(tmp_path):
+    sub_a = _write_sample(tmp_path, "[A] Show [01].ass")
+    nested = tmp_path / "nested"
+    nested.mkdir()
+    sub_b = nested / "[A] Show [01].ass"
+    sub_b.write_bytes(sub_a.read_bytes())
+    out_dir = tmp_path / "out"
+    scan = ScanResult(
+        matches=[
+            MatchResult(sub_path=sub_a, episode=1),
+            MatchResult(sub_path=sub_b, episode=1),
+        ],
+        warnings=[],
+    )
+    reports = run_batch(scan, make_profile(), out_dir)
+    assert [r.status for r in reports] == ["ok", "error"]
+    assert "衝突" in reports[1].messages[0]

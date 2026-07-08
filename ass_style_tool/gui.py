@@ -254,11 +254,15 @@ class App:
                  if n.strip()]
         if not names:
             raise ValueError("目標 Style 名稱不可為空")
+        base_width = int(self.base_w_var.get())
+        base_height = int(self.base_h_var.get())
+        if base_width <= 0 or base_height <= 0:
+            raise ValueError("基準解析度必須大於 0")
         return Profile(
             profile_name=self.profile_name_var.get().strip() or "未命名",
             target_style_names=names,
-            base_width=int(self.base_w_var.get()),
-            base_height=int(self.base_h_var.get()),
+            base_width=base_width,
+            base_height=base_height,
             style=style,
         )
 
