@@ -113,9 +113,12 @@ def run_batch(
                 if progress_cb is not None:
                     progress_cb(report)
                 continue
-            seen_basenames.add(basename)
 
         report = process_file(match, profile, output_dir)
+        # Only add basename to seen_basenames if file was actually written (status == "ok")
+        if output_dir is not None and report.status == "ok":
+            seen_basenames.add(basename)
+
         reports.append(report)
         if progress_cb is not None:
             progress_cb(report)

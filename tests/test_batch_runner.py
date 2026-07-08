@@ -150,3 +150,23 @@ def test_run_batch_output_dir_name_collision_errors(tmp_path):
     reports = run_batch(scan, make_profile(), out_dir)
     assert [r.status for r in reports] == ["ok", "error"]
     assert "衝突" in reports[1].messages[0]
+
+
+def test_output_dir_collision_only_counts_written_files(tmp_path):
+    bad = tmp_path / "[A] Show [01].ass"
+    bad.write_text("garbage", encoding="utf-8")  # 會是 error,不會寫出
+    nested = tmp_path / "nested"
+    nested.mkdir()
+    good = nested / "[A] Show [01].ass"
+    good.write_bytes(b"\xef\xbb\xbf" + SAMPLE_ASS.encode("utf-8"))
+    out_dir = tmp_path / "out"
+    scan = ScanResult(
+        matches=[
+            MatchResult(sub_path=bad, episode=1),
+            MatchResult(sub_path=good, episode=1),
+        ],
+        warnings=[],
+    )
+    reports = run_batch(scan, make_profile(), out_dir)
+    assert [r.status for r in reports] == ["error", "ok"]  # 第二個不被誤判衝突
+    assert (out_dir / "[A] Show [01].ass").exists()
