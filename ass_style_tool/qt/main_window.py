@@ -8,6 +8,8 @@ from PySide6.QtWidgets import (QApplication, QComboBox, QHBoxLayout, QLabel,
 
 from .theme import (THEME_MODES, apply_theme, apply_titlebar_theme,
                     system_is_dark)
+from .style_editor import StyleEditor
+from .subtitle_tab import SubtitleFileTab
 
 _MODE_LABELS = {"system": "跟隨系統", "dark": "深色", "light": "淺色"}
 
@@ -34,14 +36,21 @@ class MainWindow(QMainWindow):
         top.addWidget(self.theme_combo)
         layout.addLayout(top)
 
-        # 分頁籤(本計畫先放佔位)
+        # 分頁籤
         self.tabs = QTabWidget()
-        for name in ("字幕檔", "MKV", "樣式與預覽"):
-            page = QWidget()
-            page_layout = QVBoxLayout(page)
-            page_layout.addWidget(QLabel(f"（{name} 功能於後續計畫實作）"))
-            page_layout.addStretch(1)
-            self.tabs.addTab(page, name)
+        self.style_editor = StyleEditor()
+        self.subtitle_tab = SubtitleFileTab(self.style_editor.current_profile)
+        self.subtitle_tab.log.connect(self.append_log)
+
+        self.tabs.addTab(self.subtitle_tab, "字幕檔")
+
+        mkv_page = QWidget()
+        mkv_layout = QVBoxLayout(mkv_page)
+        mkv_layout.addWidget(QLabel("（MKV 功能於後續計畫實作）"))
+        mkv_layout.addStretch(1)
+        self.tabs.addTab(mkv_page, "MKV")
+
+        self.tabs.addTab(self.style_editor, "樣式與預覽")
         layout.addWidget(self.tabs, 1)
 
         # log 區
