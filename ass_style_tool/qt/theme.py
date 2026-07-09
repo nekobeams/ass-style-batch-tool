@@ -68,5 +68,37 @@ def system_is_dark(app) -> bool:
 
 def apply_theme(app, mode: str) -> str:
     theme = resolve_theme(mode, system_is_dark(app))
+    # Windows 原生樣式(windowsvista/windows11)不會完整套用 QWidget 的
+    # background-color 泛用規則,只有明確選取的控件(QPushButton 等)才會生效,
+    # 導致視窗空白背景維持系統原色不隨主題切換。Fusion 樣式完整遵守 QSS。
+    if app.style().objectName().lower() != "fusion":
+        app.setStyle("Fusion")
     app.setStyleSheet(qss_for(theme))
     return theme
+
+
+def apply_titlebar_theme(window, dark: bool) -> None:
+    """讓 Windows 原生標題列跟隨 app 深/淺主題。
+
+    QSS 無法觸及作業系統繪製的標題列;標題列的深/淺由 DWM 的
+    DWMWA_USE_IMMERSIVE_DARK_MODE 屬性控制。非 Windows 平台為 no-op。
+    """
+    import sys
+    if not sys.platform.startswith("win"):
+        return
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        hwnd = int(window.winId())
+        value = ctypes.c_int(1 if dark else 0)
+        dwm = ctypes.windll.dwmapi
+        # 20 = Windows 10 20H1+/Windows 11;19 = 較舊的 Windows 10 建置
+        for attr in (20, 19):
+            if dwm.DwmSetWindowAttribute(
+                wintypes.HWND(hwnd), ctypes.c_int(attr),
+                ctypes.byref(value), ctypes.sizeof(value),
+            ) == 0:
+                break
+    except Exception:
+        pass  # 標題列著色失敗不影響功能

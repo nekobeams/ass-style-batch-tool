@@ -6,7 +6,8 @@ from PySide6.QtWidgets import (QApplication, QComboBox, QHBoxLayout, QLabel,
                                QMainWindow, QPlainTextEdit, QTabWidget,
                                QVBoxLayout, QWidget)
 
-from .theme import THEME_MODES, apply_theme, system_is_dark
+from .theme import (THEME_MODES, apply_theme, apply_titlebar_theme,
+                    system_is_dark)
 
 _MODE_LABELS = {"system": "跟隨系統", "dark": "深色", "light": "淺色"}
 
@@ -21,8 +22,9 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central)
         layout = QVBoxLayout(central)
 
-        # 頂列:主題切換(靠右)
+        # 頂列:主題切換(靠右,留邊距避免文字貼齊視窗邊緣)
         top = QHBoxLayout()
+        top.setContentsMargins(8, 8, 12, 4)
         top.addStretch(1)
         top.addWidget(QLabel("主題:"))
         self.theme_combo = QComboBox()
@@ -58,7 +60,8 @@ class MainWindow(QMainWindow):
         return self.theme_combo.currentData()
 
     def _apply_current_theme(self) -> None:
-        apply_theme(QApplication.instance(), self.current_mode())
+        resolved = apply_theme(QApplication.instance(), self.current_mode())
+        apply_titlebar_theme(self, resolved == "dark")
 
     def _on_theme_changed(self) -> None:
         mode = self.current_mode()
