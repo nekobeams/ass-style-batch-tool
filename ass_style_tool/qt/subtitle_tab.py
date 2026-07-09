@@ -30,6 +30,8 @@ class SubtitleFileTab(QWidget):
         self._scan = None
         self._thread: Optional[QThread] = None
         self._worker: Optional[BatchWorker] = None
+        self._scan_thread: Optional[QThread] = None
+        self._scan_worker = None
         self.setAcceptDrops(True)
 
         root = QVBoxLayout(self)
@@ -121,12 +123,28 @@ class SubtitleFileTab(QWidget):
         if not folder or not Path(folder).is_dir():
             self.log.emit("請先選擇有效的資料夾")
             return
-        scan = scan_folder(Path(folder))
+        from .batch_worker import ScanWorker
+        self.scan_button.setEnabled(False)
+        self.run_button.setEnabled(False)
+        self._scan_thread = QThread()
+        self._scan_worker = ScanWorker(Path(folder))
+        self._scan_worker.moveToThread(self._scan_thread)
+        self._scan_thread.started.connect(self._scan_worker.run)
+        self._scan_worker.finished.connect(self._on_scan_finished)
+        self._scan_thread.start()
+
+    def _on_scan_finished(self, scan) -> None:
         self._scan = scan
         for w in scan.warnings:
             self.log.emit(f"警告: {w}")
         count = self.populate_preview(scan)
         self.log.emit(f"掃描完成:共 {count} 個字幕檔")
+        self.scan_button.setEnabled(True)
+        if self._scan_thread is not None:
+            self._scan_thread.quit()
+            self._scan_thread.wait()
+        self._scan_thread = None
+        self._scan_worker = None
 
     def populate_preview(self, scan) -> int:
         rows = preview_rows(scan)
@@ -187,6 +205,14 @@ class SubtitleFileTab(QWidget):
         self.scan_button.setEnabled(True)
         self.run_button.setEnabled(True)
         self.cancel_button.setEnabled(False)
+
+    def shutdown(self) -> None:
+        if self._worker is not None:
+            self._worker.cancel()
+        for thread in (self._thread, self._scan_thread):
+            if thread is not None:
+                thread.quit()
+                thread.wait()
 
     # ---------- 開啟輸出資料夾 ----------
     def _open_output(self) -> None:

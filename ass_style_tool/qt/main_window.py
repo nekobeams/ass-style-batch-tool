@@ -100,6 +100,7 @@ class MainWindow(QMainWindow):
         self._apply_current_theme()
 
     def closeEvent(self, event) -> None:
+        self.subtitle_tab.shutdown()
         self.settings.setValue("geometry", self.saveGeometry())
         self.settings.setValue("theme_mode", self.current_mode())
         super().closeEvent(event)

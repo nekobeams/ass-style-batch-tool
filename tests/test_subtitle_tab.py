@@ -74,3 +74,36 @@ def test_batch_worker_cancel_stops_early(qapp, tmp_path):
     worker.run()
     # 取消後總處理數應少於 3
     assert done["ok"] < 3
+
+
+def test_batch_worker_output_dir_collision(qapp, tmp_path):
+    from ass_style_tool.qt.batch_worker import BatchWorker
+    from tests.test_ass_style import SAMPLE_ASS
+    a = tmp_path / "a [01].ass"
+    a.write_bytes(b"\xef\xbb\xbf" + SAMPLE_ASS.encode("utf-8"))
+    nested = tmp_path / "nested"
+    nested.mkdir()
+    b = nested / "a [01].ass"
+    b.write_bytes(b"\xef\xbb\xbf" + SAMPLE_ASS.encode("utf-8"))
+    scan = ScanResult(matches=[
+        MatchResult(sub_path=a, episode=1, status="no_video"),
+        MatchResult(sub_path=b, episode=1, status="no_video"),
+    ], warnings=[])
+    worker = BatchWorker(scan, profile_from_values(DEFAULT_VALUES),
+                         output_dir=tmp_path / "out")
+    statuses = []
+    worker.file_done.connect(lambda n, s: statuses.append(s))
+    worker.run()
+    assert statuses == ["ok", "error"]  # 第二個同名 → 衝突
+
+
+def test_scan_worker_emits_result(qapp, tmp_path):
+    from ass_style_tool.qt.batch_worker import ScanWorker
+    from tests.test_ass_style import SAMPLE_ASS
+    (tmp_path / "a [01].ass").write_bytes(
+        b"\xef\xbb\xbf" + SAMPLE_ASS.encode("utf-8"))
+    worker = ScanWorker(tmp_path)
+    got = {}
+    worker.finished.connect(lambda scan: got.update(n=len(scan.matches)))
+    worker.run()
+    assert got["n"] == 1
