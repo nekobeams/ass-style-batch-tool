@@ -93,10 +93,18 @@ class ScaleWorker(QObject):
     def run(self) -> None:
         total = len(self._matches)
         ok = error = 0
+        seen_basenames: set[str] = set()
         for i, match in enumerate(self._matches, start=1):
             if self._cancelled:
                 self.message.emit("已取消,停止後續檔案")
                 break
+            if self._output_dir is not None and match.sub_path.name in seen_basenames:
+                error += 1
+                self.file_done.emit(match.sub_path.name, "error")
+                self.message.emit(
+                    f"    輸出檔名衝突: 已有同名檔案寫入輸出資料夾,略過此檔")
+                self.progress.emit(i, total)
+                continue
             out = (self._output_dir / match.sub_path.name
                    if self._output_dir is not None else None)
             try:
@@ -107,6 +115,8 @@ class ScaleWorker(QObject):
                 self.message.emit(f"    {exc}")
             else:
                 ok += 1
+                if self._output_dir is not None:
+                    seen_basenames.add(match.sub_path.name)
                 self.file_done.emit(match.sub_path.name, "ok")
                 for change in report.style_changes:
                     self.message.emit(

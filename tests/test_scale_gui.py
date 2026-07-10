@@ -79,6 +79,27 @@ def test_scale_worker_scales_files(qapp, tmp_path):
     assert "Style: OP,Comic Sans MS,120," in out_text  # 60*2
 
 
+def test_scale_worker_output_dir_collision_detected(qapp, tmp_path):
+    from ass_style_tool.qt.batch_worker import ScaleWorker
+    from ass_style_tool.scale_engine import ScaleOptions
+    from tests.test_ass_style import SAMPLE_ASS
+    sub_a = tmp_path / "a [01].ass"
+    sub_a.write_bytes(b"\xef\xbb\xbf" + SAMPLE_ASS.encode("utf-8"))
+    nested = tmp_path / "nested"
+    nested.mkdir()
+    sub_b = nested / "a [01].ass"
+    sub_b.write_bytes(b"\xef\xbb\xbf" + SAMPLE_ASS.encode("utf-8"))
+    scan = ScanResult(matches=[
+        MatchResult(sub_path=sub_a, episode=1, status="no_video"),
+        MatchResult(sub_path=sub_b, episode=1, status="no_video"),
+    ], warnings=[])
+    worker = ScaleWorker(scan, ScaleOptions(factor=2), output_dir=tmp_path / "out")
+    done = {}
+    worker.finished.connect(lambda ok, sk, er: done.update(ok=ok, skipped=sk, error=er))
+    worker.run()
+    assert done == {"ok": 1, "skipped": 0, "error": 1}
+
+
 def test_scale_worker_error_isolated(qapp, tmp_path):
     from ass_style_tool.qt.batch_worker import ScaleWorker
     from ass_style_tool.scale_engine import ScaleOptions
@@ -94,3 +115,25 @@ def test_scale_worker_error_isolated(qapp, tmp_path):
         lambda ok, sk, er: done.update(ok=ok, skipped=sk, error=er))
     worker.run()
     assert done == {"ok": 0, "skipped": 0, "error": 1}
+
+
+def _scan_stub():
+    return ScanResult(matches=[
+        MatchResult(sub_path=Path("a [01].ass"), episode=1,
+                    video_path=None, status="no_video"),
+    ], warnings=[])
+
+
+def test_dry_run_disabled_while_run_in_progress(qapp):
+    from ass_style_tool.qt.subtitle_tab import SubtitleFileTab
+    tab = SubtitleFileTab(lambda: profile_from_values(DEFAULT_VALUES))
+    tab.scale_mode_radio.setChecked(True)
+    tab._scan = _scan_stub()
+    tab.populate_preview(tab._scan)
+    assert tab.dry_run_button.isEnabled() is True
+    tab._thread = object()  # 模擬執行中(非 None 即視為執行中)
+    tab._update_dry_run_enabled()
+    assert tab.dry_run_button.isEnabled() is False
+    tab._thread = None
+    tab._update_dry_run_enabled()
+    assert tab.dry_run_button.isEnabled() is True

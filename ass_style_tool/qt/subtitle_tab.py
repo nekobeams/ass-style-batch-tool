@@ -189,7 +189,7 @@ class SubtitleFileTab(QWidget):
     def _update_dry_run_enabled(self) -> None:
         self.dry_run_button.setEnabled(
             self.scale_mode_radio.isChecked() and self._scan is not None
-            and len(self._scan.matches) > 0)
+            and len(self._scan.matches) > 0 and self._thread is None)
 
     def _on_dry_run(self) -> None:
         if self._scan is None:
