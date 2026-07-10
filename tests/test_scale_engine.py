@@ -153,3 +153,61 @@ def test_factor_one_is_identity():
 def test_not_ass_raises():
     with pytest.raises(ScaleError):
         scale_text("hello\nworld\n", ScaleOptions(factor=2))
+
+
+# ---------- inline \fs ----------
+
+INLINE_SAMPLE = (
+    "[V4+ Styles]\n"
+    "Format: Name, Fontname, Fontsize, Outline, Shadow\n"
+    "Style: Default,Arial,40,2,1\n"
+    "[Events]\n"
+    "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
+    "Dialogue: 0,0:00:01.00,0:00:03.00,Default,,0,0,0,,{\\fs40}大字{\\b1\\fs20.5}小字\n"
+    "Dialogue: 0,0:00:04.00,0:00:06.00,Default,,0,0,0,,{\\fscx100\\fscy100\\fsp2}不動\n"
+)
+
+
+def test_inline_fs_scaled():
+    out, report = scale_text(INLINE_SAMPLE, ScaleOptions(factor=2))
+    assert "{\\fs80}大字" in out
+    assert "\\fs41}小字" in out  # 20.5*2=41,整數輸出
+    assert report.inline_fs_count == 2
+
+
+def test_inline_fs_does_not_touch_fscx_fscy_fsp():
+    out, _ = scale_text(INLINE_SAMPLE, ScaleOptions(factor=2))
+    assert "\\fscx100" in out
+    assert "\\fscy100" in out
+    assert "\\fsp2" in out
+
+
+def test_inline_fs_disabled():
+    out, report = scale_text(
+        INLINE_SAMPLE, ScaleOptions(factor=2, scale_inline_fs=False))
+    assert "{\\fs40}大字" in out
+    assert report.inline_fs_count == 0
+
+
+def test_fscxy_opt_in():
+    out, report = scale_text(
+        INLINE_SAMPLE, ScaleOptions(factor=2, scale_fscxy=True))
+    assert "\\fscx200" in out
+    assert "\\fscy200" in out
+    assert "\\fsp2" in out          # \fsp 永遠不動
+    assert report.inline_fs_count == 4  # 2 個 \fs + 2 個 \fscx/y
+
+
+def test_comment_lines_also_scaled():
+    # Events 內的 Comment: 行同樣處理(與 Dialogue 一致)
+    text = INLINE_SAMPLE.replace(
+        "Dialogue: 0,0:00:01.00,0:00:03.00,Default,,0,0,0,,{\\fs40}大字{\\b1\\fs20.5}小字",
+        "Comment: 0,0:00:01.00,0:00:03.00,Default,,0,0,0,,{\\fs40}大字{\\b1\\fs20.5}小字")
+    out, report = scale_text(text, ScaleOptions(factor=2))
+    assert "{\\fs80}大字" in out
+    assert report.inline_fs_count == 2
+
+
+def test_inline_fs_identity_at_factor_one():
+    out, _ = scale_text(INLINE_SAMPLE, ScaleOptions(factor=1.0))
+    assert out == INLINE_SAMPLE

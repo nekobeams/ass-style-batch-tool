@@ -57,6 +57,10 @@ def fmt_num(value: float) -> str:
 _STYLES_SECTIONS = {"[v4+ styles]", "[v4 styles]"}
 _EVENTS_SECTION = "[events]"
 
+#: \fs 後必須緊接數字 → 自然排除 \fscx、\fscy、\fsp 等其他標籤
+_FS_RE = re.compile(r"(\\fs)(\d+(?:\.\d+)?)")
+_FSCXY_RE = re.compile(r"(\\fsc[xy])(\d+(?:\.\d+)?)")
+
 
 def parse_format_indices(format_line: str) -> Dict[str, int]:
     """解析 'Format: ...' 行,回傳 {欄位小寫名: index}。不可寫死欄位位置。"""
@@ -164,7 +168,18 @@ def _scale_style_line(content: str, fmt: Dict[str, int], factor: float,
 
 def _scale_event_line(content: str, factor: float, options: ScaleOptions,
                       report: ScaleReport) -> str:
-    # Task 2 實作 inline \fs 縮放;本任務先原樣返回
+    low = content.lstrip().lower()
+    if not (low.startswith("dialogue:") or low.startswith("comment:")):
+        return content
+
+    def _sub(match: "re.Match[str]") -> str:
+        report.inline_fs_count += 1
+        return match.group(1) + fmt_num(float(match.group(2)) * factor)
+
+    if options.scale_inline_fs:
+        content = _FS_RE.sub(_sub, content)
+    if options.scale_fscxy:
+        content = _FSCXY_RE.sub(_sub, content)
     return content
 
 
