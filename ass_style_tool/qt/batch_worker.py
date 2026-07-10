@@ -8,6 +8,7 @@ from PySide6.QtCore import QObject, Signal
 
 from ..batch_runner import process_file
 from ..profile import Profile
+from ..scale_engine import ScaleOptions, scale_file
 
 
 class ScanWorker(QObject):
@@ -68,3 +69,50 @@ class BatchWorker(QObject):
                 self.message.emit(f"    {msg}")
             self.progress.emit(i, total)
         self.finished.emit(ok, skipped, error)
+
+
+class ScaleWorker(QObject):
+    """縮放字級批次 worker;signals 形狀與 BatchWorker 相同(skipped 恆為 0)。"""
+
+    progress = Signal(int, int)
+    file_done = Signal(str, str)
+    message = Signal(str)
+    finished = Signal(int, int, int)
+
+    def __init__(self, scan, options: ScaleOptions,
+                 output_dir: Optional[Path]) -> None:
+        super().__init__()
+        self._matches = list(scan.matches)
+        self._options = options
+        self._output_dir = output_dir
+        self._cancelled = False
+
+    def cancel(self) -> None:
+        self._cancelled = True
+
+    def run(self) -> None:
+        total = len(self._matches)
+        ok = error = 0
+        for i, match in enumerate(self._matches, start=1):
+            if self._cancelled:
+                self.message.emit("已取消,停止後續檔案")
+                break
+            out = (self._output_dir / match.sub_path.name
+                   if self._output_dir is not None else None)
+            try:
+                report = scale_file(match.sub_path, self._options, out)
+            except Exception as exc:  # 單檔失敗不中斷整批
+                error += 1
+                self.file_done.emit(match.sub_path.name, "error")
+                self.message.emit(f"    {exc}")
+            else:
+                ok += 1
+                self.file_done.emit(match.sub_path.name, "ok")
+                for change in report.style_changes:
+                    self.message.emit(
+                        f"    {change.name}: {change.old_size} → {change.new_size}")
+                self.message.emit(
+                    f"    inline \\fs 修改 {report.inline_fs_count} 處"
+                    f"(倍率 {report.factor_used:.3f})")
+            self.progress.emit(i, total)
+        self.finished.emit(ok, 0, error)
