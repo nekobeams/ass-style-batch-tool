@@ -4,7 +4,7 @@ from __future__ import annotations
 from PySide6.QtCore import QSettings
 from PySide6.QtGui import QAction, QActionGroup
 from PySide6.QtWidgets import (QApplication, QHBoxLayout, QLabel, QMainWindow,
-                               QMenu, QPlainTextEdit, QTabWidget, QToolButton,
+                               QMenu, QPlainTextEdit, QPushButton, QTabWidget,
                                QVBoxLayout, QWidget)
 
 from .theme import THEME_MODES, apply_theme, apply_titlebar_theme
@@ -29,26 +29,25 @@ class MainWindow(QMainWindow):
         top = QHBoxLayout()
         top.setContentsMargins(8, 8, 12, 4)
         top.addStretch(1)
-        self.theme_button = QToolButton()
-        self.theme_button.setText("☀ / 🌙")
-        self.theme_button.setPopupMode(QToolButton.InstantPopup)
+        self.theme_button = QPushButton("☀ / 🌙")
         self.theme_button.setStyleSheet(
-            "QToolButton { font-size: 13px; padding: 0px 6px; "
-            "min-height: 26px; max-height: 26px; }"
-            "QToolButton::menu-indicator { image: none; }")
-        theme_menu = QMenu(self)
-        self._theme_group = QActionGroup(theme_menu)
+            "QPushButton { font-size: 13px; padding: 0px 10px; "
+            "min-height: 26px; max-height: 26px; text-align: center; }")
+        self._theme_menu = QMenu(self)
+        self._theme_group = QActionGroup(self._theme_menu)
         self._theme_group.setExclusive(True)
         self._theme_actions = {}
         for mode in THEME_MODES:
-            action = QAction(_MODE_LABELS[mode], theme_menu, checkable=True)
+            action = QAction(_MODE_LABELS[mode], self._theme_menu, checkable=True)
             action.setData(mode)
             self._theme_group.addAction(action)
-            theme_menu.addAction(action)
+            self._theme_menu.addAction(action)
             self._theme_actions[mode] = action
         self._theme_actions["system"].setChecked(True)
-        theme_menu.triggered.connect(self._on_theme_menu)
-        self.theme_button.setMenu(theme_menu)
+        self._theme_menu.triggered.connect(self._on_theme_menu)
+        # 用 QPushButton + 手動彈出選單,避免 QToolButton.setMenu() 的下拉箭頭
+        # 在 Fusion 樣式下保留版面空間、把內容擠偏的問題。
+        self.theme_button.clicked.connect(self._show_theme_menu)
         top.addWidget(self.theme_button)
         layout.addLayout(top)
 
@@ -92,6 +91,10 @@ class MainWindow(QMainWindow):
         resolved_label = "深色" if resolved == "dark" else "淺色"
         self.theme_button.setToolTip(
             f"切換主題(目前:{mode_label},套用:{resolved_label})")
+
+    def _show_theme_menu(self) -> None:
+        pos = self.theme_button.mapToGlobal(self.theme_button.rect().bottomLeft())
+        self._theme_menu.exec(pos)
 
     def _on_theme_menu(self, action) -> None:
         mode = action.data()
