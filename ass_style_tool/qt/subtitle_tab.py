@@ -15,8 +15,10 @@ from PySide6.QtWidgets import (QAbstractItemView, QFileDialog, QHBoxLayout,
 
 from ..batch_runner import scan_folder
 from ..profile import Profile
-from .batch_worker import BatchWorker
+from ..scale_engine import ScaleError, read_subtitle_text, scale_text
+from .batch_worker import BatchWorker, ScaleWorker
 from .gui_helpers import preview_rows
+from .scale_panel import ScalePanel
 
 _HEADERS = ["集數", "字幕檔", "影片檔", "狀態"]
 
@@ -44,6 +46,22 @@ class SubtitleFileTab(QWidget):
         browse.clicked.connect(self._browse)
         folder_row.addWidget(browse)
         root.addLayout(folder_row)
+
+        # 操作模式:套用樣式(既有)/ 縮放字級(新)
+        mode_row = QHBoxLayout()
+        mode_row.addWidget(QLabel("操作模式:"))
+        self.apply_mode_radio = QRadioButton("套用樣式")
+        self.apply_mode_radio.setChecked(True)
+        self.scale_mode_radio = QRadioButton("縮放字級")
+        mode_row.addWidget(self.apply_mode_radio)
+        mode_row.addWidget(self.scale_mode_radio)
+        mode_row.addStretch(1)
+        root.addLayout(mode_row)
+
+        self.scale_panel = ScalePanel()
+        self.scale_panel.setHidden(True)
+        root.addWidget(self.scale_panel)
+        self.scale_mode_radio.toggled.connect(self._on_mode_changed)
 
         self.table = QTableWidget(0, len(_HEADERS))
         self.table.setHorizontalHeaderLabels(_HEADERS)
@@ -79,6 +97,10 @@ class SubtitleFileTab(QWidget):
         self.open_out_button.clicked.connect(self._open_output)
         action_row.addWidget(self.scan_button)
         action_row.addWidget(self.run_button)
+        self.dry_run_button = QPushButton("試算預覽(不寫檔)")
+        self.dry_run_button.setEnabled(False)
+        self.dry_run_button.clicked.connect(self._on_dry_run)
+        action_row.addWidget(self.dry_run_button)
         action_row.addWidget(self.cancel_button)
         action_row.addWidget(self.open_out_button)
         action_row.addStretch(1)
@@ -155,17 +177,59 @@ class SubtitleFileTab(QWidget):
                      row.status_label)):
                 self.table.setItem(r, c, QTableWidgetItem(text))
         self.run_button.setEnabled(len(rows) > 0)
+        self._update_dry_run_enabled()
         return len(rows)
+
+    # ---------- 模式切換 / 試算預覽 ----------
+    def _on_mode_changed(self, scale_mode: bool) -> None:
+        self.scale_panel.setHidden(not scale_mode)
+        self.run_button.setText("開始縮放" if scale_mode else "開始套用樣式")
+        self._update_dry_run_enabled()
+
+    def _update_dry_run_enabled(self) -> None:
+        self.dry_run_button.setEnabled(
+            self.scale_mode_radio.isChecked() and self._scan is not None
+            and len(self._scan.matches) > 0 and self._thread is None)
+
+    def _on_dry_run(self) -> None:
+        if self._scan is None:
+            return
+        try:
+            options = self.scale_panel.get_options()
+        except ScaleError as exc:
+            self.log.emit(f"參數錯誤: {exc}")
+            return
+        self.log.emit("=== 試算預覽(不寫檔)===")
+        for match in self._scan.matches:
+            try:
+                text, _codec = read_subtitle_text(match.sub_path)
+                _new, report = scale_text(text, options)
+            except Exception as exc:  # noqa: BLE001
+                self.log.emit(f"[error] {match.sub_path.name}: {exc}")
+                continue
+            self.log.emit(
+                f"[試算] {match.sub_path.name}(倍率 {report.factor_used:.3f})")
+            for change in report.style_changes:
+                self.log.emit(
+                    f"    {change.name}: {change.old_size} → {change.new_size}")
+            self.log.emit(f"    inline \\fs 將修改 {report.inline_fs_count} 處")
 
     # ---------- 執行 ----------
     def _on_run(self) -> None:
         if self._scan is None:
             return
-        try:
-            profile = self._get_profile()
-        except ValueError as exc:
-            self.log.emit(f"欄位錯誤: {exc}")
-            return
+        if self.scale_mode_radio.isChecked():
+            try:
+                payload = self.scale_panel.get_options()
+            except ScaleError as exc:
+                self.log.emit(f"參數錯誤: {exc}")
+                return
+        else:
+            try:
+                payload = self._get_profile()
+            except ValueError as exc:
+                self.log.emit(f"欄位錯誤: {exc}")
+                return
         if self.outdir_radio.isChecked() and self._output_dir() is None:
             self.log.emit("請先選擇輸出資料夾")
             return
@@ -173,10 +237,14 @@ class SubtitleFileTab(QWidget):
         self.progress.setValue(0)
         self.scan_button.setEnabled(False)
         self.run_button.setEnabled(False)
+        self.dry_run_button.setEnabled(False)
         self.cancel_button.setEnabled(True)
 
         self._thread = QThread()
-        self._worker = BatchWorker(self._scan, profile, self._output_dir())
+        if self.scale_mode_radio.isChecked():
+            self._worker = ScaleWorker(self._scan, payload, self._output_dir())
+        else:
+            self._worker = BatchWorker(self._scan, payload, self._output_dir())
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)
         self._worker.progress.connect(self._on_progress)
@@ -205,6 +273,7 @@ class SubtitleFileTab(QWidget):
         self.scan_button.setEnabled(True)
         self.run_button.setEnabled(True)
         self.cancel_button.setEnabled(False)
+        self._update_dry_run_enabled()
 
     def shutdown(self) -> None:
         if self._worker is not None:
