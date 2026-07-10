@@ -30,10 +30,11 @@ class MainWindow(QMainWindow):
         top.setContentsMargins(8, 8, 12, 4)
         top.addStretch(1)
         self.theme_button = QToolButton()
-        self.theme_button.setToolTip("切換主題")
+        self.theme_button.setText("☀ / 🌙")
         self.theme_button.setPopupMode(QToolButton.InstantPopup)
         self.theme_button.setStyleSheet(
-            "QToolButton { font-size: 16px; padding: 2px 8px; }"
+            "QToolButton { font-size: 13px; padding: 0px 6px; "
+            "min-height: 26px; max-height: 26px; }"
             "QToolButton::menu-indicator { image: none; }")
         theme_menu = QMenu(self)
         self._theme_group = QActionGroup(theme_menu)
@@ -86,8 +87,11 @@ class MainWindow(QMainWindow):
     def _apply_current_theme(self) -> None:
         resolved = apply_theme(QApplication.instance(), self.current_mode())
         apply_titlebar_theme(self, resolved == "dark")
-        # 圖示反映實際套用的主題:深色顯示月亮、淺色顯示太陽
-        self.theme_button.setText("🌙" if resolved == "dark" else "☀")
+        # 目前狀態放 tooltip 與選單勾選;按鈕維持 ☀ / 🌙 靜態圖示
+        mode_label = _MODE_LABELS.get(self.current_mode(), self.current_mode())
+        resolved_label = "深色" if resolved == "dark" else "淺色"
+        self.theme_button.setToolTip(
+            f"切換主題(目前:{mode_label},套用:{resolved_label})")
 
     def _on_theme_menu(self, action) -> None:
         mode = action.data()
