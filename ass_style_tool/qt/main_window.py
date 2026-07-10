@@ -31,7 +31,7 @@ class MainWindow(QMainWindow):
         top.addStretch(1)
         self.theme_button = QPushButton("☀ / 🌙")
         self.theme_button.setStyleSheet(
-            "QPushButton { font-size: 13px; padding: 0px 10px; "
+            "QPushButton { font-size: 13px; padding: 0px 8px 2px 12px; "
             "min-height: 26px; max-height: 26px; text-align: center; }")
         self._theme_menu = QMenu(self)
         self._theme_group = QActionGroup(self._theme_menu)
