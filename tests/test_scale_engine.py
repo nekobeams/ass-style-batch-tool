@@ -211,3 +211,89 @@ def test_comment_lines_also_scaled():
 def test_inline_fs_identity_at_factor_one():
     out, _ = scale_text(INLINE_SAMPLE, ScaleOptions(factor=1.0))
     assert out == INLINE_SAMPLE
+
+
+# ---------- 編碼與檔案 I/O ----------
+from pathlib import Path
+
+from ass_style_tool.scale_engine import (detect_codec, read_subtitle_text,
+                                         scale_file)
+
+BIG5_TEXT = (
+    "[V4+ Styles]\n"
+    "Format: Name, Fontname, Fontsize, Outline, Shadow\n"
+    "Style: Default,細明體,40,2,1\n"
+    "[Events]\n"
+    "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
+    "Dialogue: 0,0:00:01.00,0:00:03.00,Default,,0,0,0,,繁體中文字幕內容測試\n"
+)
+
+
+def test_detect_utf8_bom():
+    codec = detect_codec(b"\xef\xbb\xbf[V4+ Styles]\n")
+    assert codec.bom == b"\xef\xbb\xbf"
+    assert codec.codec == "utf-8"
+
+
+def test_detect_plain_utf8():
+    codec = detect_codec("中文".encode("utf-8"))
+    assert codec.bom == b""
+    assert codec.codec == "utf-8"
+
+
+def test_detect_utf16_le_bom_roundtrip():
+    raw = b"\xff\xfe" + "abc\n中".encode("utf-16-le")
+    codec = detect_codec(raw)
+    assert codec.encode(codec.decode(raw)) == raw
+
+
+def test_big5_roundtrip_bytes(tmp_path):
+    raw = BIG5_TEXT.encode("big5")
+    p = tmp_path / "b.ass"
+    p.write_bytes(raw)
+    text, codec = read_subtitle_text(p)
+    assert "繁體中文字幕內容測試" in text
+    assert codec.encode(text) == raw  # Big5 進 Big5 出,位元組一致
+
+
+def test_scale_file_identity_factor_one_is_byte_identical(tmp_path):
+    raw = b"\xef\xbb\xbf" + BIG5_TEXT.encode("utf-8")  # UTF-8 with BOM
+    p = tmp_path / "a.ass"
+    p.write_bytes(raw)
+    out = tmp_path / "out.ass"
+    scale_file(p, ScaleOptions(factor=1.0), out)
+    assert out.read_bytes() == raw  # 倍率 1.0 輸出與輸入位元組一致(含 BOM)
+
+
+def test_scale_file_inplace_backs_up_once(tmp_path):
+    p = tmp_path / "a.ass"
+    p.write_text(BIG5_TEXT, encoding="utf-8")
+    original = p.read_bytes()
+    report = scale_file(p, ScaleOptions(factor=2))
+    assert report.style_changes[0].new_size == "80"
+    backup = tmp_path / "a.ass.bak"
+    assert backup.read_bytes() == original
+    # 第二次原地縮放不可覆蓋原始備份
+    scale_file(p, ScaleOptions(factor=2))
+    assert backup.read_bytes() == original
+
+
+def test_scale_file_outdir_leaves_original(tmp_path):
+    p = tmp_path / "a.ass"
+    p.write_text(BIG5_TEXT, encoding="utf-8")
+    original = p.read_bytes()
+    out = tmp_path / "out" / "a.ass"
+    scale_file(p, ScaleOptions(factor=2), out)
+    assert p.read_bytes() == original
+    assert "Style: Default,細明體,80,4,2" in out.read_text(encoding="utf-8")
+
+
+def test_crlf_preserved(tmp_path):
+    text = BIG5_TEXT.replace("\n", "\r\n")
+    p = tmp_path / "a.ass"
+    p.write_bytes(text.encode("utf-8"))
+    out = tmp_path / "out.ass"
+    scale_file(p, ScaleOptions(factor=2), out)
+    data = out.read_bytes()
+    assert b"\r\n" in data
+    assert b"\n" not in data.replace(b"\r\n", b"")  # 沒有孤兒 LF

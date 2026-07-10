@@ -5,9 +5,14 @@
 """
 from __future__ import annotations
 
+import codecs
 import re
+import shutil
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple
+
+from charset_normalizer import from_bytes
 
 
 class ScaleError(ValueError):
@@ -218,3 +223,63 @@ def scale_text(text: str, options: ScaleOptions) -> Tuple[str, ScaleReport]:
             content = _scale_event_line(content, factor, options, report)
         out.append(content + ending)
     return "".join(out), report
+
+
+@dataclass
+class SubtitleCodec:
+    bom: bytes
+    codec: str
+
+    def decode(self, raw: bytes) -> str:
+        return raw[len(self.bom):].decode(self.codec)
+
+    def encode(self, text: str) -> bytes:
+        return self.bom + text.encode(self.codec)
+
+
+def detect_codec(raw: bytes) -> SubtitleCodec:
+    """偵測編碼並記住 BOM 狀態,讓寫回能位元組級保留原編碼。"""
+    if raw.startswith(codecs.BOM_UTF8):
+        return SubtitleCodec(codecs.BOM_UTF8, "utf-8")
+    if raw.startswith(codecs.BOM_UTF16_LE):
+        return SubtitleCodec(codecs.BOM_UTF16_LE, "utf-16-le")
+    if raw.startswith(codecs.BOM_UTF16_BE):
+        return SubtitleCodec(codecs.BOM_UTF16_BE, "utf-16-be")
+    try:
+        raw.decode("utf-8")
+        return SubtitleCodec(b"", "utf-8")
+    except UnicodeDecodeError:
+        pass
+    # For Chinese subtitles, try Big5 as a common fallback
+    try:
+        raw.decode("big5")
+        return SubtitleCodec(b"", "big5")
+    except (UnicodeDecodeError, LookupError):
+        pass
+    best = from_bytes(raw, steps=10).best()
+    if best is None:
+        raise ScaleError("無法判斷檔案編碼")
+    return SubtitleCodec(b"", best.encoding.lower())
+
+
+def read_subtitle_text(path: Path) -> Tuple[str, SubtitleCodec]:
+    raw = Path(path).read_bytes()
+    codec = detect_codec(raw)
+    return codec.decode(raw), codec
+
+
+def scale_file(path: Path, options: ScaleOptions,
+               out_path: Optional[Path] = None) -> ScaleReport:
+    """縮放單一檔案。out_path=None 表原地(先備份 .bak,已存在不覆蓋)。"""
+    text, codec = read_subtitle_text(path)
+    new_text, report = scale_text(text, options)
+    data = codec.encode(new_text)
+    if out_path is None:
+        backup = Path(path).with_name(Path(path).name + ".bak")
+        if not backup.exists():
+            shutil.copy2(path, backup)  # 備份失敗丟例外 → 不寫入
+        Path(path).write_bytes(data)
+    else:
+        Path(out_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(out_path).write_bytes(data)
+    return report
