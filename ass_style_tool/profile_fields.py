@@ -17,7 +17,7 @@ FIELD_KEYS: Tuple[str, ...] = (
 DEFAULT_VALUES: Dict[str, object] = {
     "profile_name": "我的字幕標準",
     "target_style_names": "Default",
-    "fontname": "思源黑體 CN",
+    "fontname": "思源黑體 TW Medium",
     "fontsize": "72",
     "bold": False,
     "italic": False,

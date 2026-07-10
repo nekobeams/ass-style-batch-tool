@@ -3,7 +3,7 @@
   "target_style_names": ["Default"],
   "base_resolution": { "width": 1920, "height": 1080 },
   "style": {
-    "fontname": "思源黑體 CN",
+    "fontname": "思源黑體 TW Medium",
     "fontsize": 72.0,
     "bold": false,
     "italic": false,

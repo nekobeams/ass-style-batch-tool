@@ -1,13 +1,13 @@
 """v2 Qt 主視窗外殼:分頁籤、主題切換、log、QSettings 持久化。"""
 from __future__ import annotations
 
-from PySide6.QtCore import QSettings, Qt
-from PySide6.QtWidgets import (QApplication, QComboBox, QHBoxLayout, QLabel,
-                               QMainWindow, QPlainTextEdit, QTabWidget,
+from PySide6.QtCore import QSettings
+from PySide6.QtGui import QAction, QActionGroup
+from PySide6.QtWidgets import (QApplication, QHBoxLayout, QLabel, QMainWindow,
+                               QMenu, QPlainTextEdit, QTabWidget, QToolButton,
                                QVBoxLayout, QWidget)
 
-from .theme import (THEME_MODES, apply_theme, apply_titlebar_theme,
-                    system_is_dark)
+from .theme import THEME_MODES, apply_theme, apply_titlebar_theme
 from .style_editor import StyleEditor
 from .subtitle_tab import SubtitleFileTab
 
@@ -24,16 +24,31 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central)
         layout = QVBoxLayout(central)
 
-        # 頂列:主題切換(靠右,留邊距避免文字貼齊視窗邊緣)
+        # 頂列:主題切換圖示按鈕(靠右;點開選單選 跟隨系統/深色/淺色)
+        self._theme_mode = "system"
         top = QHBoxLayout()
         top.setContentsMargins(8, 8, 12, 4)
         top.addStretch(1)
-        top.addWidget(QLabel("主題:"))
-        self.theme_combo = QComboBox()
+        self.theme_button = QToolButton()
+        self.theme_button.setToolTip("切換主題")
+        self.theme_button.setPopupMode(QToolButton.InstantPopup)
+        self.theme_button.setStyleSheet(
+            "QToolButton { font-size: 16px; padding: 2px 8px; }"
+            "QToolButton::menu-indicator { image: none; }")
+        theme_menu = QMenu(self)
+        self._theme_group = QActionGroup(theme_menu)
+        self._theme_group.setExclusive(True)
+        self._theme_actions = {}
         for mode in THEME_MODES:
-            self.theme_combo.addItem(_MODE_LABELS[mode], mode)
-        self.theme_combo.currentIndexChanged.connect(self._on_theme_changed)
-        top.addWidget(self.theme_combo)
+            action = QAction(_MODE_LABELS[mode], theme_menu, checkable=True)
+            action.setData(mode)
+            self._theme_group.addAction(action)
+            theme_menu.addAction(action)
+            self._theme_actions[mode] = action
+        self._theme_actions["system"].setChecked(True)
+        theme_menu.triggered.connect(self._on_theme_menu)
+        self.theme_button.setMenu(theme_menu)
+        top.addWidget(self.theme_button)
         layout.addLayout(top)
 
         # 分頁籤
@@ -66,14 +81,19 @@ class MainWindow(QMainWindow):
 
     # ---------- 主題 ----------
     def current_mode(self) -> str:
-        return self.theme_combo.currentData()
+        return self._theme_mode
 
     def _apply_current_theme(self) -> None:
         resolved = apply_theme(QApplication.instance(), self.current_mode())
         apply_titlebar_theme(self, resolved == "dark")
+        # 圖示反映實際套用的主題:深色顯示月亮、淺色顯示太陽
+        self.theme_button.setText("🌙" if resolved == "dark" else "☀")
 
-    def _on_theme_changed(self) -> None:
-        mode = self.current_mode()
+    def _on_theme_menu(self, action) -> None:
+        mode = action.data()
+        if mode == self._theme_mode:
+            return
+        self._theme_mode = mode
         self.settings.setValue("theme_mode", mode)
         self._apply_current_theme()
         self.append_log(f"主題切換為:{_MODE_LABELS.get(mode, mode)}")
@@ -94,9 +114,9 @@ class MainWindow(QMainWindow):
         else:
             self.resize(1000, 700)
         mode = self.settings.value("theme_mode", "system")
-        index = self.theme_combo.findData(mode)
-        if index >= 0:
-            self.theme_combo.setCurrentIndex(index)
+        if mode in self._theme_actions:
+            self._theme_mode = mode
+            self._theme_actions[mode].setChecked(True)
         self._apply_current_theme()
 
     def closeEvent(self, event) -> None:
