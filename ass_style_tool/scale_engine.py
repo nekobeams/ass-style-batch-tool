@@ -237,6 +237,22 @@ class SubtitleCodec:
         return self.bom + text.encode(self.codec)
 
 
+def _cjk_plausibility(text: str) -> float:
+    """常用 CJK 統一漢字 + CJK 標點佔非 ASCII 字元的比例,用於消歧 Big5/GBK。
+
+    兩者都是 DBCS 編碼,位元組範圍重疊,錯誤的編碼選擇仍可能「成功」解碼
+    但落在較罕見的 Unicode 區段(如 CJK 擴充區、相容區)。
+    """
+    non_ascii = [c for c in text if ord(c) > 0x7F]
+    if not non_ascii:
+        return 1.0
+    common = sum(
+        1 for c in non_ascii
+        if 0x4E00 <= ord(c) <= 0x9FFF or 0x3000 <= ord(c) <= 0x303F
+    )
+    return common / len(non_ascii)
+
+
 def detect_codec(raw: bytes) -> SubtitleCodec:
     """偵測編碼並記住 BOM 狀態,讓寫回能位元組級保留原編碼。"""
     if raw.startswith(codecs.BOM_UTF8):
@@ -250,12 +266,24 @@ def detect_codec(raw: bytes) -> SubtitleCodec:
         return SubtitleCodec(b"", "utf-8")
     except UnicodeDecodeError:
         pass
-    # For Chinese subtitles, try Big5 as a common fallback
-    try:
-        raw.decode("big5")
-        return SubtitleCodec(b"", "big5")
-    except (UnicodeDecodeError, LookupError):
-        pass
+    # Big5 與 GBK/GB18030 都是常見的中文 DBCS 編碼,位元組範圍重疊,
+    # 錯誤的編碼仍可能「成功」解碼但產生亂碼,因此兩者都嘗試後以
+    # CJK 常用字元比例消歧,而非只信任先解碼成功的那個。
+    candidates: Dict[str, str] = {}
+    for enc in ("big5", "gb18030"):
+        try:
+            candidates[enc] = raw.decode(enc)
+        except UnicodeDecodeError:
+            pass
+    if len(candidates) == 1:
+        enc = next(iter(candidates))
+        return SubtitleCodec(b"", enc)
+    if len(candidates) == 2:
+        scored = {enc: _cjk_plausibility(text) for enc, text in candidates.items()}
+        ranked = sorted(scored.items(), key=lambda kv: kv[1], reverse=True)
+        if ranked[0][1] - ranked[1][1] > 0.05:
+            return SubtitleCodec(b"", ranked[0][0])
+    # 兩者皆不可解或分數太接近難以判斷 → 交給 charset-normalizer 統計判斷
     best = from_bytes(raw, steps=10).best()
     if best is None:
         raise ScaleError("無法判斷檔案編碼")

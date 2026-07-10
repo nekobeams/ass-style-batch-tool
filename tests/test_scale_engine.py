@@ -256,6 +256,21 @@ def test_big5_roundtrip_bytes(tmp_path):
     assert codec.encode(text) == raw  # Big5 進 Big5 出,位元組一致
 
 
+def test_detect_gbk_simplified_not_misdetected_as_big5():
+    text = (
+        "[V4+ Styles]\n"
+        "Format: Name, Fontname, Fontsize, Outline, Shadow\n"
+        "Style: Default,黑体,40,2,1\n"
+        "[Events]\n"
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
+        "Dialogue: 0,0:00:01.00,0:00:03.00,Default,,这是一段比较长的简体中文字幕内容,包含常见标点符号。\n"
+    )
+    raw = text.encode("gbk")
+    codec = detect_codec(raw)
+    assert codec.codec in ("gb18030", "gbk")
+    assert codec.decode(raw) == text
+
+
 def test_scale_file_identity_factor_one_is_byte_identical(tmp_path):
     raw = b"\xef\xbb\xbf" + BIG5_TEXT.encode("utf-8")  # UTF-8 with BOM
     p = tmp_path / "a.ass"
