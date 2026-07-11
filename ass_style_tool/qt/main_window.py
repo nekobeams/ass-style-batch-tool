@@ -77,11 +77,12 @@ class MainWindow(QMainWindow):
         self.subtitle_tab.preview_requested.connect(self._open_in_preview)
         layout.addWidget(self.tabs, 1)
 
-        # log 區
+        # log 區(狀態訊息用,固定較矮的高度,不與分頁爭奪垂直空間)
         self.log_view = QPlainTextEdit()
         self.log_view.setReadOnly(True)
         self.log_view.setMaximumBlockCount(5000)
-        layout.addWidget(self.log_view, 1)
+        self.log_view.setMaximumHeight(150)
+        layout.addWidget(self.log_view)
 
         self._restore_settings()
         # 跟隨系統模式下,監聽系統主題變更即時重套

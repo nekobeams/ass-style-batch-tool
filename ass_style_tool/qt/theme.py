@@ -10,7 +10,7 @@ QMainWindow, QWidget { background-color: #1e1e1e; color: #e0e0e0; }
 QTabWidget::pane { border: 1px solid #3a3a3a; }
 QTabBar::tab { background: #2a2a2a; color: #c0c0c0; padding: 6px 14px; }
 QTabBar::tab:selected { background: #3a3a3a; color: #ffffff; }
-QLineEdit, QComboBox, QSpinBox, QTextEdit, QTableWidget {
+QLineEdit, QComboBox, QSpinBox, QTextEdit, QPlainTextEdit, QTableWidget {
     background-color: #2a2a2a; color: #e0e0e0; border: 1px solid #3a3a3a;
     selection-background-color: #4a6a8a;
 }
@@ -28,7 +28,7 @@ QMainWindow, QWidget { background-color: #f3f3f3; color: #202020; }
 QTabWidget::pane { border: 1px solid #c8c8c8; }
 QTabBar::tab { background: #e4e4e4; color: #404040; padding: 6px 14px; }
 QTabBar::tab:selected { background: #ffffff; color: #000000; }
-QLineEdit, QComboBox, QSpinBox, QTextEdit, QTableWidget {
+QLineEdit, QComboBox, QSpinBox, QTextEdit, QPlainTextEdit, QTableWidget {
     background-color: #ffffff; color: #202020; border: 1px solid #c8c8c8;
     selection-background-color: #b0d0f0;
 }
