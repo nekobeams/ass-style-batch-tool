@@ -55,3 +55,47 @@ def test_font_missing_false_case_insensitive():
 
 def test_font_missing_empty_name_is_not_missing():
     assert font_is_missing("  ", ["Arial"]) is False
+
+
+# ---------- 字幕行清單 ----------
+import pysubs2
+
+from ass_style_tool.qt.gui_helpers import (DialogueLine, dialogue_lines,
+                                           format_timestamp)
+
+
+def test_format_timestamp():
+    assert format_timestamp(0) == "0:00:00.00"
+    assert format_timestamp(1000) == "0:00:01.00"
+    assert format_timestamp(61230) == "0:01:01.23"
+    assert format_timestamp(3600000 + 125450) == "1:02:05.45"
+
+
+def _subs_from(text: str) -> pysubs2.SSAFile:
+    return pysubs2.SSAFile.from_string(text)
+
+
+LINES_SAMPLE = (
+    "[V4+ Styles]\n"
+    "Format: Name, Fontname, Fontsize, Outline, Shadow\n"
+    "Style: Default,Arial,40,2,1\n"
+    "[Events]\n"
+    "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
+    "Dialogue: 0,0:00:01.00,0:00:03.00,Default,,0,0,0,,{\\fs40}大字\\N第二行\n"
+    "Comment: 0,0:00:02.00,0:00:04.00,Default,,0,0,0,,這是註解事件\n"
+    "Dialogue: 0,0:00:05.50,0:00:07.00,Default,,0,0,0,,一般對白\n"
+)
+
+
+def test_dialogue_lines_skips_comments_and_strips_tags():
+    lines = dialogue_lines(_subs_from(LINES_SAMPLE))
+    assert len(lines) == 2
+    assert lines[0].start_ms == 1000
+    assert lines[0].text == "大字 第二行"   # 標籤去除、\N 摺成空格
+    assert lines[1].start_ms == 5500
+
+
+def test_dialogue_lines_empty():
+    empty = LINES_SAMPLE.split("[Events]")[0] + "[Events]\n" \
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
+    assert dialogue_lines(_subs_from(empty)) == []
