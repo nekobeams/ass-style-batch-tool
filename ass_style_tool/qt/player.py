@@ -85,6 +85,24 @@ class MpvPlayerWidget(QWidget):
         if self.video_loaded():
             self._mpv.pause = not self._mpv.pause
 
+    def position(self) -> Optional[float]:
+        """目前播放位置(秒);缺 mpv 或尚未就緒時回 None。"""
+        if not self.video_loaded():
+            return None
+        try:
+            return self._mpv.time_pos
+        except Exception:
+            return None
+
+    def duration(self) -> Optional[float]:
+        """影片總長度(秒);缺 mpv 或尚未就緒時回 None。"""
+        if not self.video_loaded():
+            return None
+        try:
+            return self._mpv.duration
+        except Exception:
+            return None
+
     def shutdown(self) -> None:
         if self._mpv is not None:
             try:

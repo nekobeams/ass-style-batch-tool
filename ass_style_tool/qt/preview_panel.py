@@ -7,8 +7,8 @@ from typing import Callable, Optional
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (QFileDialog, QHBoxLayout, QLabel, QListWidget,
-                               QListWidgetItem, QPushButton, QSplitter,
-                               QVBoxLayout, QWidget)
+                               QListWidgetItem, QPushButton, QSlider,
+                               QSplitter, QVBoxLayout, QWidget)
 
 from ..ass_style import load_subs
 from ..preview import render_preview_ass
@@ -17,6 +17,7 @@ from .gui_helpers import dialogue_lines, format_timestamp
 from .player import MpvPlayerWidget
 
 DEBOUNCE_MS = 300
+POLL_MS = 250
 
 
 class PreviewPanel(QWidget):
@@ -28,6 +29,7 @@ class PreviewPanel(QWidget):
         self._source_sub: Optional[Path] = None
         self._temp_dir = Path(tempfile.mkdtemp(prefix="ass_style_preview_"))
         self._temp_ass = self._temp_dir / "preview.ass"
+        self._scrubbing = False
 
         root = QVBoxLayout(self)
         bar = QHBoxLayout()
@@ -43,8 +45,25 @@ class PreviewPanel(QWidget):
         bar.addStretch(1)
         root.addLayout(bar)
 
+        # 上半:播放器 + 時間軸(拖曳即時 seek);下半:字幕行清單
+        top = QWidget()
+        top_layout = QVBoxLayout(top)
+        top_layout.setContentsMargins(0, 0, 0, 0)
+        top_layout.addWidget(self.player, 1)
+
+        timeline_row = QHBoxLayout()
+        self.timeline = QSlider(Qt.Horizontal)
+        self.timeline.setRange(0, 0)
+        self.timeline.sliderPressed.connect(self._on_slider_pressed)
+        self.timeline.sliderReleased.connect(self._on_slider_released)
+        self.timeline.sliderMoved.connect(self._on_slider_moved)
+        self.time_label = QLabel("0:00:00.00 / 0:00:00.00")
+        timeline_row.addWidget(self.timeline, 1)
+        timeline_row.addWidget(self.time_label)
+        top_layout.addLayout(timeline_row)
+
         split = QSplitter(Qt.Vertical)
-        split.addWidget(self.player)
+        split.addWidget(top)
         self.line_list = QListWidget()
         self.line_list.itemClicked.connect(self._on_line_clicked)
         split.addWidget(self.line_list)
@@ -59,6 +78,12 @@ class PreviewPanel(QWidget):
         self._debounce.setSingleShot(True)
         self._debounce.setInterval(DEBOUNCE_MS)
         self._debounce.timeout.connect(self._apply_preview)
+
+        # 播放位置輪詢(GUI 執行緒,執行緒安全);拖曳中不覆蓋滑桿
+        self._poll = QTimer(self)
+        self._poll.setInterval(POLL_MS)
+        self._poll.timeout.connect(self._poll_playback)
+        self._poll.start()
 
     # ---------- 對外 ----------
     def set_media(self, sub_path: Path,
@@ -109,6 +134,34 @@ class PreviewPanel(QWidget):
     def _on_line_clicked(self, item: QListWidgetItem) -> None:
         self.player.seek(item.data(Qt.UserRole) / 1000.0)
 
+    # ---------- 時間軸 ----------
+    def _poll_playback(self) -> None:
+        """定時更新時間軸與時間標籤;使用者拖曳中則不覆蓋滑桿位置。"""
+        duration = self.player.duration()
+        position = self.player.position()
+        dur_ms = int(duration * 1000) if duration else 0
+        pos_ms = int(position * 1000) if position else 0
+        if self.timeline.maximum() != dur_ms:
+            self.timeline.setRange(0, dur_ms)
+        if not self._scrubbing:
+            self.timeline.setValue(pos_ms)
+            self.time_label.setText(
+                f"{format_timestamp(pos_ms)} / {format_timestamp(dur_ms)}")
+
+    def _on_slider_pressed(self) -> None:
+        self._scrubbing = True
+
+    def _on_slider_released(self) -> None:
+        self._scrubbing = False
+        self.player.seek(self.timeline.value() / 1000.0)
+
+    def _on_slider_moved(self, value_ms: int) -> None:
+        # 邊拖邊即時 seek,畫面跟著跳;同步更新目前時間文字
+        self.player.seek(value_ms / 1000.0)
+        dur_ms = self.timeline.maximum()
+        self.time_label.setText(
+            f"{format_timestamp(value_ms)} / {format_timestamp(dur_ms)}")
+
     def _apply_preview(self) -> None:
         if self._source_sub is None:
             return
@@ -126,6 +179,7 @@ class PreviewPanel(QWidget):
 
     def shutdown(self) -> None:
         self._debounce.stop()  # 防止已排定的防抖在關閉後對已清除的暫存目錄觸發
+        self._poll.stop()
         self.player.shutdown()
         try:
             if self._temp_ass.exists():

@@ -13,6 +13,8 @@ class FakeMPV:
         self.played = []
         self.pause = False
         self.terminated = False
+        self.time_pos = 12.5
+        self.duration = 90.0
 
     def play(self, path):
         self.played.append(path)
@@ -39,6 +41,8 @@ def test_unavailable_all_noop(qapp, monkeypatch):
     w.show_subtitle(Path("a.ass"))
     w.seek(1.5)
     w.toggle_pause()
+    assert w.position() is None
+    assert w.duration() is None
     w.shutdown()
 
 
@@ -78,3 +82,12 @@ def test_seek_and_shutdown(qapp, monkeypatch):
     w.shutdown()
     assert mpv_instance.terminated is True
     assert w._mpv is None
+
+
+def test_position_and_duration_read_from_mpv(qapp, monkeypatch):
+    from ass_style_tool.qt.player import MpvPlayerWidget
+    _patch_mpv(monkeypatch, SimpleNamespace(MPV=FakeMPV))
+    w = MpvPlayerWidget()
+    w.load_video(Path("v.mkv"))
+    assert w.position() == 12.5
+    assert w.duration() == 90.0

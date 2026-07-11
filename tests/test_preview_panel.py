@@ -18,11 +18,19 @@ class FakePlayer(QWidget):
         self.paused_toggles = 0
         self.shut = False
         self._loaded = False
+        self.pos = None      # 目前播放位置(秒)
+        self.dur = None      # 總長度(秒)
 
     def load_video(self, path):
         self.videos.append(Path(path))
         self._loaded = True
         return True
+
+    def position(self):
+        return self.pos
+
+    def duration(self):
+        return self.dur
 
     def video_loaded(self):
         return self._loaded
@@ -119,3 +127,58 @@ def test_shutdown_cleans_temp(qapp, tmp_path):
     panel.shutdown()
     assert player.shut is True
     assert not temp.exists()
+
+
+# ---------- 時間軸 ----------
+
+def test_poll_updates_slider_and_label(qapp, tmp_path):
+    player = FakePlayer()
+    panel = _panel(player)
+    panel.set_media(_write_sample(tmp_path), video_path=Path("v.mkv"))
+    player.dur = 120.0        # 2 分鐘
+    player.pos = 61.23        # 1:01.23
+    panel._poll_playback()
+    assert panel.timeline.maximum() == 120000
+    assert panel.timeline.value() == 61230
+    assert panel.time_label.text() == "0:01:01.23 / 0:02:00.00"
+    panel.shutdown()
+
+
+def test_poll_does_not_move_slider_while_scrubbing(qapp, tmp_path):
+    player = FakePlayer()
+    panel = _panel(player)
+    panel.set_media(_write_sample(tmp_path), video_path=Path("v.mkv"))
+    player.dur = 100.0
+    player.pos = 10.0
+    panel._poll_playback()          # 先定位到 10s
+    assert panel.timeline.value() == 10000
+    panel._on_slider_pressed()      # 開始拖曳
+    player.pos = 50.0               # 播放位置前進(但使用者正在拖)
+    panel._poll_playback()
+    assert panel.timeline.value() == 10000   # 拖曳中不被輪詢覆蓋
+    panel.shutdown()
+
+
+def test_slider_moved_seeks_live(qapp, tmp_path):
+    player = FakePlayer()
+    panel = _panel(player)
+    panel.set_media(_write_sample(tmp_path), video_path=Path("v.mkv"))
+    player.dur = 200.0
+    panel._on_slider_moved(45000)   # 拖到 45 秒
+    assert player.seeks[-1] == 45.0                 # 即時 seek
+    assert "0:00:45.00" in panel.time_label.text()  # 時間文字同步
+    panel.shutdown()
+
+
+def test_slider_released_seeks_and_clears_scrub(qapp, tmp_path):
+    player = FakePlayer()
+    panel = _panel(player)
+    panel.set_media(_write_sample(tmp_path), video_path=Path("v.mkv"))
+    player.dur = 200.0
+    player.pos = 0.0
+    panel._poll_playback()          # 先建立滑桿範圍(0..200000)
+    panel._on_slider_pressed()
+    panel.timeline.setValue(30000)
+    panel._on_slider_released()
+    assert panel._scrubbing is False
+    assert player.seeks[-1] == 30.0
