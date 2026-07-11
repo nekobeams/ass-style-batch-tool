@@ -125,6 +125,7 @@ class PreviewPanel(QWidget):
             self.player.show_subtitle(self._temp_ass)
 
     def shutdown(self) -> None:
+        self._debounce.stop()  # 防止已排定的防抖在關閉後對已清除的暫存目錄觸發
         self.player.shutdown()
         try:
             if self._temp_ass.exists():
