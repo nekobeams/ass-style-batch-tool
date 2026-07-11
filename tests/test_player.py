@@ -94,14 +94,52 @@ def test_position_and_duration_read_from_mpv(qapp, monkeypatch):
     assert w.duration() == 90.0
 
 
-def test_keybinds_registered_on_player_creation(qapp, monkeypatch):
+def test_click_toggles_pause(qapp, monkeypatch):
+    from PySide6.QtCore import QPointF, Qt, QEvent
+    from PySide6.QtGui import QMouseEvent
     from ass_style_tool.qt.player import MpvPlayerWidget
     _patch_mpv(monkeypatch, SimpleNamespace(MPV=FakeMPV))
     w = MpvPlayerWidget()
     w.load_video(Path("v.mkv"))
-    binds = [c for c in w._mpv.commands if c and c[0] == "keybind"]
-    keys = {c[1]: c[2] for c in binds}
-    assert keys["MBTN_LEFT"] == "cycle pause"   # 點畫面播放/暫停
-    assert keys["SPACE"] == "cycle pause"
-    assert keys["RIGHT"] == "seek 10"           # 進 10 秒
-    assert keys["LEFT"] == "seek -10"           # 退 10 秒
+    assert w._mpv.pause is True
+    event = QMouseEvent(QEvent.MouseButtonPress, QPointF(10, 10),
+                        Qt.LeftButton, Qt.LeftButton, Qt.NoModifier)
+    w.mousePressEvent(event)
+    assert w._mpv.pause is False   # 點畫面 → 播放/暫停切換
+
+
+def test_space_and_arrow_keys(qapp, monkeypatch):
+    from PySide6.QtCore import Qt
+    from PySide6.QtGui import QKeyEvent, QKeySequence
+    from PySide6.QtCore import QEvent
+    from ass_style_tool.qt.player import MpvPlayerWidget
+    _patch_mpv(monkeypatch, SimpleNamespace(MPV=FakeMPV))
+    w = MpvPlayerWidget()
+    w.load_video(Path("v.mkv"))
+
+    def key(k):
+        return QKeyEvent(QEvent.KeyPress, k, Qt.NoModifier)
+
+    w.keyPressEvent(key(Qt.Key_Space))
+    assert w._mpv.pause is False                        # 空白 → 播放
+    w.keyPressEvent(key(Qt.Key_Right))
+    assert ("seek", 10, "relative") in w._mpv.commands  # → 進 10 秒
+    w.keyPressEvent(key(Qt.Key_Left))
+    assert ("seek", -10, "relative") in w._mpv.commands  # ← 退 10 秒
+    # 相對 seek 不可改變播放狀態
+    assert w._mpv.pause is False
+
+
+def test_seek_relative_noop_without_video(qapp, monkeypatch):
+    from ass_style_tool.qt.player import MpvPlayerWidget
+    _patch_mpv(monkeypatch, None)
+    w = MpvPlayerWidget()
+    w.seek_relative(10)   # 安全 no-op,不丟例外
+
+
+def test_focus_policy_allows_keyboard(qapp, monkeypatch):
+    from PySide6.QtCore import Qt
+    from ass_style_tool.qt.player import MpvPlayerWidget
+    _patch_mpv(monkeypatch, SimpleNamespace(MPV=FakeMPV))
+    w = MpvPlayerWidget()
+    assert w.focusPolicy() == Qt.StrongFocus   # 點擊即取得鍵盤焦點

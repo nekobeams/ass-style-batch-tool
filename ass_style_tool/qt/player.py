@@ -32,6 +32,8 @@ class MpvPlayerWidget(QWidget):
         layout = QStackedLayout(self)
         layout.addWidget(self._hint)
         self.setMinimumSize(320, 180)
+        # 點擊取得鍵盤焦點,空白/方向鍵才會送到本 widget
+        self.setFocusPolicy(Qt.StrongFocus)
 
     # ---------- 可用性 ----------
     def available(self) -> bool:
@@ -43,44 +45,17 @@ class MpvPlayerWidget(QWidget):
         mpv_module = _import_mpv()
         if mpv_module is None:
             return False
-        # mpv 以 wid 嵌入時會在此 widget 下建立自己的子視窗(class 'mpv'),
-        # 滑鼠/鍵盤 OS 訊息都落在該子視窗,只能由 mpv 的輸入系統處理(Qt 收不到)。
-        # 因此啟用 mpv 內建輸入(input_default_bindings 保持開啟),再把會造成
-        # 問題的預設鍵(q 關閉、f 全螢幕等)中和掉,並設定我們要的綁定。
+        # mpv 以 wid 嵌入時會在此 widget 下建一個「停用(WS_DISABLED)」的
+        # 子視窗:真實滑鼠/鍵盤輸入永遠不會送達停用視窗,而是穿透到父視窗
+        # (本 widget)。因此輸入一律在 Qt 層處理(mouse/key/wheelEvent),
+        # mpv 端關閉預設綁定即可。
         self._mpv = mpv_module.MPV(
             wid=str(int(self.winId())),
             osc=False,
+            input_default_bindings=False,
             keep_open="yes",
         )
-        self._register_keybinds()
         return True
-
-    def _register_keybinds(self) -> None:
-        """設定影片視窗的滑鼠/鍵盤行為(由 mpv 的輸入系統處理)。
-
-        點畫面/空白鍵切換播放暫停;方向鍵 ±10 秒。並中和掉會關閉 mpv
-        或切全螢幕等在嵌入情境下不該發生的預設鍵。
-        """
-        neutralize = ["q", "Q", "ESC", "f", "F", "MBTN_LEFT_DBL",
-                      "MBTN_RIGHT", "CLOSE_WIN", "POWER", "STOP"]
-        binds = [
-            ("MBTN_LEFT", "cycle pause"),
-            ("SPACE", "cycle pause"),
-            ("RIGHT", "seek 10"),
-            ("LEFT", "seek -10"),
-            ("WHEEL_UP", "seek 10"),
-            ("WHEEL_DOWN", "seek -10"),
-        ]
-        for key in neutralize:
-            try:
-                self._mpv.command("keybind", key, "ignore")
-            except Exception:
-                pass
-        for key, cmd in binds:
-            try:
-                self._mpv.command("keybind", key, cmd)
-            except Exception:
-                pass  # 綁定失敗不影響播放
 
     # ---------- 操作(缺 mpv 時皆安全 no-op) ----------
     def load_video(self, path: Path) -> bool:
@@ -112,6 +87,12 @@ class MpvPlayerWidget(QWidget):
         self._mpv.command("seek", seconds, "absolute")
         self._mpv.pause = True
 
+    def seek_relative(self, seconds: float) -> None:
+        """相對快進/快退;不改變播放/暫停狀態。"""
+        if not self.video_loaded():
+            return
+        self._mpv.command("seek", seconds, "relative")
+
     def toggle_pause(self) -> None:
         if self.video_loaded():
             self._mpv.pause = not self._mpv.pause
@@ -142,3 +123,37 @@ class MpvPlayerWidget(QWidget):
                 pass  # 關閉階段的清理失敗不影響程式結束
             self._mpv = None
         self._video_path = None
+
+    # ---------- Qt 層輸入(mpv 子視窗停用,事件穿透到本 widget) ----------
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.LeftButton and self.video_loaded():
+            self.toggle_pause()
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def keyPressEvent(self, event) -> None:
+        if self.video_loaded():
+            key = event.key()
+            if key == Qt.Key_Space:
+                self.toggle_pause()
+                event.accept()
+                return
+            if key == Qt.Key_Right:
+                self.seek_relative(10)
+                event.accept()
+                return
+            if key == Qt.Key_Left:
+                self.seek_relative(-10)
+                event.accept()
+                return
+        super().keyPressEvent(event)
+
+    def wheelEvent(self, event) -> None:
+        if self.video_loaded():
+            delta = event.angleDelta().y()
+            if delta:
+                self.seek_relative(10 if delta > 0 else -10)
+                event.accept()
+                return
+        super().wheelEvent(event)

@@ -39,6 +39,10 @@ class PreviewPanel(QWidget):
         open_sub.clicked.connect(self._open_sub)
         pause = QPushButton("播放 / 暫停")
         pause.clicked.connect(self.player.toggle_pause)
+        for btn in (open_video, open_sub, pause):
+            # 按鈕不搶鍵盤焦點:避免空白鍵變成「再按一次按鈕」、
+            # 方向鍵把焦點移走等混淆行為;快捷鍵交給影片區處理
+            btn.setFocusPolicy(Qt.NoFocus)
         bar.addWidget(open_video)
         bar.addWidget(open_sub)
         bar.addWidget(pause)
