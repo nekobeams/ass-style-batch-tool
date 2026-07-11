@@ -107,3 +107,17 @@ def test_scan_worker_emits_result(qapp, tmp_path):
     worker.finished.connect(lambda scan: got.update(n=len(scan.matches)))
     worker.run()
     assert got["n"] == 1
+
+
+def test_preview_requested_on_double_click(qapp):
+    from pathlib import Path
+    from ass_style_tool.qt.subtitle_tab import SubtitleFileTab
+    tab = SubtitleFileTab(lambda: profile_from_values(DEFAULT_VALUES))
+    tab.populate_preview(_scan())
+    tab._scan = _scan()
+    got = []
+    tab.preview_requested.connect(lambda s, v: got.append((s, v)))
+    tab._on_row_double_clicked(0, 0)
+    assert got == [(Path("a [01].ass"), Path("v01.mkv"))]
+    tab._on_row_double_clicked(1, 2)
+    assert got[1] == (Path("b [02].ass"), None)

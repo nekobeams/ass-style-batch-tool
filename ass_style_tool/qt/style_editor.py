@@ -4,6 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Dict
 
+from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QFileDialog, QFormLayout,
                                QHBoxLayout, QLabel, QLineEdit, QMessageBox,
                                QPushButton, QVBoxLayout, QWidget)
@@ -51,6 +52,8 @@ def _qcolor_to_ass(color: QColor, alpha_ass: str) -> str:
 
 
 class StyleEditor(QWidget):
+    values_changed = Signal()
+
     def __init__(self) -> None:
         super().__init__()
         self._edits: Dict[str, QLineEdit] = {}
@@ -111,6 +114,11 @@ class StyleEditor(QWidget):
 
         self.set_values(DEFAULT_VALUES)
         self._refresh_profile_list()
+
+        for edit in self._edits.values():
+            edit.textChanged.connect(self.values_changed)
+        for check in self._checks.values():
+            check.toggled.connect(self.values_changed)
 
     # ---------- 小工具 ----------
     def _wrap(self, layout) -> QWidget:

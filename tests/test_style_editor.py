@@ -53,3 +53,15 @@ def test_font_warning_toggles(qapp):
     editor.set_values({**DEFAULT_VALUES, "fontname": "NoSuchFont ZZZ 12345"})
     editor.refresh_font_warning()
     assert editor.font_warning_visible() is True
+
+
+def test_values_changed_signal_fires(qapp):
+    from ass_style_tool.qt.style_editor import StyleEditor
+    editor = StyleEditor()
+    fired = []
+    editor.values_changed.connect(lambda: fired.append(1))
+    editor._edits["fontsize"].setText("88")
+    assert len(fired) >= 1
+    before = len(fired)
+    editor._checks["bold"].setChecked(True)
+    assert len(fired) > before

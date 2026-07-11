@@ -25,6 +25,7 @@ _HEADERS = ["集數", "字幕檔", "影片檔", "狀態"]
 
 class SubtitleFileTab(QWidget):
     log = Signal(str)
+    preview_requested = Signal(object, object)  # (sub_path, video_path|None)
 
     def __init__(self, get_profile: Callable[[], Profile]) -> None:
         super().__init__()
@@ -68,6 +69,7 @@ class SubtitleFileTab(QWidget):
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.horizontalHeader().setSectionResizeMode(
             1, QHeaderView.Stretch)
+        self.table.cellDoubleClicked.connect(self._on_row_double_clicked)
         root.addWidget(self.table, 1)
 
         # 輸出模式
@@ -179,6 +181,12 @@ class SubtitleFileTab(QWidget):
         self.run_button.setEnabled(len(rows) > 0)
         self._update_dry_run_enabled()
         return len(rows)
+
+    def _on_row_double_clicked(self, row: int, _column: int) -> None:
+        if self._scan is None or row >= len(self._scan.matches):
+            return
+        match = self._scan.matches[row]
+        self.preview_requested.emit(match.sub_path, match.video_path)
 
     # ---------- 模式切換 / 試算預覽 ----------
     def _on_mode_changed(self, scale_mode: bool) -> None:
