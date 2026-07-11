@@ -5,3 +5,6 @@ __pycache__/
 # 工作流程暫存(subagent ledger/報告)與本地測試資料
 .superpowers/
 demo_subs/
+
+# 本機開發用外部工具(ffprobe 等);打包安裝程式時另行處理來源
+ass_style_tool/tools/
