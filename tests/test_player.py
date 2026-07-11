@@ -65,8 +65,9 @@ def test_show_subtitle_add_then_reload(qapp, monkeypatch):
     w.load_video(Path("v.mkv"))
     w.show_subtitle(Path("p.ass"))
     w.show_subtitle(Path("p.ass"))
-    assert w._mpv.commands[0] == ("sub-add", "p.ass", "select")
-    assert w._mpv.commands[1] == ("sub-reload",)
+    subs = [c for c in w._mpv.commands if c and c[0] in ("sub-add", "sub-reload")]
+    assert subs[0] == ("sub-add", "p.ass", "select")
+    assert subs[1] == ("sub-reload",)
 
 
 def test_seek_and_shutdown(qapp, monkeypatch):
@@ -91,3 +92,16 @@ def test_position_and_duration_read_from_mpv(qapp, monkeypatch):
     w.load_video(Path("v.mkv"))
     assert w.position() == 12.5
     assert w.duration() == 90.0
+
+
+def test_keybinds_registered_on_player_creation(qapp, monkeypatch):
+    from ass_style_tool.qt.player import MpvPlayerWidget
+    _patch_mpv(monkeypatch, SimpleNamespace(MPV=FakeMPV))
+    w = MpvPlayerWidget()
+    w.load_video(Path("v.mkv"))
+    binds = [c for c in w._mpv.commands if c and c[0] == "keybind"]
+    keys = {c[1]: c[2] for c in binds}
+    assert keys["MBTN_LEFT"] == "cycle pause"   # 點畫面播放/暫停
+    assert keys["SPACE"] == "cycle pause"
+    assert keys["RIGHT"] == "seek 10"           # 進 10 秒
+    assert keys["LEFT"] == "seek -10"           # 退 10 秒

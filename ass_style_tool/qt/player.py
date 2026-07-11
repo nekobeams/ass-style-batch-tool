@@ -49,7 +49,25 @@ class MpvPlayerWidget(QWidget):
             input_default_bindings=False,
             keep_open="yes",
         )
+        self._register_keybinds()
         return True
+
+    def _register_keybinds(self) -> None:
+        """在影片視窗上綁定滑鼠/鍵盤(事件落在 mpv 原生視窗,由 mpv 處理)。
+
+        點畫面切換播放/暫停;方向鍵 ±10 秒;空白鍵播放/暫停。
+        """
+        binds = [
+            ("MBTN_LEFT", "cycle pause"),
+            ("SPACE", "cycle pause"),
+            ("RIGHT", "seek 10"),
+            ("LEFT", "seek -10"),
+        ]
+        for key, cmd in binds:
+            try:
+                self._mpv.command("keybind", key, cmd)
+            except Exception:
+                pass  # 綁定失敗不影響播放
 
     # ---------- 操作(缺 mpv 時皆安全 no-op) ----------
     def load_video(self, path: Path) -> bool:
