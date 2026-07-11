@@ -43,26 +43,39 @@ class MpvPlayerWidget(QWidget):
         mpv_module = _import_mpv()
         if mpv_module is None:
             return False
+        # mpv 以 wid 嵌入時會在此 widget 下建立自己的子視窗(class 'mpv'),
+        # 滑鼠/鍵盤 OS 訊息都落在該子視窗,只能由 mpv 的輸入系統處理(Qt 收不到)。
+        # 因此啟用 mpv 內建輸入(input_default_bindings 保持開啟),再把會造成
+        # 問題的預設鍵(q 關閉、f 全螢幕等)中和掉,並設定我們要的綁定。
         self._mpv = mpv_module.MPV(
             wid=str(int(self.winId())),
             osc=False,
-            input_default_bindings=False,
             keep_open="yes",
         )
         self._register_keybinds()
         return True
 
     def _register_keybinds(self) -> None:
-        """在影片視窗上綁定滑鼠/鍵盤(事件落在 mpv 原生視窗,由 mpv 處理)。
+        """設定影片視窗的滑鼠/鍵盤行為(由 mpv 的輸入系統處理)。
 
-        點畫面切換播放/暫停;方向鍵 ±10 秒;空白鍵播放/暫停。
+        點畫面/空白鍵切換播放暫停;方向鍵 ±10 秒。並中和掉會關閉 mpv
+        或切全螢幕等在嵌入情境下不該發生的預設鍵。
         """
+        neutralize = ["q", "Q", "ESC", "f", "F", "MBTN_LEFT_DBL",
+                      "MBTN_RIGHT", "CLOSE_WIN", "POWER", "STOP"]
         binds = [
             ("MBTN_LEFT", "cycle pause"),
             ("SPACE", "cycle pause"),
             ("RIGHT", "seek 10"),
             ("LEFT", "seek -10"),
+            ("WHEEL_UP", "seek 10"),
+            ("WHEEL_DOWN", "seek -10"),
         ]
+        for key in neutralize:
+            try:
+                self._mpv.command("keybind", key, "ignore")
+            except Exception:
+                pass
         for key, cmd in binds:
             try:
                 self._mpv.command("keybind", key, cmd)
