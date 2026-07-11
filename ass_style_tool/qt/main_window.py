@@ -4,10 +4,11 @@ from __future__ import annotations
 from PySide6.QtCore import QSettings
 from PySide6.QtGui import QAction, QActionGroup
 from PySide6.QtWidgets import (QApplication, QHBoxLayout, QLabel, QMainWindow,
-                               QMenu, QPlainTextEdit, QPushButton, QTabWidget,
-                               QVBoxLayout, QWidget)
+                               QMenu, QPlainTextEdit, QPushButton, QSplitter,
+                               QTabWidget, QVBoxLayout, QWidget)
 
 from .theme import THEME_MODES, apply_theme, apply_titlebar_theme
+from .preview_panel import PreviewPanel
 from .style_editor import StyleEditor
 from .subtitle_tab import SubtitleFileTab
 
@@ -65,7 +66,15 @@ class MainWindow(QMainWindow):
         mkv_layout.addStretch(1)
         self.tabs.addTab(mkv_page, "MKV")
 
-        self.tabs.addTab(self.style_editor, "樣式與預覽")
+        self.preview_panel = PreviewPanel(self.style_editor.current_profile)
+        self._preview_split = QSplitter()
+        self._preview_split.addWidget(self.style_editor)
+        self._preview_split.addWidget(self.preview_panel)
+        self._preview_split.setStretchFactor(1, 1)
+        self.tabs.addTab(self._preview_split, "樣式與預覽")
+        self.style_editor.values_changed.connect(
+            self.preview_panel.on_style_changed)
+        self.subtitle_tab.preview_requested.connect(self._open_in_preview)
         layout.addWidget(self.tabs, 1)
 
         # log 區
@@ -109,6 +118,13 @@ class MainWindow(QMainWindow):
         if self.current_mode() == "system":
             self._apply_current_theme()
 
+    def _open_in_preview(self, sub_path, video_path) -> None:
+        self.preview_panel.set_media(sub_path, video_path)
+        self.tabs.setCurrentWidget(self._preview_split)
+        if video_path is None:
+            self.append_log("該列未配對到影片,預覽僅載入字幕行清單;"
+                            "可在預覽分頁手動開啟影片")
+
     # ---------- log ----------
     def append_log(self, text: str) -> None:
         self.log_view.appendPlainText(text)
@@ -128,6 +144,7 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event) -> None:
         self.subtitle_tab.shutdown()
+        self.preview_panel.shutdown()
         self.settings.setValue("geometry", self.saveGeometry())
         self.settings.setValue("theme_mode", self.current_mode())
         super().closeEvent(event)

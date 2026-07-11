@@ -39,3 +39,31 @@ def font_is_missing(fontname: str, available_families: List[str]) -> bool:
     if not name:
         return False
     return name not in {fam.lower() for fam in available_families}
+
+
+@dataclass
+class DialogueLine:
+    start_ms: int
+    end_ms: int
+    text: str
+
+
+def format_timestamp(ms: int) -> str:
+    """毫秒 → 'H:MM:SS.cc'(ASS 慣用時間格式)。"""
+    total_cs = int(round(ms / 10))
+    hours, rem = divmod(total_cs, 360000)
+    minutes, rem = divmod(rem, 6000)
+    seconds, centis = divmod(rem, 100)
+    return f"{hours}:{minutes:02d}:{seconds:02d}.{centis:02d}"
+
+
+def dialogue_lines(subs) -> List[DialogueLine]:
+    """取出非 Comment 的事件行;文字去 override 標籤、\\N 摺成空格。"""
+    lines: List[DialogueLine] = []
+    for event in subs.events:
+        if event.is_comment:
+            continue
+        text = " ".join(event.plaintext.split())
+        lines.append(DialogueLine(start_ms=event.start, end_ms=event.end,
+                                  text=text))
+    return lines
