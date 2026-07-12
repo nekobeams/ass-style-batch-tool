@@ -89,3 +89,41 @@ def test_run_button_enabled_after_populate(qapp, monkeypatch):
     assert tab.run_button.isEnabled() is False
     tab.populate(FILES)
     assert tab.run_button.isEnabled() is True
+
+
+# ---------- 自動掃描(選資料夾即載入) ----------
+
+def test_auto_scan_triggers_on_folder_chosen(qapp, monkeypatch, tmp_path):
+    tab = _tab(monkeypatch)
+    calls = []
+    monkeypatch.setattr(tab, "_on_scan", lambda: calls.append(1))
+    tab._folder_chosen(str(tmp_path))
+    assert calls == [1]
+    assert tab.folder_edit.text() == str(tmp_path)
+
+
+def test_auto_scan_skips_same_folder(qapp, monkeypatch, tmp_path):
+    tab = _tab(monkeypatch)
+    calls = []
+    monkeypatch.setattr(tab, "_on_scan", lambda: calls.append(1))
+    tab._scanned_folder = str(tmp_path)
+    tab.folder_edit.setText(str(tmp_path))
+    tab._auto_scan()
+    assert calls == []
+
+
+def test_auto_scan_skips_when_tools_missing(qapp, monkeypatch, tmp_path):
+    tab = _tab(monkeypatch, available=False)
+    calls = []
+    monkeypatch.setattr(tab, "_on_scan", lambda: calls.append(1))
+    tab._folder_chosen(str(tmp_path))
+    assert calls == []
+
+
+def test_auto_scan_skips_during_run(qapp, monkeypatch, tmp_path):
+    tab = _tab(monkeypatch)
+    calls = []
+    monkeypatch.setattr(tab, "_on_scan", lambda: calls.append(1))
+    tab._thread = object()
+    tab._folder_chosen(str(tmp_path))
+    assert calls == []

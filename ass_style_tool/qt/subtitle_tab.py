@@ -35,6 +35,7 @@ class SubtitleFileTab(QWidget):
         self._worker: Optional[BatchWorker] = None
         self._scan_thread: Optional[QThread] = None
         self._scan_worker = None
+        self._scanned_folder: Optional[str] = None
         self.setAcceptDrops(True)
 
         root = QVBoxLayout(self)
@@ -42,6 +43,8 @@ class SubtitleFileTab(QWidget):
         folder_row = QHBoxLayout()
         folder_row.addWidget(QLabel("資料夾:"))
         self.folder_edit = QLineEdit()
+        # 貼上/輸入路徑後(Enter 或失焦)自動掃描
+        self.folder_edit.editingFinished.connect(self._auto_scan)
         folder_row.addWidget(self.folder_edit, 1)
         browse = QPushButton("瀏覽…")
         browse.clicked.connect(self._browse)
@@ -87,7 +90,7 @@ class SubtitleFileTab(QWidget):
         root.addLayout(out_row)
 
         action_row = QHBoxLayout()
-        self.scan_button = QPushButton("掃描並預覽配對")
+        self.scan_button = QPushButton("重新掃描")
         self.scan_button.clicked.connect(self._on_scan)
         self.run_button = QPushButton("開始套用樣式")
         self.run_button.setEnabled(False)
@@ -120,14 +123,29 @@ class SubtitleFileTab(QWidget):
         for url in event.mimeData().urls():
             path = url.toLocalFile()
             if path and Path(path).is_dir():
-                self.folder_edit.setText(path)
+                self._folder_chosen(path)
                 break
 
     # ---------- 檔案選擇 ----------
     def _browse(self) -> None:
         path = QFileDialog.getExistingDirectory(self, "選擇字幕資料夾")
         if path:
-            self.folder_edit.setText(path)
+            self._folder_chosen(path)
+
+    def _folder_chosen(self, path: str) -> None:
+        """選好資料夾(瀏覽/拖放)→ 設定路徑並自動掃描。"""
+        self.folder_edit.setText(path)
+        self._auto_scan()
+
+    def _auto_scan(self) -> None:
+        """資料夾有效且與上次不同、且無掃描/批次進行中時,自動觸發掃描。"""
+        folder = self.folder_edit.text().strip()
+        if (not folder or not Path(folder).is_dir()
+                or folder == self._scanned_folder):
+            return
+        if self._scan_thread is not None or self._thread is not None:
+            return
+        self._on_scan()
 
     def _browse_out(self) -> None:
         path = QFileDialog.getExistingDirectory(self, "選擇輸出資料夾")
@@ -147,6 +165,7 @@ class SubtitleFileTab(QWidget):
         if not folder or not Path(folder).is_dir():
             self.log.emit("請先選擇有效的資料夾")
             return
+        self._scanned_folder = folder
         from .batch_worker import ScanWorker
         self.scan_button.setEnabled(False)
         self.run_button.setEnabled(False)

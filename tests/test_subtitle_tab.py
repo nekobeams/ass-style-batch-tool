@@ -121,3 +121,46 @@ def test_preview_requested_on_double_click(qapp):
     assert got == [(Path("a [01].ass"), Path("v01.mkv"))]
     tab._on_row_double_clicked(1, 2)
     assert got[1] == (Path("b [02].ass"), None)
+
+
+# ---------- 自動掃描(選資料夾即載入) ----------
+
+def test_auto_scan_triggers_on_folder_chosen(qapp, monkeypatch, tmp_path):
+    from ass_style_tool.qt.subtitle_tab import SubtitleFileTab
+    tab = SubtitleFileTab(lambda: profile_from_values(DEFAULT_VALUES))
+    calls = []
+    monkeypatch.setattr(tab, "_on_scan", lambda: calls.append(1))
+    tab._folder_chosen(str(tmp_path))
+    assert calls == [1]
+    assert tab.folder_edit.text() == str(tmp_path)
+
+
+def test_auto_scan_skips_same_folder(qapp, monkeypatch, tmp_path):
+    from ass_style_tool.qt.subtitle_tab import SubtitleFileTab
+    tab = SubtitleFileTab(lambda: profile_from_values(DEFAULT_VALUES))
+    calls = []
+    monkeypatch.setattr(tab, "_on_scan", lambda: calls.append(1))
+    tab._scanned_folder = str(tmp_path)      # 已掃過同一資料夾
+    tab.folder_edit.setText(str(tmp_path))
+    tab._auto_scan()
+    assert calls == []
+
+
+def test_auto_scan_skips_invalid_dir(qapp, monkeypatch):
+    from ass_style_tool.qt.subtitle_tab import SubtitleFileTab
+    tab = SubtitleFileTab(lambda: profile_from_values(DEFAULT_VALUES))
+    calls = []
+    monkeypatch.setattr(tab, "_on_scan", lambda: calls.append(1))
+    tab.folder_edit.setText("Z:/no/such/dir")
+    tab._auto_scan()
+    assert calls == []
+
+
+def test_auto_scan_skips_during_run(qapp, monkeypatch, tmp_path):
+    from ass_style_tool.qt.subtitle_tab import SubtitleFileTab
+    tab = SubtitleFileTab(lambda: profile_from_values(DEFAULT_VALUES))
+    calls = []
+    monkeypatch.setattr(tab, "_on_scan", lambda: calls.append(1))
+    tab._thread = object()                    # 模擬批次進行中
+    tab._folder_chosen(str(tmp_path))
+    assert calls == []
