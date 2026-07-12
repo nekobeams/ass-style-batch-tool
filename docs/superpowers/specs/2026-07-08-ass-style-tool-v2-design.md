@@ -76,6 +76,24 @@ ass_style_tool/
 
 **送進預覽**(2026-07-11 增補):在 MKV 分頁選取單一字幕軌後,可一鍵「送進預覽」——抽出該軌到暫存,預覽分頁載入該 MKV 為影片、該暫存軌為字幕,即時看樣式效果(實作於 MKV 分頁計畫,依賴預覽分頁先完成)。
 
+## 封裝字幕進 MKV(「封裝」分頁,2026-07-11 增補)
+
+把**外部** `.ass` 字幕檔封裝(mux)進 MKV,產生帶字幕軌的新 MKV。與「MKV」分頁互補(那個處理已在 MKV 內的軌;這個把外部字幕加進去)。邏輯參考 MKV Muxing Batch GUI。
+
+**流程**:
+1. 分別選「影片來源資料夾」與「字幕來源資料夾」(可同一個)
+2. 掃描兩邊,用既有 `episode_match` 依集數編號自動配對影片↔字幕,表格顯示配對結果(影片名 / 字幕名 / 集數 / 狀態),每列可勾選是否封裝
+3. 設定要封進去的字幕軌資訊:語言(下拉)、軌名(文字)、預設軌 default(勾選)、強制軌 forced(勾選)
+4. **封裝前處理**(二選一,沿用既有):可勾「先套用目前樣式/縮放再封」(走 `mkv_batch.transform_track_file`,Profile 或 ScaleOptions)或「原字幕直接封」
+5. `mkvmerge -o <out> <影片.mkv> --language 0:<lang> [--track-name 0:<name>] --default-track 0:<yes|no> --forced-track 0:<yes|no> <字幕.ass>` ——影片所有既有軌(視訊/音訊/字幕/章節/字型附件)原封保留,新字幕以附加軌加入
+6. mkvmerge 進度、取消,單檔失敗不中斷整批(與其他分頁一致)
+
+**輸出模式**:輸出到新資料夾(預設,原影片不動)或取代原檔(寫暫存 → `mkvmerge -J` 驗證 → 覆蓋,失敗保留原檔;沿用 `mkv_batch` 的取代驗證邏輯與輸出檔名衝突保護)。
+
+**架構**:新 `mkv_mux.py`(純邏輯:`pair_for_mux`、`build_mux_command`、`process_mux`,復用 `mkv_batch.transform_track_file`/`identify_ok`)、`MuxScanWorker`/`MuxWorker`、`qt/mux_tab.py`;缺 mkvmerge 時停用。
+
+**範圍外**:自動偵測並附加字幕所需字型檔(font attachment)——本版不做,封進去的字幕在缺字型的播放器上仍會 fallback(與既有改樣式流程同樣的已知限制)。
+
 ## UX 完善項目
 
 1. **設定持久化**(QSettings):視窗大小、最後資料夾、輸出模式、最後 profile、主題模式
