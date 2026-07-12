@@ -7,8 +7,10 @@ from typing import Optional
 from PySide6.QtCore import QObject, Signal
 
 from ..batch_runner import process_file
+from ..episode_match import find_files
 from ..mkv_batch import MkvTools, process_mkv
 from ..mkv_io import list_ass_tracks
+from ..mkv_mux import MuxMeta, MuxPair, pair_for_mux, process_mux
 from ..profile import Profile
 from ..scale_engine import ScaleOptions, scale_file
 
@@ -210,6 +212,90 @@ class MkvWorker(QObject):
             else:
                 error += 1
             self.file_done.emit(mkv_path.name, report.status)
+            for msg in report.messages:
+                self.message.emit(f"    {msg}")
+            self.progress.emit(i, total)
+        self.finished.emit(ok, skipped, error)
+
+
+class MuxScanWorker(QObject):
+    """掃描影片資料夾與字幕資料夾,依集數配對。"""
+
+    finished = Signal(object)  # list[MuxPair]
+
+    def __init__(self, video_folder: Path, subtitle_folder: Path,
+                 pair_fn=pair_for_mux) -> None:
+        super().__init__()
+        self._video_folder = Path(video_folder)
+        self._subtitle_folder = Path(subtitle_folder)
+        self._pair_fn = pair_fn
+
+    def run(self) -> None:
+        _subs_in_v, videos = find_files(self._video_folder)
+        subs, _videos_in_s = find_files(self._subtitle_folder)
+        self.finished.emit(self._pair_fn(videos, subs))
+
+
+class MuxWorker(QObject):
+    """封裝批次 worker;逐檔跑 process_mux,支援取消與檔名衝突保護。"""
+
+    progress = Signal(int, int)
+    file_progress = Signal(int)
+    file_done = Signal(str, str)
+    message = Signal(str)
+    finished = Signal(int, int, int)
+
+    def __init__(self, pairs, meta: MuxMeta, operation, tools,
+                 output_dir: Optional[Path], process_fn=process_mux) -> None:
+        super().__init__()
+        self._pairs = list(pairs)
+        self._meta = meta
+        self._operation = operation
+        self._tools = tools
+        self._output_dir = output_dir
+        self._process_fn = process_fn
+        self._cancelled = False
+
+    def cancel(self) -> None:
+        self._cancelled = True
+
+    def run(self) -> None:
+        total = len(self._pairs)
+        ok = skipped = error = 0
+        seen_basenames: set[str] = set()
+        for i, pair in enumerate(self._pairs, start=1):
+            if self._cancelled:
+                self.message.emit("已取消,停止後續檔案")
+                break
+            name = pair.video_path.name
+            if self._output_dir is not None and name in seen_basenames:
+                error += 1
+                self.file_done.emit(name, "error")
+                self.message.emit(
+                    "    輸出檔名衝突: 已有同名檔案寫入輸出資料夾,略過此檔")
+                self.progress.emit(i, total)
+                continue
+            out = (self._output_dir / name
+                   if self._output_dir is not None else None)
+            try:
+                report = self._process_fn(
+                    pair, self._meta, self._operation, self._tools,
+                    out_path=out, progress_cb=self.file_progress.emit)
+            except Exception as exc:  # 單檔失敗不中斷整批
+                error += 1
+                self.file_done.emit(name, "error")
+                self.message.emit(f"    處理失敗: {exc}")
+                self.progress.emit(i, total)
+                continue
+            if report.status == "ok":
+                ok += 1
+                if self._output_dir is not None:
+                    seen_basenames.add(name)
+            elif report.status == "skipped":
+                skipped += 1
+            else:
+                error += 1
+            self.file_done.emit(name, report.status)
             for msg in report.messages:
                 self.message.emit(f"    {msg}")
             self.progress.emit(i, total)
