@@ -8,7 +8,7 @@ from PySide6.QtCore import QObject, Signal
 
 from ..batch_runner import process_file
 from ..mkv_batch import MkvTools, process_mkv
-from ..mkv_io import SubtitleTrack, list_ass_tracks
+from ..mkv_io import list_ass_tracks
 from ..profile import Profile
 from ..scale_engine import ScaleOptions, scale_file
 
@@ -191,9 +191,16 @@ class MkvWorker(QObject):
                 continue
             out = (self._output_dir / mkv_path.name
                    if self._output_dir is not None else None)
-            report = self._process_fn(
-                mkv_path, tracks, self._operation, self._tools,
-                out_path=out, progress_cb=self.file_progress.emit)
+            try:
+                report = self._process_fn(
+                    mkv_path, tracks, self._operation, self._tools,
+                    out_path=out, progress_cb=self.file_progress.emit)
+            except Exception as exc:  # 單檔失敗不中斷整批
+                error += 1
+                self.file_done.emit(mkv_path.name, "error")
+                self.message.emit(f"    {exc}")
+                self.progress.emit(i, total)
+                continue
             if report.status == "ok":
                 ok += 1
                 if self._output_dir is not None:

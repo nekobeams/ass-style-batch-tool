@@ -16,7 +16,6 @@ from typing import Callable, Dict, List, Optional, Set, Tuple
 
 from .ass_style import apply_profile, load_subs, save_subs
 from .mkv_io import Replacement, SubtitleTrack, extract_track, remux
-from .profile import Profile
 from .scale_engine import ScaleOptions, scale_file
 
 
@@ -162,7 +161,14 @@ def process_mkv(
                 return MkvFileReport(
                     Path(mkv_path), "error",
                     report.messages + ["輸出驗證失敗,保留原檔"])
-            os.replace(target, mkv_path)
+            try:
+                os.replace(target, mkv_path)
+            except OSError as exc:
+                if target.exists():
+                    target.unlink()
+                return MkvFileReport(
+                    Path(mkv_path), "error",
+                    report.messages + [f"取代原檔失敗: {exc}"])
             report.messages.append("已驗證並取代原檔")
         return report
     finally:

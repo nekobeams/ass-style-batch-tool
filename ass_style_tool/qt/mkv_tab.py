@@ -161,6 +161,7 @@ class MkvTab(QWidget):
             self.log.emit("請先選擇有效的資料夾")
             return
         self.scan_button.setEnabled(False)
+        self.run_button.setEnabled(False)
         self._scan_thread = QThread()
         self._scan_worker = MkvScanWorker(Path(folder), self._tools.mkvmerge)
         self._scan_worker.moveToThread(self._scan_thread)
@@ -200,8 +201,9 @@ class MkvTab(QWidget):
                 top.addChild(child)
             self.tree.addTopLevelItem(top)
         self.tree.expandAll()
-        self.run_button.setEnabled(
-            any(files_tracks.values()) and self.tools_available)
+        if self._thread is None:
+            self.run_button.setEnabled(
+                any(files_tracks.values()) and self.tools_available)
 
     # ---------- 勾選 ----------
     def _iter_track_items(self):
@@ -278,6 +280,9 @@ class MkvTab(QWidget):
         return Path(text) if text else None
 
     def _on_run(self) -> None:
+        if self._scan_thread is not None or self._thread is not None:
+            self.log.emit("掃描或處理進行中,請稍候")
+            return
         jobs = self.checked_jobs()
         if not jobs:
             self.log.emit("沒有勾選任何字幕軌")

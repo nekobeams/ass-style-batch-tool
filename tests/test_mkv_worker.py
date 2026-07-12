@@ -79,6 +79,35 @@ def test_mkv_worker_cancel_stops_between_files(qapp, tmp_path):
     assert done["ok"] < 3
 
 
+def test_mkv_worker_process_fn_exception_reports_error_and_continues(qapp, tmp_path):
+    """process_fn 對其中一個檔案拋例外:不應讓 worker 崩潰,
+    該檔回報 error,批次繼續處理後續檔案,finished 仍會被觸發。"""
+    from ass_style_tool.qt.batch_worker import MkvWorker
+
+    def fake_process(mkv_path, tracks, operation, tools, out_path=None,
+                     progress_cb=None, **kwargs):
+        if mkv_path.name == "e2.mkv":
+            raise RuntimeError("boom")
+        if out_path is not None:
+            Path(out_path).parent.mkdir(parents=True, exist_ok=True)
+            Path(out_path).write_bytes(b"x")
+        return MkvFileReport(Path(mkv_path), "ok", [])
+
+    jobs = [(tmp_path / f"e{i}.mkv", [_track()]) for i in (1, 2, 3)]
+    worker = MkvWorker(jobs, make_profile(), TOOLS,
+                       output_dir=tmp_path / "out", process_fn=fake_process)
+    statuses = []
+    worker.file_done.connect(lambda n, s: statuses.append((n, s)))
+    done = {}
+    worker.finished.connect(
+        lambda ok, sk, er: done.update(ok=ok, skipped=sk, error=er))
+    worker.run()  # 不應拋出例外
+    assert done == {"ok": 2, "skipped": 0, "error": 1}
+    assert ("e2.mkv", "error") in statuses
+    assert ("e1.mkv", "ok") in statuses
+    assert ("e3.mkv", "ok") in statuses   # 批次繼續處理後續檔案
+
+
 def test_mkv_worker_output_name_collision(qapp, tmp_path):
     from ass_style_tool.qt.batch_worker import MkvWorker
 

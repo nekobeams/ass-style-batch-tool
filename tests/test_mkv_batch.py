@@ -189,6 +189,31 @@ def test_process_mkv_replace_original_verify_and_swap(tmp_path):
     assert not original.with_name(original.name + ".tmp.mkv").exists()
 
 
+def test_process_mkv_replace_original_os_replace_fail_is_error(tmp_path, monkeypatch):
+    """os.replace 失敗(如原檔被占用)時:回傳 error、清掉暫存檔、原檔不變。"""
+    original = tmp_path / "show.mkv"
+    original.write_bytes(b"ORIGINAL")
+
+    def fake_remux(mkv, out, replacements, mkvmerge, progress_cb=None):
+        Path(out).write_bytes(b"NEW CONTENT")
+        return True
+
+    def fake_replace(src, dst):
+        raise OSError("target busy")
+
+    monkeypatch.setattr("ass_style_tool.mkv_batch.os.replace", fake_replace)
+
+    report = process_mkv(
+        original, [_track(2)], make_profile(), TOOLS,
+        out_path=None,
+        extract_fn=_fake_extract_ok(tmp_path),
+        remux_fn=fake_remux,
+        verify_fn=lambda p, m: True)
+    assert report.status == "error"
+    assert original.read_bytes() == b"ORIGINAL"      # 原檔未變動
+    assert not original.with_name(original.name + ".tmp.mkv").exists()  # 暫存已清
+
+
 def test_process_mkv_replace_original_verify_fail_keeps_original(tmp_path):
     original = tmp_path / "show.mkv"
     original.write_bytes(b"ORIGINAL")
