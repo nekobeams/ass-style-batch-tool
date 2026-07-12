@@ -156,6 +156,9 @@ class MkvTab(QWidget):
 
     # ---------- 掃描 ----------
     def _on_scan(self) -> None:
+        if self._thread is not None:
+            self.log.emit("批次處理進行中,請稍後再掃描")
+            return
         folder = self.folder_edit.text().strip()
         if not folder or not Path(folder).is_dir():
             self.log.emit("請先選擇有效的資料夾")
