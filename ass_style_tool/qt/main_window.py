@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (QApplication, QHBoxLayout, QLabel, QMainWindow,
                                QTabWidget, QVBoxLayout, QWidget)
 
 from .theme import THEME_MODES, apply_theme, apply_titlebar_theme
+from .mkv_tab import MkvTab
 from .preview_panel import PreviewPanel
 from .style_editor import StyleEditor
 from .subtitle_tab import SubtitleFileTab
@@ -60,11 +61,10 @@ class MainWindow(QMainWindow):
 
         self.tabs.addTab(self.subtitle_tab, "字幕檔")
 
-        mkv_page = QWidget()
-        mkv_layout = QVBoxLayout(mkv_page)
-        mkv_layout.addWidget(QLabel("（MKV 功能於後續計畫實作）"))
-        mkv_layout.addStretch(1)
-        self.tabs.addTab(mkv_page, "MKV")
+        self.mkv_tab = MkvTab(self.style_editor.current_profile)
+        self.mkv_tab.log.connect(self.append_log)
+        self.mkv_tab.preview_requested.connect(self._open_in_preview)
+        self.tabs.addTab(self.mkv_tab, "MKV")
 
         self.preview_panel = PreviewPanel(self.style_editor.current_profile)
         self._preview_split = QSplitter()
@@ -146,6 +146,7 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event) -> None:
         self.subtitle_tab.shutdown()
         self.preview_panel.shutdown()
+        self.mkv_tab.shutdown()
         self.settings.setValue("geometry", self.saveGeometry())
         self.settings.setValue("theme_mode", self.current_mode())
         super().closeEvent(event)
