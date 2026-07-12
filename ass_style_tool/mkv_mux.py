@@ -5,7 +5,6 @@
 """
 from __future__ import annotations
 
-import atexit
 import os
 import shutil
 import subprocess
@@ -119,12 +118,6 @@ def process_mux(
 
     report = MkvFileReport(video, "ok")
     workdir = Path(tempfile.mkdtemp(prefix="ass_mux_"))
-    # 轉換後的暫存字幕(styled.ass)在成功路徑上,mux_fn 回傳後仍可能被呼叫端
-    # 檢視/沿用(例如測試驗證封裝內容、或未來需要保留樣式後的字幕副本)。
-    # 因此工作目錄改用行程結束時清理(atexit),不再於函式返回前立刻刪除,
-    # 避免清除掉呼叫端仍需要讀取的暫存檔;僅在失敗/例外路徑上不額外處理,
-    # 交由 atexit 統一回收,不會無限累積(以行程存活期為界)。
-    atexit.register(shutil.rmtree, workdir, ignore_errors=True)
     try:
         subtitle = pair.subtitle_path
         if operation is not None:
@@ -166,6 +159,5 @@ def process_mux(
                     video, "error", report.messages + [f"取代原檔失敗: {exc}"])
             report.messages.append("已驗證並取代原檔")
         return report
-    except Exception:
+    finally:
         shutil.rmtree(workdir, ignore_errors=True)
-        raise

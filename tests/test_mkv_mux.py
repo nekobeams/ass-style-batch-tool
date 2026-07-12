@@ -106,6 +106,7 @@ def test_process_mux_with_style_transforms_first(tmp_path):
 
     def fake_mux(video, subtitle, out, meta, mkvmerge, progress_cb=None):
         seen["subtitle"] = Path(subtitle)
+        seen["text"] = Path(subtitle).read_text(encoding="utf-8-sig")
         Path(out).parent.mkdir(parents=True, exist_ok=True)
         Path(out).write_bytes(b"x")
         return True
@@ -118,8 +119,7 @@ def test_process_mux_with_style_transforms_first(tmp_path):
     # 封進去的是轉換後的暫存檔(非原字幕)
     assert seen["subtitle"] != sub
     import pysubs2
-    styled = pysubs2.SSAFile.from_string(
-        seen["subtitle"].read_text(encoding="utf-8-sig"))
+    styled = pysubs2.SSAFile.from_string(seen["text"])
     assert styled.styles["Default"].fontname == "思源黑體 CN"
 
 
@@ -137,6 +137,25 @@ def test_process_mux_scale_operation(tmp_path):
     process_mux(pair, _meta(), ScaleOptions(factor=2), TOOLS,
                 out_path=tmp_path / "o" / "show.mkv", mux_fn=fake_mux)
     assert "Style: Default,Arial,80," in seen["text"]
+
+
+def test_process_mux_style_no_match_muxes_original(tmp_path):
+    sub = _write_ass(tmp_path)
+    seen = {}
+
+    def fake_mux(video, subtitle, out, meta, mkvmerge, progress_cb=None):
+        seen["subtitle"] = Path(subtitle)
+        Path(out).parent.mkdir(parents=True, exist_ok=True)
+        Path(out).write_bytes(b"x")
+        return True
+
+    pair = MuxPair(Path("show.mkv"), sub, 1, "matched")
+    report = process_mux(pair, _meta(),
+                         make_profile(target_style_names=["沒有這個"]),
+                         TOOLS, out_path=tmp_path / "o" / "show.mkv",
+                         mux_fn=fake_mux)
+    assert report.status == "ok"
+    assert seen["subtitle"] == sub     # 無匹配 → 封原字幕
 
 
 def test_process_mux_no_subtitle_is_skipped(tmp_path):
