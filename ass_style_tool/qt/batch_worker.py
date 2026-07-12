@@ -7,6 +7,8 @@ from typing import Optional
 from PySide6.QtCore import QObject, Signal
 
 from ..batch_runner import process_file
+from ..mkv_batch import MkvTools, process_mkv
+from ..mkv_io import SubtitleTrack, list_ass_tracks
 from ..profile import Profile
 from ..scale_engine import ScaleOptions, scale_file
 
@@ -126,3 +128,82 @@ class ScaleWorker(QObject):
                     f"(倍率 {report.factor_used:.3f})")
             self.progress.emit(i, total)
         self.finished.emit(ok, 0, error)
+
+
+class MkvScanWorker(QObject):
+    """遞迴掃描資料夾內 *.mkv 並列舉各檔 ASS 字幕軌。"""
+
+    finished = Signal(object)  # dict[Path, list[SubtitleTrack]]
+
+    def __init__(self, folder: Path, mkvmerge: Path,
+                 list_fn=list_ass_tracks) -> None:
+        super().__init__()
+        self._folder = Path(folder)
+        self._mkvmerge = mkvmerge
+        self._list_fn = list_fn
+
+    def run(self) -> None:
+        result = {}
+        for path in sorted(self._folder.rglob("*.mkv")):
+            if path.is_file():
+                result[path] = self._list_fn(path, self._mkvmerge)
+        self.finished.emit(result)
+
+
+class MkvWorker(QObject):
+    """MKV 批次 worker;逐檔跑 process_mkv,支援取消與檔名衝突保護。"""
+
+    progress = Signal(int, int)        # 已完成, 總數
+    file_progress = Signal(int)        # 當前檔 mkvmerge %
+    file_done = Signal(str, str)       # 檔名, 狀態
+    message = Signal(str)
+    finished = Signal(int, int, int)   # ok, skipped, error
+
+    def __init__(self, jobs, operation, tools: MkvTools,
+                 output_dir: Optional[Path],
+                 process_fn=process_mkv) -> None:
+        super().__init__()
+        self._jobs = list(jobs)
+        self._operation = operation
+        self._tools = tools
+        self._output_dir = output_dir  # None = 取代原檔
+        self._process_fn = process_fn
+        self._cancelled = False
+
+    def cancel(self) -> None:
+        self._cancelled = True
+
+    def run(self) -> None:
+        total = len(self._jobs)
+        ok = skipped = error = 0
+        seen_basenames: set[str] = set()
+        for i, (mkv_path, tracks) in enumerate(self._jobs, start=1):
+            if self._cancelled:
+                self.message.emit("已取消,停止後續檔案")
+                break
+            if (self._output_dir is not None
+                    and mkv_path.name in seen_basenames):
+                error += 1
+                self.file_done.emit(mkv_path.name, "error")
+                self.message.emit(
+                    "    輸出檔名衝突: 已有同名檔案寫入輸出資料夾,略過此檔")
+                self.progress.emit(i, total)
+                continue
+            out = (self._output_dir / mkv_path.name
+                   if self._output_dir is not None else None)
+            report = self._process_fn(
+                mkv_path, tracks, self._operation, self._tools,
+                out_path=out, progress_cb=self.file_progress.emit)
+            if report.status == "ok":
+                ok += 1
+                if self._output_dir is not None:
+                    seen_basenames.add(mkv_path.name)
+            elif report.status == "skipped":
+                skipped += 1
+            else:
+                error += 1
+            self.file_done.emit(mkv_path.name, report.status)
+            for msg in report.messages:
+                self.message.emit(f"    {msg}")
+            self.progress.emit(i, total)
+        self.finished.emit(ok, skipped, error)
