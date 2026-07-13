@@ -8,10 +8,11 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from PySide6.QtCore import Qt, QThread, Signal
-from PySide6.QtWidgets import (QAbstractItemView, QFileDialog, QHBoxLayout,
-                               QHeaderView, QLabel, QLineEdit, QProgressBar,
-                               QPushButton, QRadioButton, QTableWidget,
-                               QTableWidgetItem, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QAbstractItemView, QButtonGroup, QFileDialog,
+                               QHBoxLayout, QHeaderView, QLabel, QLineEdit,
+                               QProgressBar, QPushButton, QRadioButton,
+                               QTableWidget, QTableWidgetItem, QVBoxLayout,
+                               QWidget)
 
 from ..batch_runner import scan_folder
 from ..profile import Profile
@@ -62,6 +63,10 @@ class SubtitleFileTab(QWidget):
         mode_row.addStretch(1)
         root.addLayout(mode_row)
 
+        self._mode_group = QButtonGroup(self)
+        self._mode_group.addButton(self.apply_mode_radio)
+        self._mode_group.addButton(self.scale_mode_radio)
+
         self.scale_panel = ScalePanel()
         self.scale_panel.setHidden(True)
         root.addWidget(self.scale_panel)
@@ -88,6 +93,10 @@ class SubtitleFileTab(QWidget):
         out_row.addWidget(self.outdir_edit, 1)
         out_row.addWidget(out_browse)
         root.addLayout(out_row)
+
+        self._output_group = QButtonGroup(self)
+        self._output_group.addButton(self.inplace_radio)
+        self._output_group.addButton(self.outdir_radio)
 
         action_row = QHBoxLayout()
         self.scan_button = QPushButton("重新掃描")

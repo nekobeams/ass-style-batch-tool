@@ -5,11 +5,11 @@ from pathlib import Path
 from typing import Callable, List, Optional
 
 from PySide6.QtCore import Qt, QThread, Signal
-from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox,
-                               QFileDialog, QHBoxLayout, QHeaderView, QLabel,
-                               QLineEdit, QProgressBar, QPushButton,
-                               QRadioButton, QTableWidget, QTableWidgetItem,
-                               QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QAbstractItemView, QButtonGroup, QCheckBox,
+                               QComboBox, QFileDialog, QHBoxLayout,
+                               QHeaderView, QLabel, QLineEdit, QProgressBar,
+                               QPushButton, QRadioButton, QTableWidget,
+                               QTableWidgetItem, QVBoxLayout, QWidget)
 
 from ..mkv_batch import MkvTools
 from ..mkv_mux import MuxMeta, MuxPair
@@ -110,6 +110,11 @@ class MuxTab(QWidget):
         op_row.addStretch(1)
         root.addLayout(op_row)
 
+        self._preprocess_group = QButtonGroup(self)
+        self._preprocess_group.addButton(self.direct_mode_radio)
+        self._preprocess_group.addButton(self.apply_mode_radio)
+        self._preprocess_group.addButton(self.scale_mode_radio)
+
         self.scale_panel = ScalePanel()
         self.scale_panel.setHidden(True)
         root.addWidget(self.scale_panel)
@@ -129,6 +134,10 @@ class MuxTab(QWidget):
         out_row.addWidget(out_browse)
         out_row.addWidget(self.replace_radio)
         root.addLayout(out_row)
+
+        self._output_group = QButtonGroup(self)
+        self._output_group.addButton(self.outdir_radio)
+        self._output_group.addButton(self.replace_radio)
 
         action_row = QHBoxLayout()
         self.scan_button = QPushButton("重新掃描")

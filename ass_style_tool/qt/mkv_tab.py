@@ -6,10 +6,10 @@ from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
 
 from PySide6.QtCore import Qt, QThread, Signal
-from PySide6.QtWidgets import (QFileDialog, QHBoxLayout, QLabel, QLineEdit,
-                               QProgressBar, QPushButton, QRadioButton,
-                               QTreeWidget, QTreeWidgetItem, QVBoxLayout,
-                               QWidget)
+from PySide6.QtWidgets import (QButtonGroup, QFileDialog, QHBoxLayout, QLabel,
+                               QLineEdit, QProgressBar, QPushButton,
+                               QRadioButton, QTreeWidget, QTreeWidgetItem,
+                               QVBoxLayout, QWidget)
 
 from ..mkv_batch import MkvTools, select_same_type
 from ..mkv_io import SubtitleTrack, extract_track
@@ -80,6 +80,10 @@ class MkvTab(QWidget):
         mode_row.addStretch(1)
         root.addLayout(mode_row)
 
+        self._mode_group = QButtonGroup(self)
+        self._mode_group.addButton(self.apply_mode_radio)
+        self._mode_group.addButton(self.scale_mode_radio)
+
         self.scale_panel = ScalePanel()
         self.scale_panel.setHidden(True)
         root.addWidget(self.scale_panel)
@@ -99,6 +103,10 @@ class MkvTab(QWidget):
         out_row.addWidget(out_browse)
         out_row.addWidget(self.replace_radio)
         root.addLayout(out_row)
+
+        self._output_group = QButtonGroup(self)
+        self._output_group.addButton(self.outdir_radio)
+        self._output_group.addButton(self.replace_radio)
 
         action_row = QHBoxLayout()
         self.scan_button = QPushButton("重新掃描")

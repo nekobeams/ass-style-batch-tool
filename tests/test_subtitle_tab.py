@@ -164,3 +164,15 @@ def test_auto_scan_skips_during_run(qapp, monkeypatch, tmp_path):
     tab._thread = object()                    # 模擬批次進行中
     tab._folder_chosen(str(tmp_path))
     assert calls == []
+
+
+# ---------- 各群組 RadioButton 互不干擾 ----------
+
+def test_radio_groups_do_not_interfere(qapp):
+    from ass_style_tool.qt.subtitle_tab import SubtitleFileTab
+    tab = SubtitleFileTab(lambda: profile_from_values(DEFAULT_VALUES))
+    tab.scale_mode_radio.setChecked(True)
+    tab.outdir_radio.setChecked(True)      # 點輸出模式
+    assert tab.scale_mode_radio.isChecked() is True   # 操作模式不得被取消
+    tab.inplace_radio.setChecked(True)
+    assert tab.scale_mode_radio.isChecked() is True

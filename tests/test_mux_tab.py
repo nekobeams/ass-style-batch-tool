@@ -83,3 +83,18 @@ def test_operation_profile_when_apply(qapp, monkeypatch):
     tab = _tab(monkeypatch)
     tab.apply_mode_radio.setChecked(True)
     assert isinstance(tab.current_operation(), Profile)
+
+
+# ---------- 各群組 RadioButton 互不干擾 ----------
+
+def test_radio_groups_do_not_interfere(qapp, monkeypatch):
+    tab = _tab(monkeypatch)
+    tab.scale_mode_radio.setChecked(True)
+    tab.replace_radio.setChecked(True)      # 點輸出模式(取代原影片)
+    assert tab.scale_mode_radio.isChecked() is True   # 封裝前處理不得被取消
+    tab.outdir_radio.setChecked(True)
+    assert tab.scale_mode_radio.isChecked() is True
+    # 封裝前處理的三個 radio 仍應在同一群組內互斥
+    tab.apply_mode_radio.setChecked(True)
+    assert tab.direct_mode_radio.isChecked() is False
+    assert tab.scale_mode_radio.isChecked() is False

@@ -13,3 +13,21 @@ def qapp():
     from PySide6.QtWidgets import QApplication
     app = QApplication.instance() or QApplication([])
     yield app
+
+
+@pytest.fixture(autouse=True)
+def _qt_widget_cleanup():
+    """每個測試後銷毀殘留的頂層 widget(等同 pytest-qt qtbot 的清理)。
+
+    測試建立的 widget 若留到直譯器關閉才由 Qt 以未定順序銷毀,
+    會造成間歇性的原生層 teardown 崩潰(全套測試實測,exit 127
+    且無 traceback)。在 QApplication 仍存活時確定性銷毀可根除。
+    """
+    yield
+    from PySide6.QtWidgets import QApplication
+    app = QApplication.instance()
+    if app is not None:
+        for widget in app.topLevelWidgets():
+            widget.deleteLater()
+        app.processEvents()
+        app.processEvents()  # deleteLater 需要第二輪事件處理才真正銷毀
