@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (QApplication, QHBoxLayout, QLabel, QMainWindow,
 
 from .theme import THEME_MODES, apply_theme, apply_titlebar_theme
 from .mkv_tab import MkvTab
+from .mux_tab import MuxTab
 from .preview_panel import PreviewPanel
 from .style_editor import StyleEditor
 from .subtitle_tab import SubtitleFileTab
@@ -65,6 +66,10 @@ class MainWindow(QMainWindow):
         self.mkv_tab.log.connect(self.append_log)
         self.mkv_tab.preview_requested.connect(self._open_in_preview)
         self.tabs.addTab(self.mkv_tab, "MKV")
+
+        self.mux_tab = MuxTab(self.style_editor.current_profile)
+        self.mux_tab.log.connect(self.append_log)
+        self.tabs.addTab(self.mux_tab, "封裝")
 
         self.preview_panel = PreviewPanel(self.style_editor.current_profile)
         self._preview_split = QSplitter()
@@ -147,6 +152,7 @@ class MainWindow(QMainWindow):
         self.subtitle_tab.shutdown()
         self.preview_panel.shutdown()
         self.mkv_tab.shutdown()
+        self.mux_tab.shutdown()
         self.settings.setValue("geometry", self.saveGeometry())
         self.settings.setValue("theme_mode", self.current_mode())
         super().closeEvent(event)
