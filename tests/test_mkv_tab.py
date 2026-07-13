@@ -138,3 +138,44 @@ def test_radio_groups_do_not_interfere(qapp, monkeypatch):
     assert tab.scale_mode_radio.isChecked() is True   # 操作模式不得被取消
     tab.outdir_radio.setChecked(True)
     assert tab.scale_mode_radio.isChecked() is True
+
+
+# ---------- 設定持久化 ----------
+
+def test_save_and_restore_settings_roundtrip(qapp, monkeypatch, tmp_path):
+    from PySide6.QtCore import QSettings
+    settings = QSettings(str(tmp_path / "t.ini"), QSettings.Format.IniFormat)
+
+    tab_a = _tab(monkeypatch)
+    tab_a.folder_edit.setText(r"C:\mkv\show")
+    tab_a.replace_radio.setChecked(True)
+    tab_a.outdir_edit.setText(r"C:\mkv\out")
+    tab_a.save_settings(settings)
+
+    tab_b = _tab(monkeypatch)
+    tab_b.restore_settings(settings)
+    assert tab_b.folder_edit.text() == r"C:\mkv\show"
+    assert tab_b.replace_radio.isChecked() is True
+    assert tab_b.outdir_edit.text() == r"C:\mkv\out"
+
+
+def test_restore_settings_does_not_trigger_scan(qapp, monkeypatch, tmp_path):
+    from PySide6.QtCore import QSettings
+    settings = QSettings(str(tmp_path / "t.ini"), QSettings.Format.IniFormat)
+    settings.setValue("mkv/folder", str(tmp_path))
+    settings.setValue("mkv/output_mode", "outdir")
+    settings.setValue("mkv/outdir", "")
+
+    tab = _tab(monkeypatch)
+    tab.restore_settings(settings)
+    assert tab._scanned_folder is None
+
+
+def test_restore_settings_defaults_outdir_when_unset(qapp, monkeypatch, tmp_path):
+    from PySide6.QtCore import QSettings
+    settings = QSettings(str(tmp_path / "t.ini"), QSettings.Format.IniFormat)
+
+    tab = _tab(monkeypatch)
+    tab.restore_settings(settings)
+    assert tab.folder_edit.text() == ""
+    assert tab.outdir_radio.isChecked() is True

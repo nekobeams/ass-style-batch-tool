@@ -5,7 +5,7 @@ import tempfile
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
 
-from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtCore import Qt, QSettings, QThread, Signal
 from PySide6.QtWidgets import (QButtonGroup, QFileDialog, QHBoxLayout, QLabel,
                                QLineEdit, QProgressBar, QPushButton,
                                QRadioButton, QTreeWidget, QTreeWidgetItem,
@@ -382,3 +382,19 @@ class MkvTab(QWidget):
                 thread.wait()
         import shutil
         shutil.rmtree(self._preview_dir, ignore_errors=True)
+
+    # ---------- 設定持久化 ----------
+    def save_settings(self, settings: QSettings) -> None:
+        settings.setValue("mkv/folder", self.folder_edit.text())
+        settings.setValue(
+            "mkv/output_mode",
+            "replace" if self.replace_radio.isChecked() else "outdir")
+        settings.setValue("mkv/outdir", self.outdir_edit.text())
+
+    def restore_settings(self, settings: QSettings) -> None:
+        self.folder_edit.setText(settings.value("mkv/folder", ""))
+        self.outdir_edit.setText(settings.value("mkv/outdir", ""))
+        if settings.value("mkv/output_mode", "outdir") == "replace":
+            self.replace_radio.setChecked(True)
+        else:
+            self.outdir_radio.setChecked(True)
