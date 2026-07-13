@@ -131,3 +131,31 @@ def test_set_row_subtitle_reassign_matched(qapp, monkeypatch):
     tab.set_row_subtitle(0, Path("other [01].ass"))
     checked = {p.video_path: p for p in tab.checked_pairs()}
     assert checked[Path("a [01].mkv")].subtitle_path == Path("other [01].ass")
+
+
+# ---------- 手動配對:字幕欄下拉選單 ----------
+
+def test_populate_builds_subtitle_combos(qapp, monkeypatch):
+    from PySide6.QtWidgets import QComboBox
+    tab = _tab(monkeypatch)
+    tab.populate(PAIRS)
+    combo0 = tab.table.cellWidget(0, 2)
+    assert isinstance(combo0, QComboBox)
+    # matched 列:初始選取為其字幕
+    assert combo0.currentData() == Path("a [01].ass")
+    # no_subtitle 列:初始選取「(無)」→ None
+    combo1 = tab.table.cellWidget(1, 2)
+    assert combo1.currentData() is None
+
+
+def test_combo_options_include_available_and_current(qapp, monkeypatch):
+    tab = _tab(monkeypatch)
+    tab._available_subtitles = [Path("x [01].ass"), Path("y [02].ass")]
+    tab.populate(PAIRS)
+    combo0 = tab.table.cellWidget(0, 2)
+    datas = [combo0.itemData(i) for i in range(combo0.count())]
+    assert None in datas                       # 「(無)」選項
+    assert Path("x [01].ass") in datas          # 掃描到的可用字幕
+    assert Path("y [02].ass") in datas
+    assert Path("a [01].ass") in datas          # 該列現有字幕(即使不在掃描清單也保留)
+    assert combo0.currentData() == Path("a [01].ass")

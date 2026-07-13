@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QButtonGroup, QCheckBox,
                                QPushButton, QRadioButton, QTableWidget,
                                QTableWidgetItem, QVBoxLayout, QWidget)
 
+from ..episode_match import find_files
 from ..mkv_batch import MkvTools
 from ..mkv_mux import MuxMeta, MuxPair
 from ..profile import Profile
@@ -240,6 +241,10 @@ class MuxTab(QWidget):
         self._scan_thread = None
         self._scan_worker = None
         self.scan_button.setEnabled(True)
+        s = self.subtitle_edit.text().strip()
+        if s and Path(s).is_dir():
+            subs, _ = find_files(Path(s))
+            self._available_subtitles = sorted(subs)
         self.populate(pairs)
         matched = sum(1 for p in pairs if p.status == "matched")
         self.log.emit(f"配對完成:{len(pairs)} 部影片,{matched} 部有對應字幕")
@@ -255,9 +260,21 @@ class MuxTab(QWidget):
                 else Qt.CheckState.Unchecked)
             self.table.setItem(r, 0, check)
             self.table.setItem(r, 1, QTableWidgetItem(pair.video_path.name))
-            self.table.setItem(
-                r, 2, QTableWidgetItem(
-                    pair.subtitle_path.name if pair.subtitle_path else "-"))
+            combo = QComboBox()
+            combo.addItem("(無)", None)
+            options = list(self._available_subtitles)
+            if (pair.subtitle_path is not None
+                    and pair.subtitle_path not in options):
+                options.append(pair.subtitle_path)
+            selected_index = 0
+            for i, sub in enumerate(options, start=1):
+                combo.addItem(sub.name, sub)
+                if sub == pair.subtitle_path:
+                    selected_index = i
+            combo.setCurrentIndex(selected_index)
+            combo.activated.connect(
+                lambda _idx, row=r: self._on_subtitle_selected(row))
+            self.table.setCellWidget(r, 2, combo)
             self.table.setItem(
                 r, 3, QTableWidgetItem(
                     f"{pair.episode:02d}" if pair.episode is not None else "?"))
@@ -297,6 +314,10 @@ class MuxTab(QWidget):
             self.tools_available
             and any(p.status == "matched" for p in self._pairs)
             and self._thread is None)
+
+    def _on_subtitle_selected(self, row: int) -> None:
+        combo = self.table.cellWidget(row, 2)
+        self.set_row_subtitle(row, combo.currentData())
 
     # ---------- 軌資訊 / 操作 ----------
     def current_meta(self) -> MuxMeta:
