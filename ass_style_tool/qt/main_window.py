@@ -146,6 +146,10 @@ class MainWindow(QMainWindow):
         if mode in self._theme_actions:
             self._theme_mode = mode
             self._theme_actions[mode].setChecked(True)
+        self.style_editor.restore_settings(self.settings)
+        self.subtitle_tab.restore_settings(self.settings)
+        self.mkv_tab.restore_settings(self.settings)
+        self.mux_tab.restore_settings(self.settings)
         self._apply_current_theme()
 
     def closeEvent(self, event) -> None:
@@ -153,6 +157,10 @@ class MainWindow(QMainWindow):
         self.preview_panel.shutdown()
         self.mkv_tab.shutdown()
         self.mux_tab.shutdown()
+        self.style_editor.save_settings(self.settings)
+        self.subtitle_tab.save_settings(self.settings)
+        self.mkv_tab.save_settings(self.settings)
+        self.mux_tab.save_settings(self.settings)
         self.settings.setValue("geometry", self.saveGeometry())
         self.settings.setValue("theme_mode", self.current_mode())
         super().closeEvent(event)

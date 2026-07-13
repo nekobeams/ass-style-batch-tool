@@ -4,7 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Dict
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import QSettings, Signal
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QFileDialog, QFormLayout,
                                QHBoxLayout, QLabel, QLineEdit, QMessageBox,
                                QPushButton, QVBoxLayout, QWidget)
@@ -210,3 +210,18 @@ class StyleEditor(QWidget):
             QMessageBox.critical(self, "儲存失敗", str(exc))
             return
         self._refresh_profile_list()
+
+    # ---------- 設定持久化 ----------
+    def save_settings(self, settings: QSettings) -> None:
+        path = self.profile_combo.currentData()
+        if path:
+            settings.setValue("style/profile", path)
+
+    def restore_settings(self, settings: QSettings) -> None:
+        path = settings.value("style/profile", "")
+        if not path:
+            return
+        idx = self.profile_combo.findData(path)
+        if idx >= 0:
+            self.profile_combo.setCurrentIndex(idx)
+            self.load_profile_from(path)

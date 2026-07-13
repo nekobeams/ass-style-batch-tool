@@ -65,3 +65,47 @@ def test_values_changed_signal_fires(qapp):
     before = len(fired)
     editor._checks["bold"].setChecked(True)
     assert len(fired) > before
+
+
+# ---------- 設定持久化 ----------
+
+def test_save_and_restore_profile_setting(qapp, monkeypatch, tmp_path):
+    from PySide6.QtCore import QSettings
+    from ass_style_tool.profile import save_profile
+    from ass_style_tool.qt.style_editor import StyleEditor
+
+    profiles_dir = tmp_path / "profiles"
+    profiles_dir.mkdir()
+    editor_a = StyleEditor()
+    monkeypatch.setattr(editor_a, "profiles_dir", lambda: profiles_dir)
+    editor_a.set_values(DEFAULT_VALUES)
+    profile = editor_a.current_profile()
+    save_profile(profile, profiles_dir / "mine.json")
+    editor_a._refresh_profile_list()
+    idx = editor_a.profile_combo.findData(str(profiles_dir / "mine.json"))
+    editor_a.profile_combo.setCurrentIndex(idx)
+
+    settings = QSettings(str(tmp_path / "t.ini"), QSettings.Format.IniFormat)
+    editor_a.save_settings(settings)
+
+    editor_b = StyleEditor()
+    monkeypatch.setattr(editor_b, "profiles_dir", lambda: profiles_dir)
+    editor_b._refresh_profile_list()
+    editor_b.restore_settings(settings)
+    assert editor_b.profile_combo.currentData() == str(profiles_dir / "mine.json")
+
+
+def test_restore_profile_setting_missing_file_is_silent(qapp, monkeypatch, tmp_path):
+    from PySide6.QtCore import QSettings
+    from ass_style_tool.qt.style_editor import StyleEditor
+
+    profiles_dir = tmp_path / "profiles"
+    profiles_dir.mkdir()
+    settings = QSettings(str(tmp_path / "t.ini"), QSettings.Format.IniFormat)
+    settings.setValue("style/profile", str(profiles_dir / "gone.json"))
+
+    editor = StyleEditor()
+    monkeypatch.setattr(editor, "profiles_dir", lambda: profiles_dir)
+    editor._refresh_profile_list()
+    editor.restore_settings(settings)  # 不應拋例外
+    assert editor.profile_combo.currentData() is None
