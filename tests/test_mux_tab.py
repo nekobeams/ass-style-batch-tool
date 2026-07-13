@@ -133,6 +133,26 @@ def test_set_row_subtitle_reassign_matched(qapp, monkeypatch):
     assert checked[Path("a [01].mkv")].subtitle_path == Path("other [01].ass")
 
 
+def test_set_row_subtitle_recovers_ambiguous_row(qapp, monkeypatch):
+    tab = _tab(monkeypatch)
+    pairs = [MuxPair(Path("d [04].mkv"), None, 4, "ambiguous")]
+    tab.populate(pairs)
+    tab.set_row_subtitle(0, Path("chosen [04].ass"))
+    checked = {p.video_path: p for p in tab.checked_pairs()}
+    assert Path("d [04].mkv") in checked
+    assert checked[Path("d [04].mkv")].subtitle_path == Path("chosen [04].ass")
+
+
+def test_set_row_subtitle_recovers_no_episode_row(qapp, monkeypatch):
+    tab = _tab(monkeypatch)
+    pairs = [MuxPair(Path("movie.mkv"), None, None, "no_episode")]
+    tab.populate(pairs)
+    tab.set_row_subtitle(0, Path("movie.ass"))
+    checked = {p.video_path: p for p in tab.checked_pairs()}
+    assert Path("movie.mkv") in checked
+    assert checked[Path("movie.mkv")].subtitle_path == Path("movie.ass")
+
+
 # ---------- 手動配對:字幕欄下拉選單 ----------
 
 def test_populate_builds_subtitle_combos(qapp, monkeypatch):
