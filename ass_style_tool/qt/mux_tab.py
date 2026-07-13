@@ -1,6 +1,7 @@
 """「封裝」分頁:把外部 .ass 字幕依集數配對後 mux 進 MKV。"""
 from __future__ import annotations
 
+import dataclasses
 from pathlib import Path
 from typing import Callable, List, Optional
 
@@ -34,6 +35,7 @@ class MuxTab(QWidget):
         super().__init__()
         self._get_profile = get_profile
         self._pairs: List[MuxPair] = []
+        self._available_subtitles: List[Path] = []
         self._thread: Optional[QThread] = None
         self._worker = None
         self._scan_thread: Optional[QThread] = None
@@ -274,6 +276,27 @@ class MuxTab(QWidget):
                     and pair.status == "matched"):
                 result.append(pair)
         return result
+
+    def set_row_subtitle(self, row: int, subtitle_path: Optional[Path]) -> None:
+        """手動指定(或清除)某列的字幕檔;同步 pair/狀態欄/勾選框。"""
+        pair = self._pairs[row]
+        if subtitle_path is not None:
+            new_pair = dataclasses.replace(
+                pair, subtitle_path=subtitle_path, status="matched")
+        else:
+            new_pair = dataclasses.replace(
+                pair, subtitle_path=None, status="no_subtitle")
+        self._pairs[row] = new_pair
+        self.table.item(row, 4).setText(
+            _STATUS_LABELS.get(new_pair.status, new_pair.status))
+        check = self.table.item(row, 0)
+        check.setCheckState(
+            Qt.CheckState.Checked if new_pair.status == "matched"
+            else Qt.CheckState.Unchecked)
+        self.run_button.setEnabled(
+            self.tools_available
+            and any(p.status == "matched" for p in self._pairs)
+            and self._thread is None)
 
     # ---------- 軌資訊 / 操作 ----------
     def current_meta(self) -> MuxMeta:

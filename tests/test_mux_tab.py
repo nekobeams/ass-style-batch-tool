@@ -98,3 +98,36 @@ def test_radio_groups_do_not_interfere(qapp, monkeypatch):
     tab.apply_mode_radio.setChecked(True)
     assert tab.direct_mode_radio.isChecked() is False
     assert tab.scale_mode_radio.isChecked() is False
+
+
+# ---------- 手動配對:set_row_subtitle 模型變更 ----------
+
+def test_set_row_subtitle_assigns_and_checks(qapp, monkeypatch):
+    from PySide6.QtCore import Qt
+    tab = _tab(monkeypatch)
+    tab.populate(PAIRS)
+    # 第 1 列原本 no_subtitle → 手動指定字幕
+    tab.set_row_subtitle(1, Path("manual [02].ass"))
+    assert tab.table.item(1, 0).checkState() == Qt.CheckState.Checked
+    checked = {p.video_path: p for p in tab.checked_pairs()}
+    assert Path("b [02].mkv") in checked
+    assert checked[Path("b [02].mkv")].subtitle_path == Path("manual [02].ass")
+
+
+def test_set_row_subtitle_clear_unchecks(qapp, monkeypatch):
+    from PySide6.QtCore import Qt
+    tab = _tab(monkeypatch)
+    tab.populate(PAIRS)
+    # 第 0 列原本 matched → 清除指定
+    tab.set_row_subtitle(0, None)
+    assert tab.table.item(0, 0).checkState() == Qt.CheckState.Unchecked
+    assert Path("a [01].mkv") not in {p.video_path for p in tab.checked_pairs()}
+
+
+def test_set_row_subtitle_reassign_matched(qapp, monkeypatch):
+    tab = _tab(monkeypatch)
+    tab.populate(PAIRS)
+    # 第 0 列原本 matched(a [01].ass)→ 改指定別的字幕
+    tab.set_row_subtitle(0, Path("other [01].ass"))
+    checked = {p.video_path: p for p in tab.checked_pairs()}
+    assert checked[Path("a [01].mkv")].subtitle_path == Path("other [01].ass")
