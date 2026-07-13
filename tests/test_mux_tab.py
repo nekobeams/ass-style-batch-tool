@@ -179,3 +179,49 @@ def test_combo_options_include_available_and_current(qapp, monkeypatch):
     assert Path("y [02].ass") in datas
     assert Path("a [01].ass") in datas          # 該列現有字幕(即使不在掃描清單也保留)
     assert combo0.currentData() == Path("a [01].ass")
+
+
+# ---------- 設定持久化 ----------
+
+def test_save_and_restore_settings_roundtrip(qapp, monkeypatch, tmp_path):
+    from PySide6.QtCore import QSettings
+    settings = QSettings(str(tmp_path / "t.ini"), QSettings.Format.IniFormat)
+
+    tab_a = _tab(monkeypatch)
+    tab_a.video_edit.setText(r"C:\mux\video")
+    tab_a.subtitle_edit.setText(r"C:\mux\sub")
+    tab_a.replace_radio.setChecked(True)
+    tab_a.outdir_edit.setText(r"C:\mux\out")
+    tab_a.save_settings(settings)
+
+    tab_b = _tab(monkeypatch)
+    tab_b.restore_settings(settings)
+    assert tab_b.video_edit.text() == r"C:\mux\video"
+    assert tab_b.subtitle_edit.text() == r"C:\mux\sub"
+    assert tab_b.replace_radio.isChecked() is True
+    assert tab_b.outdir_edit.text() == r"C:\mux\out"
+
+
+def test_restore_settings_does_not_trigger_scan(qapp, monkeypatch, tmp_path):
+    from PySide6.QtCore import QSettings
+    settings = QSettings(str(tmp_path / "t.ini"), QSettings.Format.IniFormat)
+    settings.setValue("mux/video_folder", str(tmp_path))
+    settings.setValue("mux/subtitle_folder", str(tmp_path))
+    settings.setValue("mux/output_mode", "outdir")
+    settings.setValue("mux/outdir", "")
+
+    tab = _tab(monkeypatch)
+    tab.restore_settings(settings)
+    assert tab._scanned_key is None
+    assert tab.table.rowCount() == 0
+
+
+def test_restore_settings_defaults_outdir_when_unset(qapp, monkeypatch, tmp_path):
+    from PySide6.QtCore import QSettings
+    settings = QSettings(str(tmp_path / "t.ini"), QSettings.Format.IniFormat)
+
+    tab = _tab(monkeypatch)
+    tab.restore_settings(settings)
+    assert tab.video_edit.text() == ""
+    assert tab.subtitle_edit.text() == ""
+    assert tab.outdir_radio.isChecked() is True

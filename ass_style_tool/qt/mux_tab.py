@@ -5,7 +5,7 @@ import dataclasses
 from pathlib import Path
 from typing import Callable, List, Optional
 
-from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtCore import Qt, QSettings, QThread, Signal
 from PySide6.QtWidgets import (QAbstractItemView, QButtonGroup, QCheckBox,
                                QComboBox, QFileDialog, QHBoxLayout,
                                QHeaderView, QLabel, QLineEdit, QProgressBar,
@@ -403,3 +403,21 @@ class MuxTab(QWidget):
             if thread is not None:
                 thread.quit()
                 thread.wait()
+
+    # ---------- 設定持久化 ----------
+    def save_settings(self, settings: QSettings) -> None:
+        settings.setValue("mux/video_folder", self.video_edit.text())
+        settings.setValue("mux/subtitle_folder", self.subtitle_edit.text())
+        settings.setValue(
+            "mux/output_mode",
+            "replace" if self.replace_radio.isChecked() else "outdir")
+        settings.setValue("mux/outdir", self.outdir_edit.text())
+
+    def restore_settings(self, settings: QSettings) -> None:
+        self.video_edit.setText(settings.value("mux/video_folder", ""))
+        self.subtitle_edit.setText(settings.value("mux/subtitle_folder", ""))
+        self.outdir_edit.setText(settings.value("mux/outdir", ""))
+        if settings.value("mux/output_mode", "outdir") == "replace":
+            self.replace_radio.setChecked(True)
+        else:
+            self.outdir_radio.setChecked(True)
