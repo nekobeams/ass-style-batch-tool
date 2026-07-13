@@ -176,3 +176,48 @@ def test_radio_groups_do_not_interfere(qapp):
     assert tab.scale_mode_radio.isChecked() is True   # 操作模式不得被取消
     tab.inplace_radio.setChecked(True)
     assert tab.scale_mode_radio.isChecked() is True
+
+
+# ---------- 設定持久化 ----------
+
+def test_save_and_restore_settings_roundtrip(qapp, tmp_path):
+    from PySide6.QtCore import QSettings
+    from ass_style_tool.qt.subtitle_tab import SubtitleFileTab
+    settings = QSettings(str(tmp_path / "t.ini"), QSettings.Format.IniFormat)
+
+    tab_a = SubtitleFileTab(lambda: profile_from_values(DEFAULT_VALUES))
+    tab_a.folder_edit.setText(r"C:\videos\show")
+    tab_a.outdir_radio.setChecked(True)
+    tab_a.outdir_edit.setText(r"C:\videos\out")
+    tab_a.save_settings(settings)
+
+    tab_b = SubtitleFileTab(lambda: profile_from_values(DEFAULT_VALUES))
+    tab_b.restore_settings(settings)
+    assert tab_b.folder_edit.text() == r"C:\videos\show"
+    assert tab_b.outdir_radio.isChecked() is True
+    assert tab_b.outdir_edit.text() == r"C:\videos\out"
+
+
+def test_restore_settings_does_not_trigger_scan(qapp, tmp_path):
+    from PySide6.QtCore import QSettings
+    from ass_style_tool.qt.subtitle_tab import SubtitleFileTab
+    settings = QSettings(str(tmp_path / "t.ini"), QSettings.Format.IniFormat)
+    settings.setValue("subtitle/folder", str(tmp_path))
+    settings.setValue("subtitle/output_mode", "inplace")
+    settings.setValue("subtitle/outdir", "")
+
+    tab = SubtitleFileTab(lambda: profile_from_values(DEFAULT_VALUES))
+    tab.restore_settings(settings)
+    assert tab._scanned_folder is None
+    assert tab.table.rowCount() == 0
+
+
+def test_restore_settings_defaults_inplace_when_unset(qapp, tmp_path):
+    from PySide6.QtCore import QSettings
+    from ass_style_tool.qt.subtitle_tab import SubtitleFileTab
+    settings = QSettings(str(tmp_path / "t.ini"), QSettings.Format.IniFormat)
+
+    tab = SubtitleFileTab(lambda: profile_from_values(DEFAULT_VALUES))
+    tab.restore_settings(settings)
+    assert tab.folder_edit.text() == ""
+    assert tab.inplace_radio.isChecked() is True

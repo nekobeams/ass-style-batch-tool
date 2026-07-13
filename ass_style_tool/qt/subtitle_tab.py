@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 from typing import Callable, Optional
 
-from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtCore import Qt, QSettings, QThread, Signal
 from PySide6.QtWidgets import (QAbstractItemView, QButtonGroup, QFileDialog,
                                QHBoxLayout, QHeaderView, QLabel, QLineEdit,
                                QProgressBar, QPushButton, QRadioButton,
@@ -318,6 +318,22 @@ class SubtitleFileTab(QWidget):
             if thread is not None:
                 thread.quit()
                 thread.wait()
+
+    # ---------- 設定持久化 ----------
+    def save_settings(self, settings: QSettings) -> None:
+        settings.setValue("subtitle/folder", self.folder_edit.text())
+        settings.setValue(
+            "subtitle/output_mode",
+            "outdir" if self.outdir_radio.isChecked() else "inplace")
+        settings.setValue("subtitle/outdir", self.outdir_edit.text())
+
+    def restore_settings(self, settings: QSettings) -> None:
+        self.folder_edit.setText(settings.value("subtitle/folder", ""))
+        self.outdir_edit.setText(settings.value("subtitle/outdir", ""))
+        if settings.value("subtitle/output_mode", "inplace") == "outdir":
+            self.outdir_radio.setChecked(True)
+        else:
+            self.inplace_radio.setChecked(True)
 
     # ---------- 開啟輸出資料夾 ----------
     def _open_output(self) -> None:
