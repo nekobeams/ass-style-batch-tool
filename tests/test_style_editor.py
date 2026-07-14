@@ -109,3 +109,29 @@ def test_restore_profile_setting_missing_file_is_silent(qapp, monkeypatch, tmp_p
     editor._refresh_profile_list()
     editor.restore_settings(settings)  # 不應拋例外
     assert editor.profile_combo.currentData() is None
+
+
+def test_restore_profile_setting_corrupt_file_is_silent(qapp, monkeypatch, tmp_path):
+    """style/profile 指向的檔案存在(會被 findData 找到)但內容損毀時,
+    restore_settings 不應拋出例外(對照手動載入按鈕會彈出 QMessageBox,
+    啟動流程不可有互動對話框擋住)。"""
+    from PySide6.QtCore import QSettings
+    from ass_style_tool.qt.style_editor import StyleEditor
+
+    profiles_dir = tmp_path / "profiles"
+    profiles_dir.mkdir()
+    bad_path = profiles_dir / "corrupt.json"
+    bad_path.write_text("not valid json", encoding="utf-8")
+
+    settings = QSettings(str(tmp_path / "t.ini"), QSettings.Format.IniFormat)
+    settings.setValue("style/profile", str(bad_path))
+
+    editor = StyleEditor()
+    monkeypatch.setattr(editor, "profiles_dir", lambda: profiles_dir)
+    editor._refresh_profile_list()  # corrupt.json 存在於目錄中,會出現在下拉選單
+    editor.restore_settings(settings)  # 不應拋例外
+
+    # findData 找到了該路徑,combo 會選到它,但 load_profile_from 失敗被吞掉,
+    # 欄位維持先前狀態(建構時的 DEFAULT_VALUES),不會是損毀資料。
+    assert editor.profile_combo.currentData() == str(bad_path)
+    assert editor._edits["fontname"].text() == DEFAULT_VALUES["fontname"]

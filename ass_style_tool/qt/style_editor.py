@@ -224,4 +224,7 @@ class StyleEditor(QWidget):
         idx = self.profile_combo.findData(path)
         if idx >= 0:
             self.profile_combo.setCurrentIndex(idx)
-            self.load_profile_from(path)
+            try:
+                self.load_profile_from(path)
+            except Exception:
+                pass
