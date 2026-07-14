@@ -2,13 +2,17 @@
 from __future__ import annotations
 
 import shutil
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional
 
 
 def bundled_tools_dir() -> Path:
-    """安裝程式會把工具放在套件旁的 tools/ 目錄(不保證存在)。"""
+    """安裝程式會把工具放在套件旁的 tools/ 目錄(不保證存在)。
+    打包後(sys.frozen)以執行檔所在目錄為準;開發模式維持相對於原始碼的位置。"""
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).parent / "tools"
     return Path(__file__).parent / "tools"
 
 

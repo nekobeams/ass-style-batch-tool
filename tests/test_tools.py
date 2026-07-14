@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 from ass_style_tool.tools import (ToolStatus, find_tool, ffprobe_path,
@@ -69,3 +70,20 @@ def test_tool_statuses_reports_three(monkeypatch):
     statuses = tool_statuses()
     assert {s.name for s in statuses} == {"ffprobe", "mkvmerge", "mkvextract"}
     assert all(s.available is False for s in statuses)
+
+
+# ---------- bundled_tools_dir frozen 感知 ----------
+
+def test_bundled_tools_dir_dev_mode(monkeypatch):
+    import ass_style_tool.tools as tools_mod
+    monkeypatch.delattr(sys, "frozen", raising=False)
+    expected = Path(tools_mod.__file__).parent / "tools"
+    assert tools_mod.bundled_tools_dir() == expected
+
+
+def test_bundled_tools_dir_frozen(monkeypatch, tmp_path):
+    import ass_style_tool.tools as tools_mod
+    fake_exe = tmp_path / "ass_style_tool.exe"
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "executable", str(fake_exe))
+    assert tools_mod.bundled_tools_dir() == tmp_path / "tools"
