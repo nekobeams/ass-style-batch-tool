@@ -1,11 +1,23 @@
 # -*- mode: python ; coding: utf-8 -*-
 """PyInstaller onedir spec:ASS 字幕樣式批次工具。"""
 
-# 開發機上 python-mpv 載入的 libmpv-2.dll 絕對路徑(見 plan Task 3 Step 4 調查)
-LIBMPV = (
-    r"C:\Users\CAT\AppData\Local\Programs\Python\Python313"
-    r"\Lib\site-packages\libmpv-2.dll"
-)
+import os
+import sysconfig
+
+# python-mpv 在 Windows 上把 libmpv-2.dll 裝在 site-packages 根目錄(pip install
+# 該套件時附帶的 wheel data)。用 sysconfig 動態找,換機器/換 Python 版本仍能重建。
+_LIBMPV_CANDIDATES = [
+    os.path.join(sysconfig.get_paths()["purelib"], "libmpv-2.dll"),
+    os.path.join(sysconfig.get_paths()["platlib"], "libmpv-2.dll"),
+]
+LIBMPV = next((p for p in _LIBMPV_CANDIDATES if os.path.isfile(p)), None)
+if LIBMPV is None:
+    raise SystemExit(
+        "找不到 libmpv-2.dll,已檢查:\n  " + "\n  ".join(_LIBMPV_CANDIDATES) +
+        "\n`python-mpv`(pip 套件)本身不附帶這個 DLL,需要另外取得對應 Windows"
+        "版 libmpv 的 build(libmpv-2.dll),放進上述 site-packages 目錄"
+        "(與 mpv.py 同層)後再重跑打包。"
+    )
 
 block_cipher = None
 
