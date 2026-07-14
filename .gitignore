@@ -8,3 +8,8 @@ demo_subs/
 
 # 本機開發用外部工具(ffprobe 等);打包安裝程式時另行處理來源
 ass_style_tool/tools/
+
+# PyInstaller 打包產物(.spec 檔本身進版控)
+build/
+dist/
+*.spec.bak
