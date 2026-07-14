@@ -135,3 +135,51 @@ def test_restore_profile_setting_corrupt_file_is_silent(qapp, monkeypatch, tmp_p
     # 欄位維持先前狀態(建構時的 DEFAULT_VALUES),不會是損毀資料。
     assert editor.profile_combo.currentData() == str(bad_path)
     assert editor._edits["fontname"].text() == DEFAULT_VALUES["fontname"]
+
+
+# ---------- profiles_dir 改用 %APPDATA% ----------
+
+def test_profiles_dir_uses_appdata(qapp, monkeypatch, tmp_path):
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    from ass_style_tool.qt.style_editor import StyleEditor
+    editor = StyleEditor()
+    assert editor.profiles_dir() == tmp_path / "ass-style-tool" / "profiles"
+
+
+# ---------- migrate_legacy_profiles ----------
+
+def test_migrate_copies_when_target_empty(tmp_path):
+    from ass_style_tool.qt.style_editor import migrate_legacy_profiles
+    legacy = tmp_path / "legacy"
+    legacy.mkdir()
+    (legacy / "a.json").write_text("{}", encoding="utf-8")
+    target = tmp_path / "target"
+    n = migrate_legacy_profiles(legacy, target)
+    assert n == 1
+    assert (target / "a.json").exists()
+    assert (legacy / "a.json").exists()          # 不刪原檔
+
+
+def test_migrate_skips_when_target_has_json(tmp_path):
+    from ass_style_tool.qt.style_editor import migrate_legacy_profiles
+    legacy = tmp_path / "legacy"
+    legacy.mkdir()
+    (legacy / "a.json").write_text("{}", encoding="utf-8")
+    target = tmp_path / "target"
+    target.mkdir()
+    (target / "existing.json").write_text("{}", encoding="utf-8")
+    assert migrate_legacy_profiles(legacy, target) == 0
+    assert not (target / "a.json").exists()      # 沒覆蓋/沒搬
+
+
+def test_migrate_noop_when_legacy_absent(tmp_path):
+    from ass_style_tool.qt.style_editor import migrate_legacy_profiles
+    assert migrate_legacy_profiles(tmp_path / "nope", tmp_path / "target") == 0
+
+
+def test_migrate_noop_when_legacy_empty(tmp_path):
+    from ass_style_tool.qt.style_editor import migrate_legacy_profiles
+    legacy = tmp_path / "legacy"
+    legacy.mkdir()
+    target = tmp_path / "target"
+    assert migrate_legacy_profiles(legacy, target) == 0

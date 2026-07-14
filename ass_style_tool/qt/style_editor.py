@@ -1,6 +1,8 @@
 """樣式編輯面板:欄位、色彩選擇器、profile 存讀、字型未安裝警告。"""
 from __future__ import annotations
 
+import os
+import shutil
 from pathlib import Path
 from typing import Dict
 
@@ -36,6 +38,25 @@ _COLOR_FIELDS = [
     ("外框色", "outline_colour"),
     ("陰影色", "back_colour"),
 ]
+
+
+def migrate_legacy_profiles(legacy_dir: Path, target_dir: Path) -> int:
+    """首次啟動時把舊位置的 profile 搬到新位置(複製,不刪原檔)。
+    target 已有 *.json → 不搬(回 0);legacy 不存在或無 *.json → 不搬(回 0)。
+    回傳複製的檔案數。"""
+    if target_dir.is_dir() and any(target_dir.glob("*.json")):
+        return 0
+    if not legacy_dir.is_dir():
+        return 0
+    legacy_files = list(legacy_dir.glob("*.json"))
+    if not legacy_files:
+        return 0
+    target_dir.mkdir(parents=True, exist_ok=True)
+    count = 0
+    for f in legacy_files:
+        shutil.copy2(f, target_dir / f.name)
+        count += 1
+    return count
 
 
 def _ass_to_qcolor(ass: str) -> QColor:
@@ -113,6 +134,10 @@ class StyleEditor(QWidget):
         root.addStretch(1)
 
         self.set_values(DEFAULT_VALUES)
+        try:
+            migrate_legacy_profiles(Path.cwd() / "profiles", self.profiles_dir())
+        except Exception:
+            pass  # 搬移失敗不阻擋啟動;profile 清單以現有內容開始
         self._refresh_profile_list()
 
         for edit in self._edits.values():
@@ -127,7 +152,7 @@ class StyleEditor(QWidget):
         return w
 
     def profiles_dir(self) -> Path:
-        return Path.cwd() / "profiles"
+        return Path(os.environ["APPDATA"]) / "ass-style-tool" / "profiles"
 
     # ---------- 取/設值 ----------
     def set_values(self, values: dict) -> None:

@@ -31,3 +31,10 @@ def _qt_widget_cleanup():
             widget.deleteLater()
         app.processEvents()
         app.processEvents()  # deleteLater 需要第二輪事件處理才真正銷毀
+
+
+@pytest.fixture(autouse=True)
+def _isolate_appdata(tmp_path, monkeypatch):
+    """把 APPDATA 重導到 tmp,確保任何測試(含 StyleEditor 建構時的 profile
+    搬移/讀寫)都不會碰到真實使用者的 %APPDATA%。"""
+    monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
