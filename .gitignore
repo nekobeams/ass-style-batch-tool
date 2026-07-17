@@ -13,3 +13,7 @@ ass_style_tool/tools/
 build/
 dist/
 *.spec.bak
+
+# Inno Setup:使用者自備的第三方二進位來源、編譯輸出
+installer_payload/
+installer_dist/
