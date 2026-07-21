@@ -7,7 +7,7 @@ from typing import Optional
 from PySide6.QtCore import QObject, Signal
 
 from ..batch_runner import process_file
-from ..episode_match import find_files
+from ..episode_match import ass_output_name, find_files
 from ..mkv_batch import MkvTools, process_mkv
 from ..mkv_io import list_ass_tracks
 from ..mkv_mux import MuxMeta, MuxPair, pair_for_mux, process_mux
@@ -52,7 +52,8 @@ class BatchWorker(QObject):
             if self._cancelled:
                 self.message.emit("已取消,停止後續檔案")
                 break
-            if self._output_dir is not None and match.sub_path.name in seen_basenames:
+            out_name = ass_output_name(match.sub_path).name
+            if self._output_dir is not None and out_name in seen_basenames:
                 error += 1
                 self.file_done.emit(match.sub_path.name, "error")
                 self.message.emit(
@@ -63,7 +64,7 @@ class BatchWorker(QObject):
             if report.status == "ok":
                 ok += 1
                 if self._output_dir is not None:
-                    seen_basenames.add(match.sub_path.name)
+                    seen_basenames.add(out_name)
             elif report.status == "skipped":
                 skipped += 1
             else:
@@ -102,7 +103,8 @@ class ScaleWorker(QObject):
             if self._cancelled:
                 self.message.emit("已取消,停止後續檔案")
                 break
-            if self._output_dir is not None and match.sub_path.name in seen_basenames:
+            out_name = ass_output_name(match.sub_path).name
+            if self._output_dir is not None and out_name in seen_basenames:
                 error += 1
                 self.file_done.emit(match.sub_path.name, "error")
                 self.message.emit(
@@ -120,7 +122,7 @@ class ScaleWorker(QObject):
             else:
                 ok += 1
                 if self._output_dir is not None:
-                    seen_basenames.add(match.sub_path.name)
+                    seen_basenames.add(out_name)
                 self.file_done.emit(match.sub_path.name, "ok")
                 for change in report.style_changes:
                     self.message.emit(
