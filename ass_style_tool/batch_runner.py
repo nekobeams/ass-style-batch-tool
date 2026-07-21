@@ -65,7 +65,8 @@ def process_file(
                 f"警告: PlayRes 長寬比與影片 {vw}x{vh} 不符,字幕可能變形,建議人工檢查"
             )
 
-        modified = apply_profile(subs, profile)
+        is_ass_family = match.sub_path.suffix.lower() in {".ass", ".ssa"}
+        modified = apply_profile(subs, profile, apply_to_all_styles=not is_ass_family)
         if not modified:
             report.status = "skipped"
             report.messages.append(
@@ -80,7 +81,6 @@ def process_file(
 
     try:
         target = ass_output_name(match.sub_path)  # .srt -> .ass;.ass/.ssa 不變
-        is_ass_family = match.sub_path.suffix.lower() in {".ass", ".ssa"}
         if output_dir is None:
             if is_ass_family:
                 backup = match.sub_path.with_name(match.sub_path.name + ".bak")

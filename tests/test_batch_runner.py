@@ -208,6 +208,36 @@ def test_srt_inplace_makes_new_ass_no_backup(tmp_path):
     assert not (tmp_path / "movie.srt.bak").exists()  # 無備份
 
 
+def test_srt_apply_style_ignores_target_style_names(tmp_path):
+    # SRT 轉換後只有單一 "Default" 樣式;即使 profile 指定的目標樣式名稱
+    # 不是 "Default"(例如常見的自訂字幕組樣式名),仍應套用到這唯一樣式,
+    # 而不是像過去那樣因為名稱對不上而整批 skip、不輸出任何檔案。
+    src = tmp_path / "movie.srt"
+    src.write_text(_SRT_SAMPLE, encoding="utf-8")
+    out_dir = tmp_path / "out"
+    match = MatchResult(sub_path=src, episode=1, video_path=None,
+                        status="no_video")
+    profile = make_profile(target_style_names=["某個非Default的名字"])
+    report = process_file(match, profile, out_dir)
+    assert report.status == "ok"
+    produced = out_dir / "movie.ass"
+    assert produced.exists()
+    subs = pysubs2.SSAFile.from_string(
+        produced.read_text(encoding="utf-8-sig"))
+    assert subs.styles["Default"].fontname == "思源黑體 CN"  # make_profile() 的字型
+
+
+def test_ass_source_with_nonmatching_target_still_skips(tmp_path):
+    # 迴歸測試:.ass/.ssa 來源仍須維持既有的精確名稱比對行為,
+    # 目標樣式名稱對不上時整批略過、不輸出檔案。
+    sub = _write_sample(tmp_path)
+    profile = make_profile(target_style_names=["沒有這個"])
+    out_dir = tmp_path / "out"
+    report = process_file(MatchResult(sub_path=sub, episode=1), profile, out_dir)
+    assert report.status == "skipped"
+    assert not (out_dir / "[A] Show [01].ass").exists()
+
+
 def test_run_batch_collision_srt_and_ass_normalized(tmp_path):
     # 同資料夾 ep1.srt 與 ep1.ass,輸出都會是 ep1.ass -> run_batch 應判定衝突
     srt = tmp_path / "ep1.srt"

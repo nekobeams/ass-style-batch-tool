@@ -48,11 +48,21 @@ def get_scaled_border_shadow(subs: pysubs2.SSAFile) -> str:
     return str(subs.info.get("ScaledBorderAndShadow", "unset"))
 
 
-def apply_profile(subs: pysubs2.SSAFile, profile: Profile) -> List[str]:
+def apply_profile(
+    subs: pysubs2.SSAFile,
+    profile: Profile,
+    *,
+    apply_to_all_styles: bool = False,
+) -> List[str]:
     """把 profile 的目標樣式套用到指定名稱的 Style(依 PlayRes 規則縮放)。
 
     只修改 [V4+ Styles] 中對應的行;絕不改寫 Script Info 標頭、
     不新增 Style。回傳實際修改到的 Style 名稱。
+
+    apply_to_all_styles=True 時,忽略 profile.target_style_names,改為套用到
+    subs 目前實際擁有的所有 Style(供轉檔而來、無原生樣式名稱可比對的來源,
+    例如 SRT 轉換後只會有單一 "Default" 樣式)。預設 False 維持既有
+    依名稱精確比對的行為。
     """
     ref_w, ref_h = reference_resolution(*get_play_res(subs))
     scale_x, scale_y = compute_scale(
@@ -60,7 +70,11 @@ def apply_profile(subs: pysubs2.SSAFile, profile: Profile) -> List[str]:
     )
     target = profile.style
     modified: List[str] = []
-    for name in profile.target_style_names:
+    names = (
+        list(subs.styles.keys()) if apply_to_all_styles
+        else profile.target_style_names
+    )
+    for name in names:
         style = subs.styles.get(name)
         if style is None:
             continue
