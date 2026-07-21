@@ -13,7 +13,7 @@
 
 ### 輸出檔名正規化規則
 
-新增一個共用小函式(放 `ass_style.py`,兩個模式共用):
+新增一個共用小函式(實作時放在 `episode_match.py`,與 `SUB_EXTS`/`find_files` 同處、不依賴 pysubs2、避免循環 import;兩個模式共用):
 
 ```python
 def ass_output_name(src: Path) -> Path:
