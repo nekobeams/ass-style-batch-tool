@@ -20,7 +20,7 @@ _MODE_LABELS = {"system": "跟隨系統", "dark": "深色", "light": "淺色"}
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("ASS 字幕樣式批次工具")
+        self.setWindowTitle("Subtitle Style Batch Tool")
         self.settings = QSettings("ass-style-tool", "ass-style-tool")
 
         central = QWidget()

@@ -1,7 +1,7 @@
-; -- ASS 字幕樣式批次工具 Inno Setup Script --
+; -- Subtitle Style Batch Tool Inno Setup Script --
 ; AppId 一經發佈絕不可再更改(否則使用者升級會被視為全新安裝,留下舊版殘留)
 
-#define MyAppName "ASS 字幕樣式批次工具"
+#define MyAppName "Subtitle Style Batch Tool"
 #define MyAppVersion "1.0"
 #define MyAppExeName "ass_style_tool.exe"
 
@@ -51,7 +51,7 @@ Source: "installer_payload\mkvtoolnix\COPYING*"; DestDir: "{app}\licenses\mkvtoo
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
-Name: "{group}\解除安裝 {#MyAppName}"; Filename: "{uninstallexe}"
+Name: "{group}\Uninstall {#MyAppName}"; Filename: "{uninstallexe}"
 
 [Code]
 function IsToolOnPath(const ExeName: String): Boolean;
