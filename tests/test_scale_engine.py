@@ -312,3 +312,57 @@ def test_crlf_preserved(tmp_path):
     data = out.read_bytes()
     assert b"\r\n" in data
     assert b"\n" not in data.replace(b"\r\n", b"")  # 沒有孤兒 LF
+
+
+# ---------- SRT 輸入支援 ----------
+
+_SRT_FOR_SCALE = """1
+00:00:01,000 --> 00:00:04,000
+Hello world
+"""
+
+
+def test_read_as_ass_text_converts_srt(tmp_path):
+    from ass_style_tool.scale_engine import read_as_ass_text
+    src = tmp_path / "m.srt"
+    src.write_text(_SRT_FOR_SCALE, encoding="utf-8")
+    text, codec, converted = read_as_ass_text(src)
+    assert converted is True
+    assert "[V4+ Styles]" in text          # 已轉成 ASS
+    # UTF-8 with BOM
+    assert codec.encode("x") == b"\xef\xbb\xbfx"
+
+
+def test_read_as_ass_text_keeps_ass(tmp_path):
+    import pysubs2
+    from ass_style_tool.scale_engine import read_as_ass_text
+    ass_text = pysubs2.SSAFile.from_string(_SRT_FOR_SCALE).to_string("ass")
+    src = tmp_path / "m.ass"
+    src.write_text(ass_text, encoding="utf-8-sig")
+    text, codec, converted = read_as_ass_text(src)
+    assert converted is False
+    assert "[V4+ Styles]" in text
+
+
+def test_scale_file_srt_outputs_scaled_ass(tmp_path):
+    from ass_style_tool.scale_engine import scale_file, ScaleOptions
+    src = tmp_path / "m.srt"
+    src.write_text(_SRT_FOR_SCALE, encoding="utf-8")
+    out = tmp_path / "out" / "m.srt"     # worker 會傳原名;scale_file 內部正規化
+    report = scale_file(src, ScaleOptions(factor=2), out)
+    # 實際寫出的是 .ass(副檔名被正規化)
+    assert (tmp_path / "out" / "m.ass").exists()
+    assert not (tmp_path / "out" / "m.srt").exists()
+    # pysubs2 轉出的 Default 預設字級 20 → 縮放 2 倍 → 40
+    written = (tmp_path / "out" / "m.ass").read_text(encoding="utf-8-sig")
+    assert "Style: Default,Arial,40," in written
+
+
+def test_scale_file_srt_inplace_new_ass_no_backup(tmp_path):
+    from ass_style_tool.scale_engine import scale_file, ScaleOptions
+    src = tmp_path / "m.srt"
+    src.write_text(_SRT_FOR_SCALE, encoding="utf-8")
+    scale_file(src, ScaleOptions(factor=2), None)
+    assert (tmp_path / "m.ass").exists()          # 同資料夾新 .ass
+    assert src.exists()                            # 原 .srt 保留
+    assert not (tmp_path / "m.srt.bak").exists()   # 無備份

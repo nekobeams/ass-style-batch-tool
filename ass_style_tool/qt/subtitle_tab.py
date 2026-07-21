@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QButtonGroup, QFileDialog,
 
 from ..batch_runner import scan_folder
 from ..profile import Profile
-from ..scale_engine import ScaleError, read_subtitle_text, scale_text
+from ..scale_engine import ScaleError, read_as_ass_text, scale_text
 from .batch_worker import BatchWorker, ScaleWorker
 from .gui_helpers import preview_rows
 from .scale_panel import ScalePanel
@@ -238,7 +238,7 @@ class SubtitleFileTab(QWidget):
         self.log.emit("=== 試算預覽(不寫檔)===")
         for match in self._scan.matches:
             try:
-                text, _codec = read_subtitle_text(match.sub_path)
+                text, _codec, _converted = read_as_ass_text(match.sub_path)
                 _new, report = scale_text(text, options)
             except Exception as exc:  # noqa: BLE001
                 self.log.emit(f"[error] {match.sub_path.name}: {exc}")

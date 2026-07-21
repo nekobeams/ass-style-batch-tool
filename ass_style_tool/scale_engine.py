@@ -296,18 +296,45 @@ def read_subtitle_text(path: Path) -> Tuple[str, SubtitleCodec]:
     return codec.decode(raw), codec
 
 
+def read_as_ass_text(path: Path) -> Tuple[str, SubtitleCodec, bool]:
+    """讀檔並回傳可餵給 scale_text 的 ASS 文字。
+
+    .ass/.ssa 來源:原始文字 + 原編碼 + converted=False(保留位元組風格與編碼)。
+    其他(如 .srt)來源:pysubs2 轉成 ASS 文字 + UTF-8-with-BOM + converted=True
+    (換格式後不再保留原編碼,一律 UTF-8-sig,與 save_subs 一致)。
+    """
+    text, codec = read_subtitle_text(path)
+    if Path(path).suffix.lower() in (".ass", ".ssa"):
+        return text, codec, False
+    import pysubs2  # 延遲載入:本模組刻意不在頂端依賴 pysubs2
+    ass_text = pysubs2.SSAFile.from_string(text).to_string("ass")
+    return ass_text, SubtitleCodec(codecs.BOM_UTF8, "utf-8"), True
+
+
 def scale_file(path: Path, options: ScaleOptions,
                out_path: Optional[Path] = None) -> ScaleReport:
-    """縮放單一檔案。out_path=None 表原地(先備份 .bak,已存在不覆蓋)。"""
-    text, codec = read_subtitle_text(path)
+    """縮放單一檔案。out_path=None 表原地。
+
+    .ass/.ssa:原地=先備份 .bak 再覆寫(保留原編碼);輸出資料夾=同副檔名。
+    .srt:輸出一律新 .ass(原地=同資料夾新檔不備份、不動原 .srt;輸出資料夾=
+    副檔名正規化為 .ass),編碼 UTF-8-with-BOM。
+    """
+    from .episode_match import ass_output_name
+    text, codec, converted = read_as_ass_text(path)
     new_text, report = scale_text(text, options)
     data = codec.encode(new_text)
     if out_path is None:
-        backup = Path(path).with_name(Path(path).name + ".bak")
-        if not backup.exists():
-            shutil.copy2(path, backup)  # 備份失敗丟例外 → 不寫入
-        Path(path).write_bytes(data)
+        target = ass_output_name(Path(path))  # .srt -> .ass;.ass/.ssa 不變
+        if not converted:
+            backup = target.with_name(target.name + ".bak")
+            if not backup.exists():
+                shutil.copy2(path, backup)  # 備份失敗丟例外 → 不寫入
+        # 非 ASS 家族:不備份、不動原檔,直接寫出新 .ass
+        target.write_bytes(data)
     else:
-        Path(out_path).parent.mkdir(parents=True, exist_ok=True)
-        Path(out_path).write_bytes(data)
+        target = Path(out_path)
+        if converted:
+            target = target.with_suffix(".ass")  # 正規化輸出副檔名
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
     return report
