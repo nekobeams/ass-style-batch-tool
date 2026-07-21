@@ -6,8 +6,17 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-SUB_EXTS = {".ass", ".ssa"}
+SUB_EXTS = {".ass", ".ssa", ".srt"}
 VIDEO_EXTS = {".mkv", ".mp4", ".avi", ".ts", ".m2ts", ".webm", ".mov", ".flv", ".wmv"}
+
+
+def ass_output_name(src: Path) -> Path:
+    """輸出檔名決策:.ass/.ssa 保留原副檔名(維持既有行為);其他(如 .srt)
+    正規化成 .ass(輸出一律為 ASS 內容)。回傳含原目錄的完整路徑。"""
+    if src.suffix.lower() in {".ass", ".ssa"}:
+        return src
+    return src.with_suffix(".ass")
+
 
 #: 幾乎可以肯定是解析度而非集數的 1-3 位數字
 _NON_EPISODE_NUMBERS = {480, 540, 576, 720, 960}

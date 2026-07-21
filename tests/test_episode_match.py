@@ -93,3 +93,27 @@ def test_match_ambiguous_two_subs_same_episode():
         _paths("[B] Show - 01.mkv"),
     )
     assert [r.status for r in results] == ["ambiguous", "ambiguous"]
+
+
+# ---------- SRT 支援 ----------
+
+def test_sub_exts_includes_srt():
+    from ass_style_tool.episode_match import SUB_EXTS
+    assert ".srt" in SUB_EXTS
+    assert ".ass" in SUB_EXTS
+    assert ".ssa" in SUB_EXTS
+
+
+def test_ass_output_name_keeps_ass_family():
+    from pathlib import Path
+    from ass_style_tool.episode_match import ass_output_name
+    assert ass_output_name(Path("a/b.ass")) == Path("a/b.ass")
+    assert ass_output_name(Path("a/b.ssa")) == Path("a/b.ssa")
+
+
+def test_ass_output_name_normalizes_srt():
+    from pathlib import Path
+    from ass_style_tool.episode_match import ass_output_name
+    assert ass_output_name(Path("a/movie.srt")) == Path("a/movie.ass")
+    # 大小寫不敏感
+    assert ass_output_name(Path("a/movie.SRT")) == Path("a/movie.ass")
