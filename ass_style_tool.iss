@@ -40,11 +40,13 @@ Name: "mkvtoolnix"; Description: "MKVToolNix(MKV 字幕封裝/處理用)"; Types
 Source: "dist\ass_style_tool\*"; DestDir: "{app}"; Components: core; Flags: recursesubdirs ignoreversion
 #if DirExists("installer_payload\ffmpeg")
 Source: "installer_payload\ffmpeg\*.exe"; DestDir: "{app}\tools"; Components: ffmpeg; Flags: ignoreversion
-Source: "installer_payload\ffmpeg\LICENSE*"; DestDir: "{app}\licenses\ffmpeg"; Components: ffmpeg; Flags: ignoreversion
+Source: "installer_payload\ffmpeg\LICENSE*"; DestDir: "{app}\licenses\ffmpeg"; Components: ffmpeg; Flags: ignoreversion skipifsourcedoesntexist
+Source: "installer_payload\ffmpeg\COPYING*"; DestDir: "{app}\licenses\ffmpeg"; Components: ffmpeg; Flags: ignoreversion skipifsourcedoesntexist
 #endif
 #if DirExists("installer_payload\mkvtoolnix")
 Source: "installer_payload\mkvtoolnix\*.exe"; DestDir: "{app}\tools"; Components: mkvtoolnix; Flags: ignoreversion
-Source: "installer_payload\mkvtoolnix\LICENSE*"; DestDir: "{app}\licenses\mkvtoolnix"; Components: mkvtoolnix; Flags: ignoreversion
+Source: "installer_payload\mkvtoolnix\LICENSE*"; DestDir: "{app}\licenses\mkvtoolnix"; Components: mkvtoolnix; Flags: ignoreversion skipifsourcedoesntexist
+Source: "installer_payload\mkvtoolnix\COPYING*"; DestDir: "{app}\licenses\mkvtoolnix"; Components: mkvtoolnix; Flags: ignoreversion skipifsourcedoesntexist
 #endif
 
 [Icons]
