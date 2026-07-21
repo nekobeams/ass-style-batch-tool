@@ -170,3 +170,57 @@ def test_output_dir_collision_only_counts_written_files(tmp_path):
     reports = run_batch(scan, make_profile(), out_dir)
     assert [r.status for r in reports] == ["error", "ok"]  # 第二個不被誤判衝突
     assert (out_dir / "[A] Show [01].ass").exists()
+
+
+# ---------- SRT 輸入支援 ----------
+
+_SRT_SAMPLE = """1
+00:00:01,000 --> 00:00:04,000
+Hello world
+"""
+
+
+def test_srt_output_dir_produces_ass(tmp_path):
+    src = tmp_path / "movie.srt"
+    src.write_text(_SRT_SAMPLE, encoding="utf-8")
+    out_dir = tmp_path / "out"
+    match = MatchResult(sub_path=src, episode=1, video_path=None,
+                        status="no_video")
+    report = process_file(match, make_profile(), out_dir)
+    assert report.status == "ok"
+    assert (out_dir / "movie.ass").exists()
+    assert not (out_dir / "movie.srt").exists()
+    assert src.exists()                            # 原始 .srt 不動
+    subs = pysubs2.SSAFile.from_string(
+        (out_dir / "movie.ass").read_text(encoding="utf-8-sig"))
+    assert len(subs.events) == 1                   # 產出的是合法 ASS
+
+
+def test_srt_inplace_makes_new_ass_no_backup(tmp_path):
+    src = tmp_path / "movie.srt"
+    src.write_text(_SRT_SAMPLE, encoding="utf-8")
+    match = MatchResult(sub_path=src, episode=1, video_path=None,
+                        status="no_video")
+    report = process_file(match, make_profile(), None)
+    assert report.status == "ok"
+    assert (tmp_path / "movie.ass").exists()       # 同資料夾產生 .ass
+    assert src.exists()                            # 原 .srt 保留
+    assert not (tmp_path / "movie.srt.bak").exists()  # 無備份
+
+
+def test_run_batch_collision_srt_and_ass_normalized(tmp_path):
+    # 同資料夾 ep1.srt 與 ep1.ass,輸出都會是 ep1.ass -> run_batch 應判定衝突
+    srt = tmp_path / "ep1.srt"
+    srt.write_text(_SRT_SAMPLE, encoding="utf-8")
+    ass = tmp_path / "ep1.ass"
+    ass.write_text(pysubs2.SSAFile.from_string(_SRT_SAMPLE).to_string("ass"),
+                   encoding="utf-8-sig")
+    scan = ScanResult(matches=[
+        MatchResult(sub_path=srt, episode=1, video_path=None, status="no_video"),
+        MatchResult(sub_path=ass, episode=1, video_path=None, status="no_video"),
+    ])
+    out_dir = tmp_path / "out"
+    reports = run_batch(scan, make_profile(), out_dir)
+    statuses = [r.status for r in reports]
+    assert statuses.count("error") == 1            # 第二個因輸出檔名衝突被擋
+    assert (out_dir / "ep1.ass").exists()

@@ -8,7 +8,8 @@ from typing import Callable, List, Optional
 
 from .ass_style import (apply_profile, get_play_res,
                         get_scaled_border_shadow, load_subs, save_subs)
-from .episode_match import MatchResult, find_files, match_pairs
+from .episode_match import (MatchResult, ass_output_name, find_files,
+                            match_pairs)
 from .profile import Profile
 from .resolution import (aspect_mismatch, ffprobe_available,
                          probe_video_resolution, reference_resolution)
@@ -31,7 +32,7 @@ def scan_folder(folder: Path) -> ScanResult:
     subs, videos = find_files(folder)
     scan = ScanResult(matches=match_pairs(subs, videos))
     if not subs:
-        scan.warnings.append("資料夾內找不到任何 .ass/.ssa 字幕檔")
+        scan.warnings.append("資料夾內找不到任何 .ass/.ssa/.srt 字幕檔")
     if not ffprobe_available():
         scan.warnings.append("找不到 ffprobe:預覽將不含影片解析度資訊與長寬比警告")
         return scan
@@ -78,14 +79,18 @@ def process_file(
         )
 
     try:
+        target = ass_output_name(match.sub_path)  # .srt -> .ass;.ass/.ssa 不變
+        is_ass_family = match.sub_path.suffix.lower() in {".ass", ".ssa"}
         if output_dir is None:
-            backup = match.sub_path.with_name(match.sub_path.name + ".bak")
-            if not backup.exists():
-                shutil.copy2(match.sub_path, backup)  # 備份失敗會丟例外 -> 不寫入
-            save_subs(subs, match.sub_path)
+            if is_ass_family:
+                backup = match.sub_path.with_name(match.sub_path.name + ".bak")
+                if not backup.exists():
+                    shutil.copy2(match.sub_path, backup)  # 備份失敗丟例外 -> 不寫入
+            # 非 ASS 家族(.srt):輸出新 .ass,不動原檔、不備份
+            save_subs(subs, target)
         else:
             output_dir.mkdir(parents=True, exist_ok=True)
-            save_subs(subs, output_dir / match.sub_path.name)
+            save_subs(subs, output_dir / target.name)
     except Exception as exc:
         return FileReport(
             match.sub_path, "error", report.messages + [f"寫入失敗: {exc}"]
@@ -103,7 +108,7 @@ def run_batch(
     seen_basenames: Optional[set[str]] = set() if output_dir is not None else None
     for match in scan.matches:
         if output_dir is not None:
-            basename = match.sub_path.name
+            basename = ass_output_name(match.sub_path).name
             if basename in seen_basenames:
                 report = FileReport(
                     match.sub_path, "error",
