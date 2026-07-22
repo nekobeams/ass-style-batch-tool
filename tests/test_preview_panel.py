@@ -182,3 +182,55 @@ def test_slider_released_seeks_and_clears_scrub(qapp, tmp_path):
     panel._on_slider_released()
     assert panel._scrubbing is False
     assert player.seeks[-1] == 30.0
+
+
+# ---------- 換算對照讀出 ----------
+
+def test_readout_populates_rows_on_set_media(qapp, tmp_path, monkeypatch):
+    import ass_style_tool.qt.preview_panel as pp
+    monkeypatch.setattr(pp, "probe_video_resolution", lambda path: None)
+    player = FakePlayer()
+    panel = _panel(player)                       # DEFAULT_VALUES: 基準 1920x1080
+    panel.set_media(_write_sample(tmp_path))     # SAMPLE_ASS 畫布 1280x720
+    # scale 1280/1920 = 0.6667 → 字級 72→48、原字幕 Default 40
+    labels = [panel.readout_table.item(r, 0).text()
+              for r in range(panel.readout_table.rowCount())]
+    assert "字級" in labels
+    row = labels.index("字級")
+    assert panel.readout_table.item(row, 1).text() == "40"   # 原字幕現值
+    assert panel.readout_table.item(row, 2).text() == "48"   # 套用後
+    assert "1280×720" in panel.readout_mechanism.text()
+    panel.shutdown()
+
+
+def test_readout_no_video_shows_guidance(qapp, tmp_path, monkeypatch):
+    import ass_style_tool.qt.preview_panel as pp
+    monkeypatch.setattr(pp, "probe_video_resolution", lambda path: None)
+    player = FakePlayer()
+    panel = _panel(player)
+    panel.set_media(_write_sample(tmp_path))
+    assert "載入影片" in panel.readout_context_video.text()
+    panel.shutdown()
+
+
+def test_readout_video_aspect_shown(qapp, tmp_path, monkeypatch):
+    import ass_style_tool.qt.preview_panel as pp
+    monkeypatch.setattr(pp, "probe_video_resolution", lambda path: (1920, 1080))
+    player = FakePlayer()
+    panel = _panel(player)
+    panel.set_media(_write_sample(tmp_path), video_path=Path("v.mkv"))
+    # 畫布 1280x720 (16:9) vs 1920x1080 (16:9) → 相符
+    assert "比例相符" in panel.readout_context_video.text()
+    panel.shutdown()
+
+
+def test_readout_updates_on_style_change(qapp, tmp_path, monkeypatch):
+    import ass_style_tool.qt.preview_panel as pp
+    monkeypatch.setattr(pp, "probe_video_resolution", lambda path: None)
+    player = FakePlayer()
+    panel = _panel(player)
+    panel.set_media(_write_sample(tmp_path))
+    before = panel.readout_mechanism.text()
+    panel._apply_preview()                       # 防抖到期會走的路徑
+    assert panel.readout_mechanism.text() == before   # 同一 profile → 穩定
+    panel.shutdown()
