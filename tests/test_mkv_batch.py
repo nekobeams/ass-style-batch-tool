@@ -231,3 +231,24 @@ def test_process_mkv_replace_original_verify_fail_keeps_original(tmp_path):
     assert report.status == "error"
     assert original.read_bytes() == b"ORIGINAL"      # 原檔保留
     assert not original.with_name(original.name + ".tmp.mkv").exists()  # 暫存已清
+
+
+def test_identify_ok_suppresses_console_window(monkeypatch, tmp_path):
+    import subprocess
+    from ass_style_tool.mkv_batch import identify_ok
+
+    class FakeCompleted:
+        def __init__(self, returncode, stdout):
+            self.returncode = returncode
+            self.stdout = stdout
+
+    captured = {}
+
+    def fake_run(cmd, **kwargs):
+        captured.update(kwargs)
+        return FakeCompleted(0, '{"tracks":[{"id":0}]}')
+
+    monkeypatch.setattr("ass_style_tool.mkv_batch.subprocess.run", fake_run)
+    monkeypatch.setattr("ass_style_tool.subprocess_utils.sys.platform", "win32")
+    identify_ok(tmp_path / "out.mkv", Path("mkvmerge"))
+    assert captured.get("creationflags") == subprocess.CREATE_NO_WINDOW

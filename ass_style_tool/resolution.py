@@ -6,6 +6,8 @@ import subprocess
 from pathlib import Path
 from typing import Optional, Tuple
 
+from .subprocess_utils import no_window_kwargs
+
 #: ASS 規範:PlayRes 全缺時播放器假設的虛擬畫布
 SPEC_DEFAULT_RES: Tuple[int, int] = (384, 288)
 
@@ -45,7 +47,8 @@ def probe_video_resolution(video_path: Path) -> Optional[Tuple[int, int]]:
         str(video_path),
     ]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30,
+                                **no_window_kwargs())
     except (OSError, subprocess.TimeoutExpired):
         return None
     if result.returncode != 0:

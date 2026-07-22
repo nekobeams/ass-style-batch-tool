@@ -91,6 +91,20 @@ def test_list_ass_tracks_oserror_returns_empty(monkeypatch):
     assert list_ass_tracks(Path("x.mkv"), Path("mkvmerge")) == []
 
 
+def test_list_ass_tracks_suppresses_console_window(monkeypatch):
+    import subprocess
+    captured = {}
+
+    def fake_run(cmd, **kwargs):
+        captured.update(kwargs)
+        return FakeCompleted(0, FIXTURE.read_text(encoding="utf-8"))
+
+    monkeypatch.setattr("ass_style_tool.mkv_io.subprocess.run", fake_run)
+    monkeypatch.setattr("ass_style_tool.subprocess_utils.sys.platform", "win32")
+    list_ass_tracks(Path("show.mkv"), Path(r"C:\mkvmerge.exe"))
+    assert captured.get("creationflags") == subprocess.CREATE_NO_WINDOW
+
+
 def test_list_ass_tracks_bad_json_returns_empty(monkeypatch):
     monkeypatch.setattr(
         "ass_style_tool.mkv_io.subprocess.run",
@@ -196,3 +210,39 @@ def test_parse_progress():
 def test_parse_progress_none():
     assert parse_progress("Multiplexing...") is None
     assert parse_progress("") is None
+
+
+def test_extract_track_suppresses_console_window(monkeypatch):
+    import subprocess
+    from ass_style_tool.mkv_io import extract_track
+    captured = {}
+
+    def fake_run(cmd, **kwargs):
+        captured.update(kwargs)
+        return FakeCompleted(0, "")
+
+    monkeypatch.setattr("ass_style_tool.mkv_io.subprocess.run", fake_run)
+    monkeypatch.setattr("ass_style_tool.subprocess_utils.sys.platform", "win32")
+    extract_track(Path("show.mkv"), 2, Path("out.ass"), Path("mkvextract"))
+    assert captured.get("creationflags") == subprocess.CREATE_NO_WINDOW
+
+
+def test_remux_suppresses_console_window(monkeypatch):
+    import subprocess
+    from ass_style_tool.mkv_io import remux
+    captured = {}
+
+    class FakeProc:
+        def __init__(self, *a, **kwargs):
+            captured.update(kwargs)
+            self.stdout = iter([])
+            self.returncode = 0
+
+        def wait(self):
+            pass
+
+    monkeypatch.setattr("ass_style_tool.mkv_io.subprocess.Popen", FakeProc)
+    monkeypatch.setattr("ass_style_tool.subprocess_utils.sys.platform", "win32")
+    remux(Path("s.mkv"), Path("o.mkv"),
+         [Replacement(_track(2), Path("styled.ass"))], Path("mkvmerge"))
+    assert captured.get("creationflags") == subprocess.CREATE_NO_WINDOW

@@ -82,3 +82,17 @@ def test_probe_oserror_returns_none(monkeypatch):
 
     monkeypatch.setattr("ass_style_tool.resolution.subprocess.run", boom)
     assert probe_video_resolution(Path("x.mkv")) is None
+
+
+def test_probe_suppresses_console_window(monkeypatch):
+    import subprocess
+    captured = {}
+
+    def fake_run(cmd, **kwargs):
+        captured.update(kwargs)
+        return FakeCompleted(0, "1920,1080\n")
+
+    monkeypatch.setattr("ass_style_tool.resolution.subprocess.run", fake_run)
+    monkeypatch.setattr("ass_style_tool.subprocess_utils.sys.platform", "win32")
+    probe_video_resolution(Path("x.mkv"))
+    assert captured.get("creationflags") == subprocess.CREATE_NO_WINDOW

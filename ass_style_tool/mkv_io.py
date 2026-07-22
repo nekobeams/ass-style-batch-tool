@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, List, Optional
 
+from .subprocess_utils import no_window_kwargs
+
 _ASS_CODEC_IDS = {"S_TEXT/ASS", "S_TEXT/SSA"}
 
 
@@ -47,7 +49,8 @@ def list_ass_tracks(mkv_path: Path, mkvmerge: Path) -> List[SubtitleTrack]:
     cmd = [str(mkvmerge), "-J", str(mkv_path)]
     try:
         result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=60, encoding="utf-8"
+            cmd, capture_output=True, text=True, timeout=60, encoding="utf-8",
+            **no_window_kwargs(),
         )
     except (OSError, subprocess.TimeoutExpired):
         return []
@@ -110,7 +113,8 @@ def extract_track(
     cmd = build_extract_command(mkv_path, track_id, out_path, mkvextract)
     try:
         result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=300, encoding="utf-8"
+            cmd, capture_output=True, text=True, timeout=300, encoding="utf-8",
+            **no_window_kwargs(),
         )
     except (OSError, subprocess.TimeoutExpired):
         return False
@@ -134,6 +138,7 @@ def remux(
             text=True,
             encoding="utf-8",
             errors="replace",
+            **no_window_kwargs(),
         )
         assert proc.stdout is not None
         for line in proc.stdout:

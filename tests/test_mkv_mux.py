@@ -207,3 +207,24 @@ def test_process_mux_replace_verify_fail_keeps_original(tmp_path):
     assert report.status == "error"
     assert video.read_bytes() == b"ORIGINAL"
     assert not video.with_name(video.name + ".tmp.mkv").exists()
+
+
+def test_default_mux_suppresses_console_window(monkeypatch, tmp_path):
+    import subprocess
+    from ass_style_tool.mkv_mux import _default_mux
+    captured = {}
+
+    class FakeProc:
+        def __init__(self, *a, **kwargs):
+            captured.update(kwargs)
+            self.stdout = iter([])
+            self.returncode = 0
+
+        def wait(self):
+            pass
+
+    monkeypatch.setattr("ass_style_tool.mkv_mux.subprocess.Popen", FakeProc)
+    monkeypatch.setattr("ass_style_tool.subprocess_utils.sys.platform", "win32")
+    _default_mux(tmp_path / "v.mkv", tmp_path / "s.ass", tmp_path / "o.mkv",
+                _meta(), Path("mkvmerge"))
+    assert captured.get("creationflags") == subprocess.CREATE_NO_WINDOW

@@ -16,6 +16,7 @@ from typing import Callable, Dict, List, Optional
 from .episode_match import extract_episode
 from .mkv_batch import (MkvFileReport, MkvTools, identify_ok,
                         transform_track_file)
+from .subprocess_utils import no_window_kwargs
 
 
 @dataclass
@@ -87,7 +88,8 @@ def _default_mux(video_path, subtitle_path, out_path, meta, mkvmerge,
     try:
         proc = subprocess.Popen(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            text=True, encoding="utf-8", errors="replace")
+            text=True, encoding="utf-8", errors="replace",
+            **no_window_kwargs())
     except OSError:
         return False
     assert proc.stdout is not None

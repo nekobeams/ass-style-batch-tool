@@ -17,6 +17,7 @@ from typing import Callable, Dict, List, Optional, Set, Tuple
 from .ass_style import apply_profile, load_subs, save_subs
 from .mkv_io import Replacement, SubtitleTrack, extract_track, remux
 from .scale_engine import ScaleOptions, scale_file
+from .subprocess_utils import no_window_kwargs
 
 
 # ---------- 一鍵選整季同類型軌 ----------
@@ -67,7 +68,8 @@ def identify_ok(mkv_path: Path, mkvmerge: Path) -> bool:
     cmd = [str(mkvmerge), "-J", str(mkv_path)]
     try:
         result = subprocess.run(cmd, capture_output=True, text=True,
-                                encoding="utf-8", timeout=120)
+                                encoding="utf-8", timeout=120,
+                                **no_window_kwargs())
     except (OSError, subprocess.TimeoutExpired):
         return False
     if result.returncode != 0:
