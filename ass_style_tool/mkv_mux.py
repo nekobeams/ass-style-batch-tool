@@ -16,7 +16,9 @@ from typing import Callable, Dict, List, Optional
 from .episode_match import extract_episode
 from .mkv_batch import (MkvFileReport, MkvTools, identify_ok,
                         transform_track_file)
+from .mkv_io import list_all_tracks
 from .subprocess_utils import no_window_kwargs
+from .track_edit import build_source_track_flags
 
 
 @dataclass
@@ -69,9 +71,12 @@ def pair_for_mux(
 def build_mux_command(
     video_path: Path, subtitle_path: Path, out_path: Path,
     meta: MuxMeta, mkvmerge: Path,
+    source_flags: Optional[List[str]] = None,
 ) -> List[str]:
-    """影片所有軌保留,外部字幕以附加軌加入(檔內為 track 0)。"""
-    cmd: List[str] = [str(mkvmerge), "-o", str(out_path), str(video_path)]
+    """影片所有軌保留(除非 source_flags 另有指定),外部字幕以附加軌加入(檔內為 track 0)。"""
+    cmd: List[str] = [str(mkvmerge), "-o", str(out_path)]
+    cmd += list(source_flags or [])          # 來源影片專屬旗標,須排在 video 之前
+    cmd.append(str(video_path))
     cmd += ["--language", f"0:{meta.language}"]
     if meta.track_name:
         cmd += ["--track-name", f"0:{meta.track_name}"]
@@ -82,9 +87,10 @@ def build_mux_command(
 
 
 def _default_mux(video_path, subtitle_path, out_path, meta, mkvmerge,
-                 progress_cb=None) -> bool:
+                 progress_cb=None, source_flags=None) -> bool:
     from .mkv_io import parse_progress
-    cmd = build_mux_command(video_path, subtitle_path, out_path, meta, mkvmerge)
+    cmd = build_mux_command(video_path, subtitle_path, out_path, meta, mkvmerge,
+                            source_flags)
     try:
         proc = subprocess.Popen(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -111,6 +117,8 @@ def process_mux(
     progress_cb: Optional[Callable[[int], None]] = None,
     mux_fn: Callable = _default_mux,
     verify_fn: Callable = identify_ok,
+    edits: Optional[Dict[int, "TrackEdit"]] = None,
+    track_list_fn: Callable = list_all_tracks,
 ) -> MkvFileReport:
     """單一影片的 mux 管線。operation=None 原字幕直封,否則先轉換再封。
     out_path=None 表取代原檔。"""
@@ -139,8 +147,16 @@ def process_mux(
         else:
             target = video.with_name(video.name + ".tmp.mkv")
 
+        source_flags: List[str] = []
+        if edits:
+            try:
+                tracks = track_list_fn(video, tools.mkvmerge)
+                source_flags = build_source_track_flags(edits, tracks)
+            except Exception:
+                source_flags = []      # 掃軌失敗 → 不做軌道修改,照常封裝
+
         if not mux_fn(video, subtitle, target, meta, tools.mkvmerge,
-                      progress_cb):
+                      progress_cb, source_flags):
             if out_path is None and target.exists():
                 target.unlink()
             return MkvFileReport(

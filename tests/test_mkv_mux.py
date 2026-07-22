@@ -83,7 +83,7 @@ def test_process_mux_direct_outdir(tmp_path):
     sub = _write_ass(tmp_path)
     calls = {}
 
-    def fake_mux(video, subtitle, out, meta, mkvmerge, progress_cb=None):
+    def fake_mux(video, subtitle, out, meta, mkvmerge, progress_cb=None, source_flags=None):
         calls["subtitle"] = Path(subtitle)
         Path(out).parent.mkdir(parents=True, exist_ok=True)
         Path(out).write_bytes(b"muxed")
@@ -104,7 +104,7 @@ def test_process_mux_with_style_transforms_first(tmp_path):
     sub = _write_ass(tmp_path)
     seen = {}
 
-    def fake_mux(video, subtitle, out, meta, mkvmerge, progress_cb=None):
+    def fake_mux(video, subtitle, out, meta, mkvmerge, progress_cb=None, source_flags=None):
         seen["subtitle"] = Path(subtitle)
         seen["text"] = Path(subtitle).read_text(encoding="utf-8-sig")
         Path(out).parent.mkdir(parents=True, exist_ok=True)
@@ -127,7 +127,7 @@ def test_process_mux_scale_operation(tmp_path):
     sub = _write_ass(tmp_path)
     seen = {}
 
-    def fake_mux(video, subtitle, out, meta, mkvmerge, progress_cb=None):
+    def fake_mux(video, subtitle, out, meta, mkvmerge, progress_cb=None, source_flags=None):
         seen["text"] = Path(subtitle).read_text(encoding="utf-8-sig")
         Path(out).parent.mkdir(parents=True, exist_ok=True)
         Path(out).write_bytes(b"x")
@@ -143,7 +143,7 @@ def test_process_mux_style_no_match_muxes_original(tmp_path):
     sub = _write_ass(tmp_path)
     seen = {}
 
-    def fake_mux(video, subtitle, out, meta, mkvmerge, progress_cb=None):
+    def fake_mux(video, subtitle, out, meta, mkvmerge, progress_cb=None, source_flags=None):
         seen["subtitle"] = Path(subtitle)
         Path(out).parent.mkdir(parents=True, exist_ok=True)
         Path(out).write_bytes(b"x")
@@ -180,7 +180,7 @@ def test_process_mux_replace_verify_and_swap(tmp_path):
     video.write_bytes(b"ORIGINAL")
     sub = _write_ass(tmp_path)
 
-    def fake_mux(v, s, out, meta, mkvmerge, progress_cb=None):
+    def fake_mux(v, s, out, meta, mkvmerge, progress_cb=None, source_flags=None):
         Path(out).write_bytes(b"MUXED")
         return True
 
@@ -197,7 +197,7 @@ def test_process_mux_replace_verify_fail_keeps_original(tmp_path):
     video.write_bytes(b"ORIGINAL")
     sub = _write_ass(tmp_path)
 
-    def fake_mux(v, s, out, meta, mkvmerge, progress_cb=None):
+    def fake_mux(v, s, out, meta, mkvmerge, progress_cb=None, source_flags=None):
         Path(out).write_bytes(b"BROKEN")
         return True
 
@@ -228,3 +228,84 @@ def test_default_mux_suppresses_console_window(monkeypatch, tmp_path):
     _default_mux(tmp_path / "v.mkv", tmp_path / "s.ass", tmp_path / "o.mkv",
                 _meta(), Path("mkvmerge"))
     assert captured.get("creationflags") == subprocess.CREATE_NO_WINDOW
+
+
+def test_build_mux_command_source_flags_before_video():
+    from ass_style_tool.mkv_mux import build_mux_command
+    cmd = build_mux_command(
+        Path("v.mkv"), Path("s.ass"), Path("o.mkv"), _meta(),
+        Path("mkvmerge"), source_flags=["--no-audio", "--subtitle-tracks", "2"])
+    assert cmd.index("--no-audio") > cmd.index("o.mkv")      # 在 -o out 之後
+    assert cmd.index("--no-audio") < cmd.index("v.mkv")      # 在 video 之前
+    assert cmd.index("--subtitle-tracks") < cmd.index("v.mkv")
+
+
+def test_build_mux_command_no_source_flags_unchanged():
+    from ass_style_tool.mkv_mux import build_mux_command
+    cmd = build_mux_command(Path("v.mkv"), Path("s.ass"), Path("o.mkv"),
+                            _meta(), Path("mkvmerge"))
+    # video 緊接在 -o out 之後(無來源旗標)
+    assert cmd[cmd.index("o.mkv") + 1] == "v.mkv"
+
+
+def test_process_mux_applies_track_edits(tmp_path):
+    from ass_style_tool.mkv_io import MediaTrack
+    from ass_style_tool.track_edit import TrackEdit
+    captured = {}
+
+    def fake_mux(v, s, out, meta, mkvmerge, progress_cb=None, source_flags=None):
+        captured["flags"] = source_flags
+        Path(out).write_bytes(b"MUXED")
+        return True
+
+    def fake_tracks(video, mkvmerge):
+        return [MediaTrack(0, "video", "V", "und", "", True, False),
+                MediaTrack(1, "audio", "A", "jpn", "", True, False),
+                MediaTrack(2, "subtitles", "S", "chi", "", False, False)]
+
+    video = tmp_path / "show.mkv"
+    video.write_bytes(b"X")
+    pair = MuxPair(video, _write_ass(tmp_path), 1, "matched")
+    report = process_mux(pair, _meta(), None, TOOLS,
+                         out_path=tmp_path / "o" / "show.mkv",
+                         mux_fn=fake_mux, edits={1: TrackEdit(keep=False)},
+                         track_list_fn=fake_tracks)
+    assert report.status == "ok"
+    assert "--no-audio" in captured["flags"]
+
+
+def test_process_mux_no_edits_empty_flags(tmp_path):
+    captured = {}
+
+    def fake_mux(v, s, out, meta, mkvmerge, progress_cb=None, source_flags=None):
+        captured["flags"] = source_flags
+        Path(out).write_bytes(b"M")
+        return True
+
+    video = tmp_path / "show.mkv"
+    video.write_bytes(b"X")
+    pair = MuxPair(video, _write_ass(tmp_path), 1, "matched")
+    process_mux(pair, _meta(), None, TOOLS, out_path=tmp_path / "o" / "show.mkv",
+                mux_fn=fake_mux)
+    assert captured["flags"] == []
+
+
+def test_process_mux_track_scan_failure_degrades(tmp_path):
+    from ass_style_tool.track_edit import TrackEdit
+    captured = {}
+
+    def fake_mux(v, s, out, meta, mkvmerge, progress_cb=None, source_flags=None):
+        captured["flags"] = source_flags
+        Path(out).write_bytes(b"M")
+        return True
+
+    def boom(video, mkvmerge):
+        raise OSError("scan fail")
+
+    video = tmp_path / "show.mkv"
+    video.write_bytes(b"X")
+    pair = MuxPair(video, _write_ass(tmp_path), 1, "matched")
+    process_mux(pair, _meta(), None, TOOLS, out_path=tmp_path / "o" / "show.mkv",
+                mux_fn=fake_mux, edits={1: TrackEdit(keep=False)},
+                track_list_fn=boom)
+    assert captured["flags"] == []
