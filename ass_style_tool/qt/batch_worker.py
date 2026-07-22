@@ -248,7 +248,8 @@ class MuxWorker(QObject):
     finished = Signal(int, int, int)
 
     def __init__(self, pairs, meta: MuxMeta, operation, tools,
-                 output_dir: Optional[Path], process_fn=process_mux) -> None:
+                 output_dir: Optional[Path], process_fn=process_mux,
+                 edits=None) -> None:
         super().__init__()
         self._pairs = list(pairs)
         self._meta = meta
@@ -256,6 +257,7 @@ class MuxWorker(QObject):
         self._tools = tools
         self._output_dir = output_dir
         self._process_fn = process_fn
+        self._edits = edits
         self._cancelled = False
 
     def cancel(self) -> None:
@@ -282,7 +284,8 @@ class MuxWorker(QObject):
             try:
                 report = self._process_fn(
                     pair, self._meta, self._operation, self._tools,
-                    out_path=out, progress_cb=self.file_progress.emit)
+                    out_path=out, progress_cb=self.file_progress.emit,
+                    edits=self._edits)
             except Exception as exc:  # 單檔失敗不中斷整批
                 error += 1
                 self.file_done.emit(name, "error")

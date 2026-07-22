@@ -6,19 +6,22 @@ from pathlib import Path
 from typing import Callable, List, Optional
 
 from PySide6.QtCore import Qt, QSettings, QThread, Signal
-from PySide6.QtWidgets import (QAbstractItemView, QButtonGroup, QCheckBox,
-                               QComboBox, QFileDialog, QHBoxLayout,
+from PySide6.QtWidgets import (QAbstractItemView, QApplication, QButtonGroup,
+                               QCheckBox, QComboBox, QFileDialog, QHBoxLayout,
                                QHeaderView, QLabel, QLineEdit, QProgressBar,
                                QPushButton, QRadioButton, QTableWidget,
                                QTableWidgetItem, QVBoxLayout, QWidget)
 
 from ..episode_match import find_files
 from ..mkv_batch import MkvTools
+from ..mkv_io import list_all_tracks
 from ..mkv_mux import MuxMeta, MuxPair
 from ..profile import Profile
 from ..scale_engine import ScaleError
 from ..tools import mkvextract_path, mkvmerge_path
+from ..track_edit import TrackEdit
 from .batch_worker import MuxScanWorker, MuxWorker
+from .modify_tracks_dialog import ModifyTracksDialog
 from .scale_panel import ScalePanel
 
 _HEADERS = ["封裝", "影片", "字幕", "集數", "狀態"]
@@ -42,6 +45,7 @@ class MuxTab(QWidget):
         self._scan_thread: Optional[QThread] = None
         self._scan_worker = None
         self._scanned_key: Optional[tuple] = None
+        self._track_edits: dict = {}
         self.setAcceptDrops(True)
 
         mkvmerge = mkvmerge_path()
@@ -145,13 +149,17 @@ class MuxTab(QWidget):
         action_row = QHBoxLayout()
         self.scan_button = QPushButton("重新掃描")
         self.scan_button.clicked.connect(self._on_scan)
+        self.modify_tracks_button = QPushButton("修改既有軌道…")
+        self.modify_tracks_button.setEnabled(False)
+        self.modify_tracks_button.clicked.connect(self._on_modify_tracks)
         self.run_button = QPushButton("開始封裝")
         self.run_button.setEnabled(False)
         self.run_button.clicked.connect(self._on_run)
         self.cancel_button = QPushButton("取消")
         self.cancel_button.setEnabled(False)
         self.cancel_button.clicked.connect(self._on_cancel)
-        for b in (self.scan_button, self.run_button, self.cancel_button):
+        for b in (self.scan_button, self.modify_tracks_button,
+                  self.run_button, self.cancel_button):
             action_row.addWidget(b)
         action_row.addStretch(1)
         root.addLayout(action_row)
@@ -167,7 +175,8 @@ class MuxTab(QWidget):
         root.addLayout(prow)
 
         if not self.tools_available:
-            for b in (self.scan_button, self.run_button):
+            for b in (self.scan_button, self.run_button,
+                      self.modify_tracks_button):
                 b.setEnabled(False)
 
     # ---------- 拖放 / 檔案選擇 ----------
@@ -284,6 +293,7 @@ class MuxTab(QWidget):
         self.run_button.setEnabled(
             self.tools_available and any(p.status == "matched" for p in pairs)
             and self._thread is None)
+        self._refresh_modify_button()
 
     def checked_pairs(self) -> List[MuxPair]:
         result = []
@@ -314,6 +324,7 @@ class MuxTab(QWidget):
             self.tools_available
             and any(p.status == "matched" for p in self._pairs)
             and self._thread is None)
+        self._refresh_modify_button()
 
     def _on_subtitle_selected(self, row: int) -> None:
         combo = self.table.cellWidget(row, 2)
@@ -340,6 +351,39 @@ class MuxTab(QWidget):
         text = self.outdir_edit.text().strip()
         return Path(text) if text else None
 
+    def _refresh_modify_button(self) -> None:
+        self.modify_tracks_button.setEnabled(
+            self.tools_available
+            and any(p.status == "matched" for p in self._pairs)
+            and self._thread is None)
+
+    def _has_track_edits(self) -> bool:
+        return any(
+            (not e.keep) or e.set_default is not None or e.set_forced is not None
+            or e.language or e.track_name
+            for e in self._track_edits.values())
+
+    def _on_modify_tracks(self) -> None:
+        matched = [p for p in self._pairs if p.status == "matched"]
+        if not matched:
+            self.log.emit("沒有可用的來源影片可掃描軌道")
+            return
+        video = matched[0].video_path
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            tracks = list_all_tracks(video, self._tools.mkvmerge)
+        finally:
+            QApplication.restoreOverrideCursor()
+        if not tracks:
+            self.log.emit(f"無法讀取軌道: {video.name}")
+            return
+        dialog = ModifyTracksDialog(tracks, self._track_edits, self)
+        if dialog.exec():
+            self._track_edits = dialog.get_edits()
+            self.modify_tracks_button.setText(
+                "修改既有軌道…(已設定)" if self._has_track_edits()
+                else "修改既有軌道…")
+
     # ---------- 執行 ----------
     def _on_run(self) -> None:
         if self._scan_thread is not None or self._thread is not None:
@@ -363,11 +407,13 @@ class MuxTab(QWidget):
         self.file_progress.setValue(0)
         self.scan_button.setEnabled(False)
         self.run_button.setEnabled(False)
+        self.modify_tracks_button.setEnabled(False)
         self.cancel_button.setEnabled(True)
 
         self._thread = QThread()
         self._worker = MuxWorker(pairs, self.current_meta(), operation,
-                                 self._tools, output_dir)
+                                 self._tools, output_dir,
+                                 edits=self._track_edits)
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)
         self._worker.progress.connect(self._on_progress)
@@ -397,6 +443,7 @@ class MuxTab(QWidget):
         self.scan_button.setEnabled(True)
         self.run_button.setEnabled(True)
         self.cancel_button.setEnabled(False)
+        self._refresh_modify_button()
 
     def shutdown(self) -> None:
         for thread in (self._thread, self._scan_thread):

@@ -118,3 +118,24 @@ def test_mux_worker_output_name_collision(qapp, tmp_path):
         lambda ok, sk, er: done.update(ok=ok, skipped=sk, error=er))
     worker.run()
     assert done == {"ok": 1, "skipped": 0, "error": 1}
+
+
+def test_mux_worker_forwards_edits(qapp):
+    from ass_style_tool.qt.batch_worker import MuxWorker
+    from ass_style_tool.mkv_mux import MuxMeta, MuxPair
+    from ass_style_tool.track_edit import TrackEdit
+    captured = {}
+
+    def fake_process(pair, meta, operation, tools, out_path=None,
+                     progress_cb=None, edits=None):
+        captured["edits"] = edits
+        from ass_style_tool.mkv_batch import MkvFileReport
+        return MkvFileReport(pair.video_path, "ok")
+
+    pairs = [MuxPair(__import__("pathlib").Path("v.mkv"),
+                     __import__("pathlib").Path("s.ass"), 1, "matched")]
+    edits = {1: TrackEdit(keep=False)}
+    worker = MuxWorker(pairs, MuxMeta(), None, None, None,
+                       process_fn=fake_process, edits=edits)
+    worker.run()
+    assert captured["edits"] == edits

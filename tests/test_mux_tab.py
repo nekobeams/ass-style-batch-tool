@@ -225,3 +225,35 @@ def test_restore_settings_defaults_outdir_when_unset(qapp, monkeypatch, tmp_path
     assert tab.video_edit.text() == ""
     assert tab.subtitle_edit.text() == ""
     assert tab.outdir_radio.isChecked() is True
+
+
+def test_modify_tracks_stores_edits(qapp, monkeypatch):
+    import ass_style_tool.qt.mux_tab as mux_tab_mod
+    from ass_style_tool.qt.mux_tab import MuxTab
+    from ass_style_tool.mkv_io import MediaTrack
+    from ass_style_tool.mkv_mux import MuxPair
+    from ass_style_tool.track_edit import TrackEdit
+
+    # 讓 tools 視為可用
+    monkeypatch.setattr(mux_tab_mod, "mkvmerge_path", lambda: __import__("pathlib").Path("mkvmerge"))
+    monkeypatch.setattr(mux_tab_mod, "mkvextract_path", lambda: __import__("pathlib").Path("mkvextract"))
+    tab = MuxTab(lambda: None)
+
+    # 有一部 matched 影片
+    tab._pairs = [MuxPair(__import__("pathlib").Path("v.mkv"), None, 1, "matched")]
+
+    monkeypatch.setattr(
+        mux_tab_mod, "list_all_tracks",
+        lambda video, mkvmerge: [MediaTrack(1, "audio", "A", "jpn", "", True, False)])
+
+    class FakeDialog:
+        def __init__(self, tracks, existing, parent):
+            pass
+        def exec(self):
+            return 1
+        def get_edits(self):
+            return {1: TrackEdit(keep=False)}
+
+    monkeypatch.setattr(mux_tab_mod, "ModifyTracksDialog", FakeDialog)
+    tab._on_modify_tracks()
+    assert tab._track_edits == {1: TrackEdit(keep=False)}
