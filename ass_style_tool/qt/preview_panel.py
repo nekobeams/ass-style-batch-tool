@@ -188,6 +188,9 @@ class PreviewPanel(QWidget):
     # ---------- 換算對照讀出 ----------
     def _lookup_original(self, profile: Profile):
         """回傳來源字幕中第一個存在的目標樣式現值;都不存在回 None。"""
+        # 注意:當有多個目標樣式時,apply_profile 會把同一組計算後數值套用到
+        # 「所有」符合的樣式,但這裡的「原始」欄位只取第一個存在的目標樣式,
+        # 因此對照表的原始值僅反映第一個相符樣式,並非每個樣式各自的原值。
         if self._source_subs is None:
             return None
         for name in profile.target_style_names:

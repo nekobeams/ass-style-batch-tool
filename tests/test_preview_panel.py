@@ -61,7 +61,9 @@ def _panel(player):
                         player=player)
 
 
-def test_set_media_renders_preview_and_lists_lines(qapp, tmp_path):
+def test_set_media_renders_preview_and_lists_lines(qapp, tmp_path, monkeypatch):
+    import ass_style_tool.qt.preview_panel as pp
+    monkeypatch.setattr(pp, "probe_video_resolution", lambda path: None)
     player = FakePlayer()
     panel = _panel(player)
     sub = _write_sample(tmp_path)
@@ -82,7 +84,9 @@ def test_set_media_without_video_lists_but_no_show(qapp, tmp_path):
     panel.shutdown()
 
 
-def test_on_style_changed_starts_debounce(qapp, tmp_path):
+def test_on_style_changed_starts_debounce(qapp, tmp_path, monkeypatch):
+    import ass_style_tool.qt.preview_panel as pp
+    monkeypatch.setattr(pp, "probe_video_resolution", lambda path: None)
     player = FakePlayer()
     panel = _panel(player)
     panel.set_media(_write_sample(tmp_path), video_path=Path("v.mkv"))
@@ -170,7 +174,9 @@ def test_slider_moved_seeks_live(qapp, tmp_path):
     panel.shutdown()
 
 
-def test_slider_released_seeks_and_clears_scrub(qapp, tmp_path):
+def test_slider_released_seeks_and_clears_scrub(qapp, tmp_path, monkeypatch):
+    import ass_style_tool.qt.preview_panel as pp
+    monkeypatch.setattr(pp, "probe_video_resolution", lambda path: None)
     player = FakePlayer()
     panel = _panel(player)
     panel.set_media(_write_sample(tmp_path), video_path=Path("v.mkv"))
@@ -226,11 +232,22 @@ def test_readout_video_aspect_shown(qapp, tmp_path, monkeypatch):
 
 def test_readout_updates_on_style_change(qapp, tmp_path, monkeypatch):
     import ass_style_tool.qt.preview_panel as pp
+    from ass_style_tool.profile_fields import DEFAULT_VALUES, profile_from_values
+    from ass_style_tool.qt.preview_panel import PreviewPanel
     monkeypatch.setattr(pp, "probe_video_resolution", lambda path: None)
+    values = dict(DEFAULT_VALUES)
     player = FakePlayer()
-    panel = _panel(player)
-    panel.set_media(_write_sample(tmp_path))
-    before = panel.readout_mechanism.text()
-    panel._apply_preview()                       # 防抖到期會走的路徑
-    assert panel.readout_mechanism.text() == before   # 同一 profile → 穩定
+    panel = PreviewPanel(lambda: profile_from_values(values), player=player)
+    panel.set_media(_write_sample(tmp_path))   # SAMPLE_ASS 畫布 1280x720,scale 0.6667
+
+    def applied_fontsize():
+        labels = [panel.readout_table.item(r, 0).text()
+                  for r in range(panel.readout_table.rowCount())]
+        row = labels.index("字級")
+        return panel.readout_table.item(row, 2).text()
+
+    assert applied_fontsize() == "48"          # 72 * 0.6667
+    values["fontsize"] = "90"                   # 使用者改字級
+    panel._apply_preview()                      # 防抖到期會走的路徑
+    assert applied_fontsize() == "60"           # 90 * 0.6667
     panel.shutdown()
