@@ -8,8 +8,9 @@ from typing import Dict
 
 from PySide6.QtCore import QSettings, Signal
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QFileDialog, QFormLayout,
-                               QHBoxLayout, QLabel, QLineEdit, QMessageBox,
-                               QPushButton, QVBoxLayout, QWidget)
+                               QFrame, QHBoxLayout, QLabel, QLineEdit,
+                               QMessageBox, QPushButton, QScrollArea,
+                               QVBoxLayout, QWidget)
 from PySide6.QtWidgets import QColorDialog
 from PySide6.QtGui import QColor, QFontDatabase
 
@@ -17,6 +18,7 @@ from ..profile import (Profile, load_profile, parse_ass_color, save_profile)
 from ..profile_fields import (DEFAULT_VALUES, profile_from_values,
                               values_from_profile)
 from .gui_helpers import font_is_missing
+from .readout_view import ReadoutView
 
 # 欄位分組(標籤, 欄位鍵)
 _TEXT_FIELDS = [
@@ -80,7 +82,8 @@ class StyleEditor(QWidget):
         self._edits: Dict[str, QLineEdit] = {}
         self._checks: Dict[str, QCheckBox] = {}
 
-        root = QVBoxLayout(self)
+        inner = QWidget()
+        inner_layout = QVBoxLayout(inner)
 
         # profile 下拉 + 存讀
         profile_row = QHBoxLayout()
@@ -94,7 +97,7 @@ class StyleEditor(QWidget):
         save_btn.clicked.connect(self._on_save_as)
         profile_row.addWidget(load_btn)
         profile_row.addWidget(save_btn)
-        root.addLayout(profile_row)
+        inner_layout.addLayout(profile_row)
 
         form = QFormLayout()
         for label, key in _TEXT_FIELDS:
@@ -130,8 +133,19 @@ class StyleEditor(QWidget):
             row.addWidget(btn)
             form.addRow(label, self._wrap(row))
 
-        root.addLayout(form)
-        root.addStretch(1)
+        inner_layout.addLayout(form)
+
+        self.readout_view = ReadoutView()
+        inner_layout.addWidget(self.readout_view)
+        inner_layout.addStretch(1)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setWidget(inner)
+
+        root = QVBoxLayout(self)
+        root.addWidget(scroll)
 
         self.set_values(DEFAULT_VALUES)
         try:

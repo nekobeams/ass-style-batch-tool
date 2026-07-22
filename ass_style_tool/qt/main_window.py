@@ -72,6 +72,8 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.mux_tab, "封裝")
 
         self.preview_panel = PreviewPanel(self.style_editor.current_profile)
+        self.preview_panel.readout_changed.connect(
+            self.style_editor.readout_view.update_from)
         self._preview_split = QSplitter()
         self._preview_split.addWidget(self.style_editor)
         self._preview_split.addWidget(self.preview_panel)

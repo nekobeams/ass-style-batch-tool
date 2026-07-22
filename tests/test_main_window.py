@@ -45,3 +45,28 @@ def test_main_window_survives_corrupt_profile_setting(qapp, monkeypatch, tmp_pat
         window.deleteLater()
         qapp.processEvents()
         qapp.processEvents()
+
+
+def test_preview_readout_wired_to_style_editor(qapp, monkeypatch, tmp_path):
+    """在 preview_panel 觸發一次讀出更新,左欄 style_editor.readout_view
+    表格應被填(驗證 main_window 的訊號接線)。用空的暫存 QSettings 避免
+    載入使用者真實設定或 profile。"""
+    from PySide6.QtCore import QSettings
+    import ass_style_tool.qt.main_window as mw
+    from tests.test_ass_style import SAMPLE_ASS
+
+    ini = tmp_path / "s.ini"
+    monkeypatch.setattr(
+        mw, "QSettings",
+        lambda *a, **k: QSettings(str(ini), QSettings.Format.IniFormat))
+
+    window = mw.MainWindow()
+    try:
+        sub = tmp_path / "e.ass"
+        sub.write_bytes(b"\xef\xbb\xbf" + SAMPLE_ASS.encode("utf-8"))
+        window.preview_panel.set_media(sub)       # 無影片,offscreen 安全
+        table = window.style_editor.readout_view.table
+        labels = [table.item(r, 0).text() for r in range(table.rowCount())]
+        assert "字級" in labels
+    finally:
+        window.deleteLater()

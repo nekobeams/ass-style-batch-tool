@@ -183,3 +183,26 @@ def test_migrate_noop_when_legacy_empty(tmp_path):
     legacy.mkdir()
     target = tmp_path / "target"
     assert migrate_legacy_profiles(legacy, target) == 0
+
+
+def test_style_editor_wraps_content_in_scrollarea_with_readout(qapp):
+    from PySide6.QtWidgets import QScrollArea
+    from ass_style_tool.qt.style_editor import StyleEditor
+    from ass_style_tool.qt.readout_view import ReadoutView
+    editor = StyleEditor()
+    assert editor.findChild(QScrollArea) is not None      # 內容包在捲動區
+    assert isinstance(editor.readout_view, ReadoutView)    # 底部有讀出元件
+
+
+def test_style_editor_readout_view_renders(qapp):
+    from ass_style_tool.qt.style_editor import StyleEditor
+    from ass_style_tool.preview_readout import OriginalValues, build_readout
+    from tests.test_profile import make_profile
+    editor = StyleEditor()
+    data = build_readout(make_profile(), 640, 360,
+                         OriginalValues(40.0, 2.0, 1.0, 10, 10, 10),
+                         "e.ass", None, None)
+    editor.readout_view.update_from(data)
+    labels = [editor.readout_view.table.item(r, 0).text()
+              for r in range(editor.readout_view.table.rowCount())]
+    assert "字級" in labels
