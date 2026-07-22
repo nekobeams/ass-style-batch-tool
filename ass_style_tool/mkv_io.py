@@ -64,6 +64,59 @@ def list_ass_tracks(mkv_path: Path, mkvmerge: Path) -> List[SubtitleTrack]:
 
 
 @dataclass
+class MediaTrack:
+    track_id: int
+    track_type: str        # "video" | "audio" | "subtitles"
+    codec_id: str
+    language: str
+    track_name: str
+    default: bool
+    forced: bool
+
+
+_MEDIA_TRACK_TYPES = {"video", "audio", "subtitles"}
+
+
+def parse_all_tracks(identify_json: dict) -> List[MediaTrack]:
+    """從 mkvmerge -J 的 dict 取出所有 video/audio/subtitles 軌(依 id 排序)。"""
+    result: List[MediaTrack] = []
+    for track in identify_json.get("tracks", []):
+        ttype = track.get("type")
+        if ttype not in _MEDIA_TRACK_TYPES:
+            continue
+        props = track.get("properties", {})
+        result.append(MediaTrack(
+            track_id=int(track["id"]),
+            track_type=ttype,
+            codec_id=props.get("codec_id", ""),
+            language=props.get("language", "und"),
+            track_name=props.get("track_name", ""),
+            default=bool(props.get("default_track", False)),
+            forced=bool(props.get("forced_track", False)),
+        ))
+    result.sort(key=lambda t: t.track_id)
+    return result
+
+
+def list_all_tracks(mkv_path: Path, mkvmerge: Path) -> List[MediaTrack]:
+    """跑 mkvmerge -J 列出所有軌;任何失敗回 []。"""
+    cmd = [str(mkvmerge), "-J", str(mkv_path)]
+    try:
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=60, encoding="utf-8",
+            **no_window_kwargs())
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    if result.returncode != 0:
+        return []
+    try:
+        data = json.loads(result.stdout)
+    except (ValueError, TypeError):
+        return []
+    return parse_all_tracks(data)
+
+
+@dataclass
 class Replacement:
     track: SubtitleTrack
     styled_path: Path

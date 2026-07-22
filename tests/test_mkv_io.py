@@ -246,3 +246,41 @@ def test_remux_suppresses_console_window(monkeypatch):
     remux(Path("s.mkv"), Path("o.mkv"),
          [Replacement(_track(2), Path("styled.ass"))], Path("mkvmerge"))
     assert captured.get("creationflags") == subprocess.CREATE_NO_WINDOW
+
+
+from ass_style_tool.mkv_io import MediaTrack, parse_all_tracks, list_all_tracks
+
+
+def test_parse_all_tracks_all_types_sorted():
+    tracks = parse_all_tracks(_sample())
+    assert [t.track_id for t in tracks] == [0, 1, 2, 3, 4]
+    assert [t.track_type for t in tracks] == [
+        "video", "audio", "subtitles", "subtitles", "subtitles"]
+
+
+def test_parse_all_tracks_reads_fields():
+    audio = parse_all_tracks(_sample())[1]
+    assert audio.track_type == "audio"
+    assert audio.codec_id == "A_FLAC"
+    assert audio.language == "jpn"
+
+
+def test_list_all_tracks_runs_and_parses(monkeypatch):
+    monkeypatch.setattr(
+        "ass_style_tool.mkv_io.subprocess.run",
+        lambda cmd, **k: FakeCompleted(0, FIXTURE.read_text(encoding="utf-8")))
+    tracks = list_all_tracks(Path("show.mkv"), Path("mkvmerge"))
+    assert [t.track_id for t in tracks] == [0, 1, 2, 3, 4]
+
+
+def test_list_all_tracks_nonzero_returns_empty(monkeypatch):
+    monkeypatch.setattr("ass_style_tool.mkv_io.subprocess.run",
+                        lambda cmd, **k: FakeCompleted(2, ""))
+    assert list_all_tracks(Path("x.mkv"), Path("mkvmerge")) == []
+
+
+def test_list_all_tracks_oserror_returns_empty(monkeypatch):
+    def boom(cmd, **k):
+        raise OSError("not found")
+    monkeypatch.setattr("ass_style_tool.mkv_io.subprocess.run", boom)
+    assert list_all_tracks(Path("x.mkv"), Path("mkvmerge")) == []
