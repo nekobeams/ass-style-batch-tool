@@ -1,6 +1,7 @@
 """ASS 檔案讀寫(含編碼偵測)與目標樣式套用。"""
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Tuple
 
@@ -48,6 +49,47 @@ def get_scaled_border_shadow(subs: pysubs2.SSAFile) -> str:
     return str(subs.info.get("ScaledBorderAndShadow", "unset"))
 
 
+@dataclass
+class AppliedValues:
+    """profile 套用到某 PlayRes 後,各數值欄位的換算結果。"""
+    scale_x: float
+    scale_y: float
+    ref_w: int
+    ref_h: int
+    fontsize: int
+    outline: float
+    shadow: float
+    margin_l: int
+    margin_r: int
+    margin_v: int
+
+
+def compute_applied_values(
+    profile: Profile, play_res_x: int, play_res_y: int
+) -> AppliedValues:
+    """依 PlayRes 規則換算 profile 目標樣式的各數值欄位。
+
+    縮放與四捨五入規則必須與 apply_profile 寫檔時逐欄位一致,兩者共用本函式。
+    """
+    ref_w, ref_h = reference_resolution(play_res_x, play_res_y)
+    scale_x, scale_y = compute_scale(
+        ref_w, ref_h, profile.base_width, profile.base_height
+    )
+    t = profile.style
+    return AppliedValues(
+        scale_x=scale_x,
+        scale_y=scale_y,
+        ref_w=ref_w,
+        ref_h=ref_h,
+        fontsize=round(t.fontsize * scale_y),
+        outline=round(t.outline * scale_y, 2),
+        shadow=round(t.shadow * scale_y, 2),
+        margin_l=round(t.margin_l * scale_x),
+        margin_r=round(t.margin_r * scale_x),
+        margin_v=round(t.margin_v * scale_y),
+    )
+
+
 def apply_profile(
     subs: pysubs2.SSAFile,
     profile: Profile,
@@ -64,10 +106,7 @@ def apply_profile(
     例如 SRT 轉換後只會有單一 "Default" 樣式)。預設 False 維持既有
     依名稱精確比對的行為。
     """
-    ref_w, ref_h = reference_resolution(*get_play_res(subs))
-    scale_x, scale_y = compute_scale(
-        ref_w, ref_h, profile.base_width, profile.base_height
-    )
+    av = compute_applied_values(profile, *get_play_res(subs))
     target = profile.style
     modified: List[str] = []
     names = (
@@ -79,17 +118,17 @@ def apply_profile(
         if style is None:
             continue
         style.fontname = target.fontname
-        style.fontsize = round(target.fontsize * scale_y)
+        style.fontsize = av.fontsize
         style.bold = target.bold
         style.italic = target.italic
         style.primarycolor = parse_ass_color(target.primary_colour)
         style.outlinecolor = parse_ass_color(target.outline_colour)
         style.backcolor = parse_ass_color(target.back_colour)
-        style.outline = round(target.outline * scale_y, 2)
-        style.shadow = round(target.shadow * scale_y, 2)
+        style.outline = av.outline
+        style.shadow = av.shadow
         style.alignment = pysubs2.Alignment(target.alignment)
-        style.marginl = round(target.margin_l * scale_x)
-        style.marginr = round(target.margin_r * scale_x)
-        style.marginv = round(target.margin_v * scale_y)
+        style.marginl = av.margin_l
+        style.marginr = av.margin_r
+        style.marginv = av.margin_v
         modified.append(name)
     return modified
