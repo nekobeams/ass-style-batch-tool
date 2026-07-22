@@ -5,12 +5,10 @@ import tempfile
 from pathlib import Path
 from typing import Callable, Optional
 
-from PySide6.QtCore import Qt, QTimer
-from PySide6.QtWidgets import (QAbstractItemView, QFileDialog, QGroupBox,
-                               QHBoxLayout, QHeaderView, QLabel, QListWidget,
+from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtWidgets import (QFileDialog, QHBoxLayout, QLabel, QListWidget,
                                QListWidgetItem, QPushButton, QSlider,
-                               QSplitter, QTableWidget, QTableWidgetItem,
-                               QVBoxLayout, QWidget)
+                               QSplitter, QVBoxLayout, QWidget)
 
 from ..ass_style import get_play_res, load_subs
 from ..preview import render_preview_ass
@@ -25,6 +23,8 @@ POLL_MS = 250
 
 
 class PreviewPanel(QWidget):
+    readout_changed = Signal(object)
+
     def __init__(self, get_profile: Callable[[], Profile],
                  player: Optional[QWidget] = None) -> None:
         super().__init__()
@@ -81,30 +81,6 @@ class PreviewPanel(QWidget):
         split.setStretchFactor(0, 3)
         split.setStretchFactor(1, 1)
         root.addWidget(split, 1)
-
-        readout_box = QGroupBox("換算對照(套用後的實際數字)")
-        readout_layout = QVBoxLayout(readout_box)
-        self.readout_mechanism = QLabel("載入字幕檔後顯示換算結果")
-        self.readout_mechanism.setWordWrap(True)
-        self.readout_context_sub = QLabel("")
-        self.readout_context_video = QLabel("")
-        self.readout_context_video.setWordWrap(True)
-        self.readout_missing = QLabel("")
-        self.readout_missing.setWordWrap(True)
-        self.readout_missing.hide()
-        self.readout_table = QTableWidget(0, 3)
-        self.readout_table.setHorizontalHeaderLabels(["樣式", "原字幕現值", "套用後"])
-        self.readout_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.readout_table.verticalHeader().setVisible(False)
-        self.readout_table.horizontalHeader().setSectionResizeMode(
-            QHeaderView.Stretch)
-        self.readout_table.setMaximumHeight(200)
-        self.readout_note = QLabel("字型、顏色、對齊 直接採用 profile 設定(不縮放)")
-        for w in (self.readout_mechanism, self.readout_context_sub,
-                  self.readout_context_video, self.readout_missing,
-                  self.readout_table, self.readout_note):
-            readout_layout.addWidget(w)
-        root.addWidget(readout_box)
 
         self.status = QLabel("尚未載入字幕")
         root.addWidget(self.status)
@@ -215,22 +191,7 @@ class PreviewPanel(QWidget):
         data = build_readout(
             profile, play_res_x, play_res_y, original,
             self._source_sub.name, video_name, self._video_res)
-        self.readout_mechanism.setText(data.mechanism)
-        self.readout_context_sub.setText(data.context_subtitle)
-        self.readout_context_video.setText(data.context_video)
-        self.readout_note.setText(data.note)
-        if data.missing_message:
-            self.readout_missing.setText(data.missing_message)
-            self.readout_missing.show()
-            self.readout_table.hide()
-        else:
-            self.readout_missing.hide()
-            self.readout_table.show()
-            self.readout_table.setRowCount(len(data.rows))
-            for r, row in enumerate(data.rows):
-                self.readout_table.setItem(r, 0, QTableWidgetItem(row.label))
-                self.readout_table.setItem(r, 1, QTableWidgetItem(row.original))
-                self.readout_table.setItem(r, 2, QTableWidgetItem(row.applied))
+        self.readout_changed.emit(data)
 
     # ---------- 時間軸 ----------
     def _poll_playback(self) -> None:
