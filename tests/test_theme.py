@@ -47,7 +47,8 @@ def test_qss_covers_new_widgets():
     for theme in ("dark", "light"):
         qss = qss_for(theme)
         for selector in ("QTreeWidget", "QScrollBar", "QGroupBox",
-                         "QProgressBar", 'QPushButton[accent="true"]'):
+                         "QProgressBar", 'QPushButton[accent="true"]',
+                         "QListWidget"):
             assert selector in qss, f"{theme} 主題缺少 {selector}"
 
 

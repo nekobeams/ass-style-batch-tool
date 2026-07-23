@@ -57,3 +57,20 @@ def test_table_selects_full_rows(qapp):
     from ass_style_tool.qt.modify_tracks_dialog import ModifyTracksDialog
     d = ModifyTracksDialog(_tracks())
     assert d.table.selectionBehavior() == QAbstractItemView.SelectRows
+
+
+def test_cell_widget_stylesheets_are_scoped(qapp):
+    """背景透明樣式表必須限定 widget 自身型別,不可用裸字串,
+    否則會向下 cascade 到 QComboBox 彈出視窗、QLineEdit 右鍵選單等
+    子元件,導致它們也變透明。"""
+    from ass_style_tool.qt.modify_tracks_dialog import ModifyTracksDialog
+    d = ModifyTracksDialog(_tracks())
+    for lang in d._lang_edits:
+        assert lang.styleSheet().strip().startswith("QLineEdit {")
+    for name in d._name_edits:
+        assert name.styleSheet().strip().startswith("QLineEdit {")
+    for combo in d._default_combos + d._forced_combos:
+        assert combo.styleSheet().strip().startswith("QComboBox {")
+    # 保留欄的置中 wrapper 也應限定型別,即使 QCheckBox 本身沒有彈出子元件
+    wrap = d.table.cellWidget(0, 0)
+    assert wrap.styleSheet().strip().startswith("QWidget {")

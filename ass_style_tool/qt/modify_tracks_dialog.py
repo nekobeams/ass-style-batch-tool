@@ -51,12 +51,12 @@ class ModifyTracksDialog(QDialog):
             self.table.setItem(r, 2, QTableWidgetItem(t.codec_id))
             lang = QLineEdit(e.language or "")
             lang.setPlaceholderText(t.language or "und")
-            lang.setStyleSheet("background: transparent;")
+            lang.setStyleSheet("QLineEdit { background: transparent; }")
             self.table.setCellWidget(r, 3, lang)
             self._lang_edits.append(lang)
             name = QLineEdit(e.track_name or "")
             name.setPlaceholderText(t.track_name)
-            name.setStyleSheet("background: transparent;")
+            name.setStyleSheet("QLineEdit { background: transparent; }")
             self.table.setCellWidget(r, 4, name)
             self._name_edits.append(name)
             dcombo = self._tristate_combo(e.set_default)
@@ -75,7 +75,7 @@ class ModifyTracksDialog(QDialog):
 
     def _center(self, w: QWidget) -> QWidget:
         wrap = QWidget()
-        wrap.setStyleSheet("background: transparent;")
+        wrap.setStyleSheet("QWidget { background: transparent; }")
         lay = QHBoxLayout(wrap)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setAlignment(Qt.AlignCenter)
@@ -84,7 +84,7 @@ class ModifyTracksDialog(QDialog):
 
     def _tristate_combo(self, value: Optional[bool]) -> QComboBox:
         combo = QComboBox()
-        combo.setStyleSheet("background: transparent;")
+        combo.setStyleSheet("QComboBox { background: transparent; }")
         for label, val in _TRISTATE:
             combo.addItem(label, val)
         combo.setCurrentIndex([v for _, v in _TRISTATE].index(value))

@@ -273,7 +273,7 @@ class MuxTab(QWidget):
             self.table.setItem(r, 0, check)
             self.table.setItem(r, 1, QTableWidgetItem(pair.video_path.name))
             combo = QComboBox()
-            combo.setStyleSheet("background: transparent;")
+            combo.setStyleSheet("QComboBox { background: transparent; }")
             combo.addItem("(無)", None)
             options = list(self._available_subtitles)
             if (pair.subtitle_path is not None

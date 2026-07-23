@@ -36,7 +36,7 @@ class _Palette:
 
 _DARK = _Palette(
     window_bg="#1e1e1e", text="#e6e6e6", text_dim="#b8b8b8",
-    field_bg="#252525", row_alt="#2c2c2c", row_hover="#2f2f2f",
+    field_bg="#252525", row_alt="#2c2c2c", row_hover="#383838",
     border="#3d3d3d", border_light="#333333",
     surface="#2d2d2d", surface_hover="#3a3a3a",
     accent="#0e639c", accent_hover="#1177bb", accent_text="#ffffff",

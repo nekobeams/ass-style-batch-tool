@@ -168,6 +168,16 @@ def test_populate_builds_subtitle_combos(qapp, monkeypatch):
     assert combo1.currentData() is None
 
 
+def test_subtitle_combo_stylesheet_is_scoped(qapp, monkeypatch):
+    """背景透明樣式表必須限定 QComboBox 型別,不可用裸字串,
+    否則會 cascade 到彈出視窗導致其背景消失。"""
+    tab = _tab(monkeypatch)
+    tab.populate(PAIRS)
+    for row in range(tab.table.rowCount()):
+        combo = tab.table.cellWidget(row, 2)
+        assert combo.styleSheet().strip().startswith("QComboBox {")
+
+
 def test_combo_options_include_available_and_current(qapp, monkeypatch):
     tab = _tab(monkeypatch)
     tab._available_subtitles = [Path("x [01].ass"), Path("y [02].ass")]
