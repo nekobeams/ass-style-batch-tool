@@ -18,6 +18,7 @@ from ..scale_engine import ScaleError
 from ..tools import mkvextract_path, mkvmerge_path
 from .batch_worker import MkvScanWorker, MkvWorker
 from .scale_panel import ScalePanel
+from .scan_progress_dialog import ScanProgressDialog
 
 _ROLE_PATH = Qt.UserRole
 _ROLE_TRACK = Qt.UserRole + 1
@@ -35,6 +36,7 @@ class MkvTab(QWidget):
         self._worker = None
         self._scan_thread: Optional[QThread] = None
         self._scan_worker = None
+        self._scan_dialog: Optional[ScanProgressDialog] = None
         self._scanned_folder: Optional[str] = None
         self._preview_dir = Path(tempfile.mkdtemp(prefix="ass_mkv_preview_"))
         self.setAcceptDrops(True)
@@ -199,19 +201,42 @@ class MkvTab(QWidget):
         self._scan_worker.moveToThread(self._scan_thread)
         self._scan_thread.started.connect(self._scan_worker.run)
         self._scan_worker.finished.connect(self._on_scan_done)
+        self._scan_worker.cancelled.connect(self._on_scan_cancelled)
+        self._scan_dialog = ScanProgressDialog(self)
+        self._scan_worker.progress.connect(self._scan_dialog.set_progress)
+        self._scan_dialog.cancelled.connect(self._scan_worker.cancel)
+        self._scan_dialog.show()      # 非 exec():維持既有非同步流程
         self._scan_thread.start()
 
-    def _on_scan_done(self, files_tracks: dict) -> None:
+    def _finish_scan(self) -> None:
+        """完成/取消共用的收尾:關對話框、收執行緒、恢復掃描鈕。"""
+        if self._scan_dialog is not None:
+            self._scan_dialog.close()
+            self._scan_dialog.deleteLater()
+            self._scan_dialog = None
         if self._scan_thread is not None:
             self._scan_thread.quit()
             self._scan_thread.wait()
         self._scan_thread = None
         self._scan_worker = None
         self.scan_button.setEnabled(True)
+
+    def _on_scan_done(self, files_tracks: dict) -> None:
+        self._finish_scan()
         self.populate(files_tracks)
         total_tracks = sum(len(v) for v in files_tracks.values())
         self.log.emit(f"掃描完成:{len(files_tracks)} 個 MKV,"
                       f"共 {total_tracks} 條 ASS 字幕軌")
+
+    def _on_scan_cancelled(self) -> None:
+        self._finish_scan()
+        # 不呼叫 populate:保留上一次的結果與表格內容。
+        # 但仍要用與 populate 相同的條件恢復執行鈕,否則舊結果還在、
+        # 執行鈕卻永遠是灰的。
+        if self._thread is None:
+            self.run_button.setEnabled(
+                any(self._files_tracks.values()) and self.tools_available)
+        self.log.emit("掃描已取消")
 
     def populate(self, files_tracks: Dict[Path, List[SubtitleTrack]]) -> None:
         self._files_tracks = dict(files_tracks)

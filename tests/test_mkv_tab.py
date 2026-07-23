@@ -179,3 +179,25 @@ def test_restore_settings_defaults_outdir_when_unset(qapp, monkeypatch, tmp_path
     tab.restore_settings(settings)
     assert tab.folder_edit.text() == ""
     assert tab.outdir_radio.isChecked() is True
+
+
+def test_scan_done_closes_dialog_and_populates(qapp, monkeypatch):
+    from ass_style_tool.qt.scan_progress_dialog import ScanProgressDialog
+    tab = _tab(monkeypatch)
+    tab._scan_dialog = ScanProgressDialog(tab)
+    tab._on_scan_done(FILES)
+    assert tab._scan_dialog is None                    # 對話框已關閉並釋放
+    assert tab.tree.topLevelItemCount() == len(FILES)  # 結果有填進表格
+
+
+def test_scan_cancelled_keeps_previous_results(qapp, monkeypatch):
+    from ass_style_tool.qt.scan_progress_dialog import ScanProgressDialog
+    tab = _tab(monkeypatch)
+    tab.populate(FILES)                          # 先有一次成功掃描的結果
+    before = tab.tree.topLevelItemCount()
+    tab.run_button.setEnabled(False)             # 模擬 _on_scan 把按鈕變灰
+    tab._scan_dialog = ScanProgressDialog(tab)
+    tab._on_scan_cancelled()
+    assert tab._scan_dialog is None              # 對話框已關閉
+    assert tab.tree.topLevelItemCount() == before  # 舊結果保留,未被清空
+    assert tab.run_button.isEnabled() is True    # 依既有結果恢復,不會卡在灰色
