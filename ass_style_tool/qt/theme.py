@@ -1,45 +1,141 @@
-"""主題模式(跟隨系統/深色/淺色)決策與 QSS 套用。"""
+"""主題模式(跟隨系統/深色/淺色)決策與 QSS 套用。
+
+深淺兩個主題共用同一份 QSS 樣板,只有配色不同——兩份平行的樣式字串很容易
+在日後只改一邊而悄悄分岔。用 string.Template 而非 str.format,因為 QSS 本身
+充滿大括號;用 substitute 而非 safe_substitute,配色漏欄位時要直接拋出。
+"""
 from __future__ import annotations
 
+from dataclasses import asdict, dataclass
+from string import Template
 from typing import Tuple
 
 THEME_MODES: Tuple[str, ...] = ("system", "dark", "light")
 
-_DARK_QSS = """
-QMainWindow, QWidget { background-color: #1e1e1e; color: #e0e0e0; }
-QTabWidget::pane { border: 1px solid #3a3a3a; }
-QTabBar::tab { background: #2a2a2a; color: #c0c0c0; padding: 6px 14px; }
-QTabBar::tab:selected { background: #3a3a3a; color: #ffffff; }
-QLineEdit, QComboBox, QSpinBox, QTextEdit, QPlainTextEdit, QTableWidget {
-    background-color: #2a2a2a; color: #e0e0e0; border: 1px solid #3a3a3a;
-    selection-background-color: #4a6a8a;
-}
-QPushButton {
-    background-color: #333333; color: #e0e0e0; border: 1px solid #4a4a4a;
-    padding: 5px 12px;
-}
-QPushButton:hover { background-color: #3f3f3f; }
-QPushButton:disabled { color: #707070; background-color: #2a2a2a; }
-QHeaderView::section { background-color: #2a2a2a; color: #c0c0c0; border: 1px solid #3a3a3a; }
-"""
 
-_LIGHT_QSS = """
-QMainWindow, QWidget { background-color: #f3f3f3; color: #202020; }
-QTabWidget::pane { border: 1px solid #c8c8c8; }
-QTabBar::tab { background: #e4e4e4; color: #404040; padding: 6px 14px; }
-QTabBar::tab:selected { background: #ffffff; color: #000000; }
-QLineEdit, QComboBox, QSpinBox, QTextEdit, QPlainTextEdit, QTableWidget {
-    background-color: #ffffff; color: #202020; border: 1px solid #c8c8c8;
-    selection-background-color: #b0d0f0;
+@dataclass(frozen=True)
+class _Palette:
+    window_bg: str        # 視窗底色
+    text: str             # 主要文字
+    text_dim: str         # 次要文字(表頭、未選分頁)
+    field_bg: str         # 輸入框/清單底色
+    row_alt: str          # 交錯列底色
+    row_hover: str        # hover 列底色
+    border: str           # 一般邊框
+    border_light: str     # 列分隔線(比一般邊框更淡)
+    surface: str          # 按鈕/分頁/表頭底色
+    surface_hover: str    # 按鈕 hover
+    accent: str           # 強調色(主要按鈕、分頁上緣線、進度條)
+    accent_hover: str
+    accent_text: str      # 強調色底上的文字
+    selection_bg: str     # 選取列底色
+    selection_text: str   # 選取列文字(深淺主題不同,故獨立欄位)
+    disabled_text: str
+
+
+_DARK = _Palette(
+    window_bg="#1e1e1e", text="#e6e6e6", text_dim="#b8b8b8",
+    field_bg="#252525", row_alt="#232323", row_hover="#2f2f2f",
+    border="#3d3d3d", border_light="#333333",
+    surface="#2d2d2d", surface_hover="#3a3a3a",
+    accent="#0e639c", accent_hover="#1177bb", accent_text="#ffffff",
+    selection_bg="#264f78", selection_text="#ffffff",
+    disabled_text="#707070",
+)
+
+_LIGHT = _Palette(
+    window_bg="#f3f3f3", text="#202020", text_dim="#505050",
+    field_bg="#ffffff", row_alt="#f7f7f7", row_hover="#eaeaea",
+    border="#c8c8c8", border_light="#e0e0e0",
+    surface="#e8e8e8", surface_hover="#dcdcdc",
+    accent="#0a6ebd", accent_hover="#0d82db", accent_text="#ffffff",
+    selection_bg="#cce4f7", selection_text="#202020",
+    disabled_text="#a0a0a0",
+)
+
+_QSS_TEMPLATE = Template("""
+QMainWindow, QWidget { background-color: $window_bg; color: $text; }
+
+QTabWidget::pane { border: 1px solid $border; }
+QTabBar::tab {
+    background: $surface; color: $text_dim; padding: 6px 14px;
+    border-top: 2px solid transparent;
 }
+QTabBar::tab:selected {
+    background: $window_bg; color: $text; border-top: 2px solid $accent;
+}
+
+QLineEdit, QComboBox, QSpinBox, QTextEdit, QPlainTextEdit {
+    background-color: $field_bg; color: $text; border: 1px solid $border;
+    selection-background-color: $selection_bg; selection-color: $selection_text;
+}
+
+QTreeWidget, QTableWidget {
+    background-color: $field_bg; color: $text; border: 1px solid $border;
+    alternate-background-color: $row_alt;
+    gridline-color: $border_light;
+    selection-background-color: $selection_bg;
+    selection-color: $selection_text;
+}
+QTreeWidget::item, QTableWidget::item {
+    border-bottom: 1px solid $border_light;
+}
+QTreeWidget::item:hover, QTableWidget::item:hover {
+    background-color: $row_hover;
+}
+QTreeWidget::item:selected, QTableWidget::item:selected {
+    background-color: $selection_bg; color: $selection_text;
+}
+
+QHeaderView::section {
+    background-color: $surface; color: $text_dim;
+    border: 1px solid $border; padding: 4px;
+}
+
 QPushButton {
-    background-color: #e8e8e8; color: #202020; border: 1px solid #c0c0c0;
-    padding: 5px 12px;
+    background-color: $surface; color: $text; border: 1px solid $border;
+    padding: 5px 12px; border-radius: 3px;
 }
-QPushButton:hover { background-color: #dcdcdc; }
-QPushButton:disabled { color: #a0a0a0; background-color: #eeeeee; }
-QHeaderView::section { background-color: #e4e4e4; color: #404040; border: 1px solid #c8c8c8; }
-"""
+QPushButton:hover { background-color: $surface_hover; }
+QPushButton:disabled { color: $disabled_text; background-color: $field_bg; }
+QPushButton[accent="true"] {
+    background-color: $accent; color: $accent_text;
+    border: 1px solid $accent_hover;
+}
+QPushButton[accent="true"]:hover { background-color: $accent_hover; }
+QPushButton[accent="true"]:disabled {
+    background-color: $field_bg; color: $disabled_text;
+    border: 1px solid $border;
+}
+
+QScrollBar:vertical { background: $surface; width: 12px; margin: 0; }
+QScrollBar::handle:vertical {
+    background: $border; min-height: 24px; border-radius: 3px;
+}
+QScrollBar::handle:vertical:hover { background: $surface_hover; }
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
+QScrollBar:horizontal { background: $surface; height: 12px; margin: 0; }
+QScrollBar::handle:horizontal {
+    background: $border; min-width: 24px; border-radius: 3px;
+}
+QScrollBar::handle:horizontal:hover { background: $surface_hover; }
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0; }
+
+QGroupBox {
+    border: 1px solid $border; border-radius: 3px;
+    margin-top: 8px; padding-top: 8px;
+}
+QGroupBox::title {
+    subcontrol-origin: margin; subcontrol-position: top left;
+    left: 8px; padding: 0 4px; color: $text_dim;
+}
+
+QProgressBar {
+    background-color: $field_bg; border: 1px solid $border;
+    border-radius: 3px; text-align: center; color: $text;
+}
+QProgressBar::chunk { background-color: $accent; }
+""")
 
 
 def resolve_theme(mode: str, system_is_dark: bool) -> str:
@@ -54,7 +150,8 @@ def resolve_theme(mode: str, system_is_dark: bool) -> str:
 
 
 def qss_for(theme: str) -> str:
-    return _DARK_QSS if theme == "dark" else _LIGHT_QSS
+    palette = _DARK if theme == "dark" else _LIGHT
+    return _QSS_TEMPLATE.substitute(asdict(palette))
 
 
 def system_is_dark(app) -> bool:

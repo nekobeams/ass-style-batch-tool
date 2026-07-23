@@ -35,3 +35,32 @@ def test_qss_for_dark_nonempty():
 
 def test_qss_for_light_differs_from_dark():
     assert qss_for("light") != qss_for("dark")
+
+
+def test_qss_has_no_unsubstituted_placeholders():
+    # 殘留的 $name 代表配色表漏了欄位,產生的 QSS 會壞掉
+    for theme in ("dark", "light"):
+        assert "$" not in qss_for(theme), f"{theme} 主題有殘留佔位符"
+
+
+def test_qss_covers_new_widgets():
+    for theme in ("dark", "light"):
+        qss = qss_for(theme)
+        for selector in ("QTreeWidget", "QScrollBar", "QGroupBox",
+                         "QProgressBar", 'QPushButton[accent="true"]'):
+            assert selector in qss, f"{theme} 主題缺少 {selector}"
+
+
+def test_qss_has_row_separator_and_selection():
+    for theme in ("dark", "light"):
+        qss = qss_for(theme)
+        assert "alternate-background-color" in qss      # 交錯底色
+        assert "::item:selected" in qss                 # 選取高亮
+        assert "::item:hover" in qss                    # hover 提示
+
+
+def test_incomplete_palette_raises_loudly():
+    # 配色表缺欄位必須直接拋出,不可靜默產生壞 QSS
+    from ass_style_tool.qt.theme import _QSS_TEMPLATE
+    with pytest.raises(KeyError):
+        _QSS_TEMPLATE.substitute({"window_bg": "#000000"})
