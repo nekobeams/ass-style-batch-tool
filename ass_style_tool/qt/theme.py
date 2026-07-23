@@ -31,16 +31,17 @@ class _Palette:
     selection_bg: str     # 選取列底色
     selection_text: str   # 選取列文字(深淺主題不同,故獨立欄位)
     disabled_text: str
+    handle_hover: str     # 捲軸滑塊 hover(需比一般狀態更醒目,不可用 surface_hover)
 
 
 _DARK = _Palette(
     window_bg="#1e1e1e", text="#e6e6e6", text_dim="#b8b8b8",
-    field_bg="#252525", row_alt="#232323", row_hover="#2f2f2f",
+    field_bg="#252525", row_alt="#2c2c2c", row_hover="#2f2f2f",
     border="#3d3d3d", border_light="#333333",
     surface="#2d2d2d", surface_hover="#3a3a3a",
     accent="#0e639c", accent_hover="#1177bb", accent_text="#ffffff",
     selection_bg="#264f78", selection_text="#ffffff",
-    disabled_text="#707070",
+    disabled_text="#707070", handle_hover="#4a4a4a",
 )
 
 _LIGHT = _Palette(
@@ -50,7 +51,7 @@ _LIGHT = _Palette(
     surface="#e8e8e8", surface_hover="#dcdcdc",
     accent="#0a6ebd", accent_hover="#0d82db", accent_text="#ffffff",
     selection_bg="#cce4f7", selection_text="#202020",
-    disabled_text="#a0a0a0",
+    disabled_text="#a0a0a0", handle_hover="#b0b0b0",
 )
 
 _QSS_TEMPLATE = Template("""
@@ -70,20 +71,20 @@ QLineEdit, QComboBox, QSpinBox, QTextEdit, QPlainTextEdit {
     selection-background-color: $selection_bg; selection-color: $selection_text;
 }
 
-QTreeWidget, QTableWidget {
+QTreeWidget, QTableWidget, QListWidget {
     background-color: $field_bg; color: $text; border: 1px solid $border;
     alternate-background-color: $row_alt;
     gridline-color: $border_light;
     selection-background-color: $selection_bg;
     selection-color: $selection_text;
 }
-QTreeWidget::item, QTableWidget::item {
+QTreeWidget::item, QTableWidget::item, QListWidget::item {
     border-bottom: 1px solid $border_light;
 }
-QTreeWidget::item:hover, QTableWidget::item:hover {
+QTreeWidget::item:hover, QTableWidget::item:hover, QListWidget::item:hover {
     background-color: $row_hover;
 }
-QTreeWidget::item:selected, QTableWidget::item:selected {
+QTreeWidget::item:selected, QTableWidget::item:selected, QListWidget::item:selected {
     background-color: $selection_bg; color: $selection_text;
 }
 
@@ -112,13 +113,13 @@ QScrollBar:vertical { background: $surface; width: 12px; margin: 0; }
 QScrollBar::handle:vertical {
     background: $border; min-height: 24px; border-radius: 3px;
 }
-QScrollBar::handle:vertical:hover { background: $surface_hover; }
+QScrollBar::handle:vertical:hover { background: $handle_hover; }
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
 QScrollBar:horizontal { background: $surface; height: 12px; margin: 0; }
 QScrollBar::handle:horizontal {
     background: $border; min-width: 24px; border-radius: 3px;
 }
-QScrollBar::handle:horizontal:hover { background: $surface_hover; }
+QScrollBar::handle:horizontal:hover { background: $handle_hover; }
 QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0; }
 
 QGroupBox {

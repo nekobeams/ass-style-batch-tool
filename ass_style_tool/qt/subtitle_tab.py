@@ -74,6 +74,7 @@ class SubtitleFileTab(QWidget):
 
         self.table = QTableWidget(0, len(_HEADERS))
         self.table.setAlternatingRowColors(True)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setHorizontalHeaderLabels(_HEADERS)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.horizontalHeader().setSectionResizeMode(

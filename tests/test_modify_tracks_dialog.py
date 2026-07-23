@@ -50,3 +50,10 @@ def test_table_has_alternating_rows(qapp):
     from ass_style_tool.qt.modify_tracks_dialog import ModifyTracksDialog
     d = ModifyTracksDialog(_tracks())
     assert d.table.alternatingRowColors() is True
+
+
+def test_table_selects_full_rows(qapp):
+    from PySide6.QtWidgets import QAbstractItemView
+    from ass_style_tool.qt.modify_tracks_dialog import ModifyTracksDialog
+    d = ModifyTracksDialog(_tracks())
+    assert d.table.selectionBehavior() == QAbstractItemView.SelectRows

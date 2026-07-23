@@ -47,3 +47,10 @@ def test_table_has_alternating_rows(qapp):
     from ass_style_tool.qt.readout_view import ReadoutView
     v = ReadoutView()
     assert v.table.alternatingRowColors() is True
+
+
+def test_table_selects_full_rows(qapp):
+    from PySide6.QtWidgets import QAbstractItemView
+    from ass_style_tool.qt.readout_view import ReadoutView
+    v = ReadoutView()
+    assert v.table.selectionBehavior() == QAbstractItemView.SelectRows

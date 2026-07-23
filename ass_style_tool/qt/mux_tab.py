@@ -83,6 +83,7 @@ class MuxTab(QWidget):
 
         self.table = QTableWidget(0, len(_HEADERS))
         self.table.setAlternatingRowColors(True)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setHorizontalHeaderLabels(_HEADERS)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
@@ -272,6 +273,7 @@ class MuxTab(QWidget):
             self.table.setItem(r, 0, check)
             self.table.setItem(r, 1, QTableWidgetItem(pair.video_path.name))
             combo = QComboBox()
+            combo.setStyleSheet("background: transparent;")
             combo.addItem("(無)", None)
             options = list(self._available_subtitles)
             if (pair.subtitle_path is not None

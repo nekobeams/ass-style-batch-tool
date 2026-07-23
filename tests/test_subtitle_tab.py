@@ -229,6 +229,13 @@ def test_table_has_alternating_rows(qapp):
     assert tab.table.alternatingRowColors() is True
 
 
+def test_table_selects_full_rows(qapp):
+    from PySide6.QtWidgets import QAbstractItemView
+    from ass_style_tool.qt.subtitle_tab import SubtitleFileTab
+    tab = SubtitleFileTab(lambda: profile_from_values(DEFAULT_VALUES))
+    assert tab.table.selectionBehavior() == QAbstractItemView.SelectRows
+
+
 def test_run_button_tagged_accent(qapp):
     from ass_style_tool.qt.subtitle_tab import SubtitleFileTab
     tab = SubtitleFileTab(lambda: profile_from_values(DEFAULT_VALUES))

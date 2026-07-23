@@ -264,6 +264,12 @@ def test_table_has_alternating_rows(qapp, monkeypatch):
     assert tab.table.alternatingRowColors() is True
 
 
+def test_table_selects_full_rows(qapp, monkeypatch):
+    from PySide6.QtWidgets import QAbstractItemView
+    tab = _tab(monkeypatch)
+    assert tab.table.selectionBehavior() == QAbstractItemView.SelectRows
+
+
 def test_run_button_tagged_accent(qapp, monkeypatch):
     tab = _tab(monkeypatch)
     assert tab.run_button.property("accent") is True

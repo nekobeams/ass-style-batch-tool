@@ -76,6 +76,7 @@ class PreviewPanel(QWidget):
         split = QSplitter(Qt.Vertical)
         split.addWidget(top)
         self.line_list = QListWidget()
+        self.line_list.setAlternatingRowColors(True)
         self.line_list.itemClicked.connect(self._on_line_clicked)
         split.addWidget(self.line_list)
         split.setStretchFactor(0, 3)

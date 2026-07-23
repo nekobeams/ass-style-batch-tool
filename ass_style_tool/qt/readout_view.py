@@ -27,6 +27,7 @@ class ReadoutView(QGroupBox):
         self.missing.hide()
         self.table = QTableWidget(0, 3)
         self.table.setAlternatingRowColors(True)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setHorizontalHeaderLabels(["樣式", "原字幕現值", "套用後"])
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.verticalHeader().setVisible(False)

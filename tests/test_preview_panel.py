@@ -270,3 +270,10 @@ def test_readout_not_emitted_on_invalid_profile(qapp, tmp_path, monkeypatch):
     panel.set_media(_write_sample(tmp_path))
     assert got == []                              # 無效 profile 不 emit
     panel.shutdown()
+
+
+def test_line_list_has_alternating_rows(qapp):
+    player = FakePlayer()
+    panel = _panel(player)
+    assert panel.line_list.alternatingRowColors() is True
+    panel.shutdown()
