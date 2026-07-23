@@ -73,6 +73,7 @@ class SubtitleFileTab(QWidget):
         self.scale_mode_radio.toggled.connect(self._on_mode_changed)
 
         self.table = QTableWidget(0, len(_HEADERS))
+        self.table.setAlternatingRowColors(True)
         self.table.setHorizontalHeaderLabels(_HEADERS)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.horizontalHeader().setSectionResizeMode(
@@ -102,6 +103,7 @@ class SubtitleFileTab(QWidget):
         self.scan_button = QPushButton("重新掃描")
         self.scan_button.clicked.connect(self._on_scan)
         self.run_button = QPushButton("開始套用樣式")
+        self.run_button.setProperty("accent", True)
         self.run_button.setEnabled(False)
         self.run_button.clicked.connect(self._on_run)
         self.cancel_button = QPushButton("取消")

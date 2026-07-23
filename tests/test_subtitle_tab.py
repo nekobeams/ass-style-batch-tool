@@ -221,3 +221,15 @@ def test_restore_settings_defaults_inplace_when_unset(qapp, tmp_path):
     tab.restore_settings(settings)
     assert tab.folder_edit.text() == ""
     assert tab.inplace_radio.isChecked() is True
+
+
+def test_table_has_alternating_rows(qapp):
+    from ass_style_tool.qt.subtitle_tab import SubtitleFileTab
+    tab = SubtitleFileTab(lambda: profile_from_values(DEFAULT_VALUES))
+    assert tab.table.alternatingRowColors() is True
+
+
+def test_run_button_tagged_accent(qapp):
+    from ass_style_tool.qt.subtitle_tab import SubtitleFileTab
+    tab = SubtitleFileTab(lambda: profile_from_values(DEFAULT_VALUES))
+    assert tab.run_button.property("accent") is True

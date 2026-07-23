@@ -257,3 +257,13 @@ def test_modify_tracks_stores_edits(qapp, monkeypatch):
     monkeypatch.setattr(mux_tab_mod, "ModifyTracksDialog", FakeDialog)
     tab._on_modify_tracks()
     assert tab._track_edits == {1: TrackEdit(keep=False)}
+
+
+def test_table_has_alternating_rows(qapp, monkeypatch):
+    tab = _tab(monkeypatch)
+    assert tab.table.alternatingRowColors() is True
+
+
+def test_run_button_tagged_accent(qapp, monkeypatch):
+    tab = _tab(monkeypatch)
+    assert tab.run_button.property("accent") is True

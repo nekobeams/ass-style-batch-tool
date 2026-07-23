@@ -44,3 +44,9 @@ def test_existing_prefill(qapp):
     assert d._keep_checks[2].isChecked() is False
     assert d._forced_combos[2].currentData() is True
     assert d._lang_edits[2].text() == "eng"
+
+
+def test_table_has_alternating_rows(qapp):
+    from ass_style_tool.qt.modify_tracks_dialog import ModifyTracksDialog
+    d = ModifyTracksDialog(_tracks())
+    assert d.table.alternatingRowColors() is True

@@ -33,6 +33,7 @@ class ModifyTracksDialog(QDialog):
 
         root = QVBoxLayout(self)
         self.table = QTableWidget(len(self._tracks), len(_COLS))
+        self.table.setAlternatingRowColors(True)
         self.table.setHorizontalHeaderLabels(_COLS)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.verticalHeader().setVisible(False)

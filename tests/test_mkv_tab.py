@@ -292,3 +292,14 @@ def test_dialog_cancel_actually_aborts_scan(qapp, monkeypatch, tmp_path):
         if thread is not None:
             thread.quit()
             thread.wait(3000)
+
+
+def test_tree_has_alternating_rows(qapp, monkeypatch):
+    # QSS 的 alternate-background-color 只有在控件端開啟時才生效
+    tab = _tab(monkeypatch)
+    assert tab.tree.alternatingRowColors() is True
+
+
+def test_run_button_tagged_accent(qapp, monkeypatch):
+    tab = _tab(monkeypatch)
+    assert tab.run_button.property("accent") is True

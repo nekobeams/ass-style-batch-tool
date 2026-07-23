@@ -67,6 +67,7 @@ class MkvTab(QWidget):
         root.addLayout(folder_row)
 
         self.tree = QTreeWidget()
+        self.tree.setAlternatingRowColors(True)
         self.tree.setHeaderLabels(["MKV / 字幕軌", "語言", "軌名"])
         self.tree.setColumnWidth(0, 420)
         root.addWidget(self.tree, 1)
@@ -118,6 +119,7 @@ class MkvTab(QWidget):
         self.preview_button = QPushButton("送進預覽")
         self.preview_button.clicked.connect(self._on_send_preview)
         self.run_button = QPushButton("開始處理")
+        self.run_button.setProperty("accent", True)
         self.run_button.setEnabled(False)
         self.run_button.clicked.connect(self._on_run)
         self.cancel_button = QPushButton("取消")

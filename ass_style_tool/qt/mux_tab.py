@@ -82,6 +82,7 @@ class MuxTab(QWidget):
         root.addLayout(srow)
 
         self.table = QTableWidget(0, len(_HEADERS))
+        self.table.setAlternatingRowColors(True)
         self.table.setHorizontalHeaderLabels(_HEADERS)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
@@ -153,6 +154,7 @@ class MuxTab(QWidget):
         self.modify_tracks_button.setEnabled(False)
         self.modify_tracks_button.clicked.connect(self._on_modify_tracks)
         self.run_button = QPushButton("開始封裝")
+        self.run_button.setProperty("accent", True)
         self.run_button.setEnabled(False)
         self.run_button.clicked.connect(self._on_run)
         self.cancel_button = QPushButton("取消")

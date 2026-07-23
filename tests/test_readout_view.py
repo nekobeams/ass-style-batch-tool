@@ -41,3 +41,9 @@ def test_update_from_none_shows_placeholder(qapp):
     assert "載入字幕檔" in v.mechanism.text()
     assert v.table.rowCount() == 0
     assert v.table.isHidden()
+
+
+def test_table_has_alternating_rows(qapp):
+    from ass_style_tool.qt.readout_view import ReadoutView
+    v = ReadoutView()
+    assert v.table.alternatingRowColors() is True
