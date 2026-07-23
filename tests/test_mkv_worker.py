@@ -146,3 +146,48 @@ def test_mkv_worker_replace_original_mode_no_collision_check(qapp, tmp_path):
         lambda ok, sk, er: done.update(ok=ok, skipped=sk, error=er))
     worker.run()
     assert done == {"ok": 2, "skipped": 0, "error": 0}
+
+
+def test_scan_worker_emits_progress_per_file(qapp, tmp_path):
+    from ass_style_tool.qt.batch_worker import MkvScanWorker
+    for name in ("e1.mkv", "e2.mkv", "e3.mkv"):
+        (tmp_path / name).write_bytes(b"")
+    worker = MkvScanWorker(tmp_path, Path("mkvmerge.exe"),
+                           list_fn=lambda p, m: [])
+    seen = []
+    worker.progress.connect(lambda done, total: seen.append((done, total)))
+    worker.run()
+    assert seen == [(1, 3), (2, 3), (3, 3)]
+
+
+def test_scan_worker_cancel_stops_early_and_emits_cancelled(qapp, tmp_path):
+    from ass_style_tool.qt.batch_worker import MkvScanWorker
+    for name in ("e1.mkv", "e2.mkv", "e3.mkv"):
+        (tmp_path / name).write_bytes(b"")
+    calls = []
+
+    def fake_list(path, mkvmerge):
+        calls.append(path)
+        worker.cancel()          # 第一個檔掃完就要求取消
+        return []
+
+    worker = MkvScanWorker(tmp_path, Path("mkvmerge.exe"), list_fn=fake_list)
+    events = []
+    worker.finished.connect(lambda d: events.append("finished"))
+    worker.cancelled.connect(lambda: events.append("cancelled"))
+    worker.run()
+    assert events == ["cancelled"]   # 取消不可發 finished
+    assert len(calls) == 1           # 真的提早停,不是跑完才丟棄
+
+
+def test_scan_worker_no_mkv_finishes_empty(qapp, tmp_path):
+    from ass_style_tool.qt.batch_worker import MkvScanWorker
+    (tmp_path / "note.txt").write_text("x")
+    worker = MkvScanWorker(tmp_path, Path("mkvmerge.exe"),
+                           list_fn=lambda p, m: [])
+    got = {"finished": None, "progress": []}
+    worker.finished.connect(lambda d: got.__setitem__("finished", d))
+    worker.progress.connect(lambda a, b: got["progress"].append((a, b)))
+    worker.run()
+    assert got["finished"] == {}
+    assert got["progress"] == []

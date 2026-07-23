@@ -135,9 +135,11 @@ class ScaleWorker(QObject):
 
 
 class MkvScanWorker(QObject):
-    """遞迴掃描資料夾內 *.mkv 並列舉各檔 ASS 字幕軌。"""
+    """遞迴掃描資料夾內 *.mkv 並列舉各檔 ASS 字幕軌;支援進度回報與取消。"""
 
-    finished = Signal(object)  # dict[Path, list[SubtitleTrack]]
+    finished = Signal(object)      # dict[Path, list[SubtitleTrack]]
+    progress = Signal(int, int)    # 已完成, 總數
+    cancelled = Signal()           # 使用者取消(部分結果丟棄)
 
     def __init__(self, folder: Path, mkvmerge: Path,
                  list_fn=list_ass_tracks) -> None:
@@ -145,12 +147,23 @@ class MkvScanWorker(QObject):
         self._folder = Path(folder)
         self._mkvmerge = mkvmerge
         self._list_fn = list_fn
+        self._cancelled = False
+
+    def cancel(self) -> None:
+        self._cancelled = True
 
     def run(self) -> None:
+        # 先收集清單以取得總數(供進度條顯示確定範圍)
+        files = [p for p in sorted(self._folder.rglob("*.mkv")) if p.is_file()]
+        total = len(files)
         result = {}
-        for path in sorted(self._folder.rglob("*.mkv")):
-            if path.is_file():
-                result[path] = self._list_fn(path, self._mkvmerge)
+        for i, path in enumerate(files, start=1):
+            # 檢查點在每個檔案之前;執行中的那一次 list_fn 會先跑完
+            if self._cancelled:
+                self.cancelled.emit()   # 丟棄 result,不發 finished
+                return
+            result[path] = self._list_fn(path, self._mkvmerge)
+            self.progress.emit(i, total)
         self.finished.emit(result)
 
 
