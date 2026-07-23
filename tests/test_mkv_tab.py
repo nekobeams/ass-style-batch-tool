@@ -235,19 +235,19 @@ def test_scan_done_with_shown_dialog_does_not_emit_cancelled(qapp, monkeypatch):
     assert tab._scan_dialog is None
 
 
-def test_cancel_reaches_worker_across_real_thread(qapp, tmp_path):
-    """Fix 1 回歸(重點測試):跨執行緒的取消必須真正中止掃描。
+def test_dialog_cancel_actually_aborts_scan(qapp, monkeypatch, tmp_path):
+    """Fix 1 回歸(重點測試):走真正的使用者路徑(對話框 Cancel/Esc/X)取消掃描。
 
     本檔其餘測試全是單執行緒的同步呼叫,這正是這個 bug 完全不會被抓到的
     原因:signal→worker slot 的連線在 worker 已 moveToThread 後會被 Qt
     解析成 queued connection,而 worker 所在的執行緒在 run() 執行期間
-    不會跑事件迴圈,queued 的 cancel() 因此完全不會被處理。這裡用真正的
-    QThread + 會拖時間的 list_fn,從 GUI 執行緒觸發取消(與對話框現在
-    走的路徑相同:直接呼叫 worker.cancel()),驗證掃描確實提早中止。
+    不會跑事件迴圈,queued 的 cancel() 因此完全不會被處理。
+
+    這裡不自建 worker/thread,而是讓 MkvTab._on_scan 自己的接線建立真正的
+    QThread,並透過 ScanProgressDialog.reject()(對應使用者按 Cancel/Esc/
+    右上角 X)觸發取消,驗證掃描確實提早中止、表格未被填入。
     """
     import time
-
-    from PySide6.QtCore import QThread
 
     from ass_style_tool.qt.batch_worker import MkvScanWorker
 
@@ -258,38 +258,37 @@ def test_cancel_reaches_worker_across_real_thread(qapp, tmp_path):
         time.sleep(0.05)
         return []
 
+    def factory(folder, mkvmerge, list_fn=None):
+        return MkvScanWorker(folder, mkvmerge, list_fn=slow_list_fn)
+
+    monkeypatch.setattr("ass_style_tool.qt.mkv_tab.MkvScanWorker", factory)
+
     total_files = 20
     for i in range(total_files):
         (tmp_path / f"e{i:02d}.mkv").write_bytes(b"")
 
-    worker = MkvScanWorker(tmp_path, Path("mkvmerge.exe"), list_fn=slow_list_fn)
-    thread = QThread()
-    worker.moveToThread(thread)
-    thread.started.connect(worker.run)
-
-    results = {"finished": False, "cancelled": False}
-    worker.finished.connect(lambda r: results.__setitem__("finished", True))
-    worker.cancelled.connect(lambda: results.__setitem__("cancelled", True))
-
-    thread.start()
+    tab = _tab(monkeypatch)
+    tab.folder_edit.setText(str(tmp_path))
+    tab._on_scan()
+    thread = tab._scan_thread
     try:
         deadline = time.monotonic() + 5.0
         while not calls and time.monotonic() < deadline:
             qapp.processEvents()
         assert calls, "worker 在逾時內未開始掃描(環境問題,非本測試目的)"
 
-        # 從 GUI 執行緒觸發取消:與 MkvTab._request_scan_cancel 相同的作法,
-        # 直接呼叫 worker.cancel(),不透過 signal→worker slot 的連線。
-        worker.cancel()
+        # 使用者按下 Cancel/Esc/X -> dialog.reject() -> cancelled 訊號
+        # -> _request_scan_cancel -> 直接呼叫 worker.cancel()
+        tab._scan_dialog.reject()
 
         deadline = time.monotonic() + 5.0
-        while (not results["finished"] and not results["cancelled"]
-               and time.monotonic() < deadline):
+        while tab._scan_thread is not None and time.monotonic() < deadline:
             qapp.processEvents()
 
-        assert results["cancelled"] is True
-        assert results["finished"] is False
-        assert len(calls) < total_files
+        assert len(calls) < total_files, (
+            f"掃描未被中止:{len(calls)}/{total_files} 個檔案已掃描")
+        assert tab.tree.topLevelItemCount() == 0, "取消後的掃描仍填入了表格"
     finally:
-        thread.quit()
-        thread.wait(2000)
+        if thread is not None:
+            thread.quit()
+            thread.wait(3000)
