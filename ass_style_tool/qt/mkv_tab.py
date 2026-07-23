@@ -204,14 +204,24 @@ class MkvTab(QWidget):
         self._scan_worker.cancelled.connect(self._on_scan_cancelled)
         self._scan_dialog = ScanProgressDialog(self)
         self._scan_worker.progress.connect(self._scan_dialog.set_progress)
-        self._scan_dialog.cancelled.connect(self._scan_worker.cancel)
+        self._scan_dialog.cancelled.connect(self._request_scan_cancel)
         self._scan_dialog.show()      # 非 exec():維持既有非同步流程
         self._scan_thread.start()
+
+    def _request_scan_cancel(self) -> None:
+        """直接呼叫 worker.cancel(),不用 signal→worker slot 的連線。
+
+        worker 已 moveToThread,但該執行緒在 run() 執行期間不會跑事件迴圈,
+        排隊的 cancel() 要等掃描結束才會被處理——等於完全沒有作用。
+        直接呼叫是本檔其他取消按鈕(以及 mux/subtitle 分頁)一貫的寫法。
+        """
+        if self._scan_worker is not None:
+            self._scan_worker.cancel()
 
     def _finish_scan(self) -> None:
         """完成/取消共用的收尾:關對話框、收執行緒、恢復掃描鈕。"""
         if self._scan_dialog is not None:
-            self._scan_dialog.close()
+            self._scan_dialog.hide()
             self._scan_dialog.deleteLater()
             self._scan_dialog = None
         if self._scan_thread is not None:
@@ -230,6 +240,7 @@ class MkvTab(QWidget):
 
     def _on_scan_cancelled(self) -> None:
         self._finish_scan()
+        self._scanned_folder = None   # 取消 = 沒掃描過,允許同一資料夾重新觸發掃描
         # 不呼叫 populate:保留上一次的結果與表格內容。
         # 但仍要用與 populate 相同的條件恢復執行鈕,否則舊結果還在、
         # 執行鈕卻永遠是灰的。
@@ -401,6 +412,9 @@ class MkvTab(QWidget):
 
     # ---------- 清理 ----------
     def shutdown(self) -> None:
+        for worker in (self._worker, self._scan_worker):
+            if worker is not None:
+                worker.cancel()
         for thread in (self._thread, self._scan_thread):
             if thread is not None:
                 thread.quit()
