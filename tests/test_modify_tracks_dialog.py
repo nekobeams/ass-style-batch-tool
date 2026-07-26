@@ -34,7 +34,9 @@ def test_get_edits_reads_widgets(qapp):
     d = ModifyTracksDialog(_files())
     d._keep_checks[1].setChecked(False)          # 丟音訊
     d._default_combos[2].setCurrentIndex(1)      # 字幕預設=是
-    d._lang_edits[2].setText("chi")
+    idx = d._lang_combos[2].findData("chi")
+    assert idx >= 0
+    d._lang_combos[2].setCurrentIndex(idx)
     d._name_edits[2].setText("繁體")
     edits = d.get_edits()
     assert edits[1].keep is False
@@ -50,7 +52,7 @@ def test_existing_prefill(qapp):
                                          language="eng")})
     assert d._keep_checks[2].isChecked() is False
     assert d._forced_combos[2].currentData() is True
-    assert d._lang_edits[2].text() == "eng"
+    assert d._lang_combos[2].currentData() == "eng"
 
 
 def test_existing_prefill_with_mismatched_type_is_discarded(qapp):
@@ -66,6 +68,46 @@ def test_existing_prefill_with_mismatched_type_is_discarded(qapp):
     edits = d.get_edits()
     assert edits[2].track_type == "subtitles"
     assert edits[2].keep is True
+
+
+# ---------- Fix 4b:語言欄改成精選 combo,不能再自由輸入 ----------
+
+def test_language_column_is_combo_not_lineedit(qapp):
+    from PySide6.QtWidgets import QComboBox
+    from ass_style_tool.qt.modify_tracks_dialog import ModifyTracksDialog
+    d = ModifyTracksDialog(_files())
+    for combo in d._lang_combos:
+        assert isinstance(combo, QComboBox)
+        assert combo.isEditable() is False   # 不可自由輸入,只能從清單挑
+
+
+def test_language_combo_options_match_shared_languages_list(qapp):
+    from ass_style_tool.languages import LANGUAGES
+    from ass_style_tool.qt.modify_tracks_dialog import ModifyTracksDialog
+    d = ModifyTracksDialog(_files())
+    combo = d._lang_combos[0]
+    codes = {combo.itemData(i) for i in range(combo.count())}
+    assert codes == {""} | {code for _label, code in LANGUAGES}
+
+
+def test_language_combo_default_means_unchanged(qapp):
+    """沒有既有設定時,預設選中的項目要讓 get_edits() 回傳 language=None
+    (=不變),延續原本 QLineEdit 留空的語意。"""
+    from ass_style_tool.qt.modify_tracks_dialog import ModifyTracksDialog
+    d = ModifyTracksDialog(_files())
+    assert d._lang_combos[2].currentData() == ""
+    edits = d.get_edits()
+    assert edits[2].language is None
+
+
+def test_language_combo_cannot_hold_arbitrary_typo_text(qapp):
+    """Fix 4b 的核心:選項僅限清單裡的碼,沒有辦法讓 get_edits() 產生
+    像 "zh"/"中文" 這種會讓整批 mkvmerge 失敗的自由文字。"""
+    from ass_style_tool.qt.modify_tracks_dialog import ModifyTracksDialog
+    d = ModifyTracksDialog(_files())
+    combo = d._lang_combos[2]
+    assert combo.findData("zh") == -1
+    assert combo.findText("中文") == -1
 
 
 def test_table_has_alternating_rows(qapp):
@@ -87,11 +129,9 @@ def test_cell_widget_stylesheets_are_scoped(qapp):
     子元件,導致它們也變透明。"""
     from ass_style_tool.qt.modify_tracks_dialog import ModifyTracksDialog
     d = ModifyTracksDialog(_files())
-    for lang in d._lang_edits:
-        assert lang.styleSheet().strip().startswith("QLineEdit {")
     for name in d._name_edits:
         assert name.styleSheet().strip().startswith("QLineEdit {")
-    for combo in d._default_combos + d._forced_combos:
+    for combo in d._default_combos + d._forced_combos + d._lang_combos:
         assert combo.styleSheet().strip().startswith("QComboBox {")
     # 保留欄的置中 wrapper 也應限定型別,即使 QCheckBox 本身沒有彈出子元件
     wrap = d.table.cellWidget(0, 0)

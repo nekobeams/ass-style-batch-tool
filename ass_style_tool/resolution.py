@@ -1,12 +1,12 @@
 """縮放參考解析度規則(與 libass/VSFilter 行為一致)與 ffprobe 包裝。"""
 from __future__ import annotations
 
-import shutil
 import subprocess
 from pathlib import Path
 from typing import Optional, Tuple
 
 from .subprocess_utils import no_window_kwargs
+from .tools import ffprobe_path
 
 #: ASS 規範:PlayRes 全缺時播放器假設的虛擬畫布
 SPEC_DEFAULT_RES: Tuple[int, int] = (384, 288)
@@ -36,13 +36,19 @@ def compute_scale(ref_w: int, ref_h: int, base_w: int, base_h: int) -> Tuple[flo
 
 
 def ffprobe_available() -> bool:
-    return shutil.which("ffprobe") is not None
+    return ffprobe_path() is not None
 
 
 def probe_video_resolution(video_path: Path) -> Optional[Tuple[int, int]]:
-    """用 ffprobe 讀取影片第一條視訊流的寬高;任何失敗都回 None。"""
+    """用 ffprobe 讀取影片第一條視訊流的寬高;任何失敗都回 None。
+
+    ffprobe 走 tools.ffprobe_path():PATH 找不到時退回安裝程式放進
+    {app}\\tools 的內建副本(frozen-aware,見 tools.bundled_tools_dir)。
+    只用 "ffprobe" 字面字串當 cmd[0] 的話,打包後 PATH 沒有這個目錄,
+    內建的 ffprobe.exe 永遠不會被用到。
+    """
     cmd = [
-        "ffprobe", "-v", "error", "-select_streams", "v:0",
+        str(ffprobe_path() or "ffprobe"), "-v", "error", "-select_streams", "v:0",
         "-show_entries", "stream=width,height", "-of", "csv=p=0",
         str(video_path),
     ]

@@ -9,6 +9,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
@@ -87,25 +88,32 @@ def build_mux_command(
 
 
 def _default_mux(video_path, subtitle_path, out_path, meta, mkvmerge,
-                 progress_cb=None, source_flags=None) -> bool:
+                 progress_cb=None, source_flags=None):
+    """回傳 (成功?, 最後幾行輸出)。
+
+    最後這幾行只在失敗時派上用場(process_mux 會附進錯誤訊息),讓使用者
+    知道 mkvmerge 到底在抱怨什麼,而不是只看到「封裝失敗」四個字。
+    """
     from .mkv_io import parse_progress
     cmd = build_mux_command(video_path, subtitle_path, out_path, meta, mkvmerge,
                             source_flags)
+    tail: "deque[str]" = deque(maxlen=10)
     try:
         proc = subprocess.Popen(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             text=True, encoding="utf-8", errors="replace",
             **no_window_kwargs())
     except OSError:
-        return False
+        return False, []
     assert proc.stdout is not None
     for line in proc.stdout:
+        tail.append(line.rstrip("\n"))
         if progress_cb is not None:
             pct = parse_progress(line)
             if pct is not None:
                 progress_cb(pct)
     proc.wait()
-    return proc.returncode in (0, 1)
+    return proc.returncode in (0, 1), list(tail)
 
 
 def process_mux(
@@ -147,20 +155,39 @@ def process_mux(
         else:
             target = video.with_name(video.name + ".tmp.mkv")
 
+        # 來源軌道清單:edits 要靠它組旗標,取代原檔模式還要靠它確認來源
+        # 是否本來就有視訊軌(見下方 out_path is None 分支的安全檢查)。
+        source_tracks: List = []
+        if edits or out_path is None:
+            try:
+                source_tracks = track_list_fn(video, tools.mkvmerge)
+            except Exception:
+                source_tracks = []
+
         source_flags: List[str] = []
         if edits:
-            try:
-                tracks = track_list_fn(video, tools.mkvmerge)
-                source_flags = build_source_track_flags(edits, tracks)
-            except Exception:
-                source_flags = []      # 掃軌失敗 → 不做軌道修改,照常封裝
+            if source_tracks:
+                source_flags = build_source_track_flags(edits, source_tracks)
+            else:
+                # 掃軌失敗 → 不做軌道修改,照常封裝,但要讓使用者知道
+                # 設定的軌道修改這一檔其實沒套用,而不是靜默跳過。
+                report.messages.append("讀不到軌道資訊,本檔未套用軌道修改")
 
-        if not mux_fn(video, subtitle, target, meta, tools.mkvmerge,
-                      progress_cb, source_flags):
+        mux_result = mux_fn(video, subtitle, target, meta, tools.mkvmerge,
+                            progress_cb, source_flags)
+        # _default_mux 回傳 (成功?, 最後幾行輸出);測試注入的假 mux_fn
+        # 大多仍是舊介面(只回傳 bool)——兩種都接受,不強迫全部改寫。
+        if isinstance(mux_result, tuple):
+            mux_ok, mux_tail = mux_result
+        else:
+            mux_ok, mux_tail = mux_result, []
+        if not mux_ok:
             if out_path is None and target.exists():
                 target.unlink()
-            return MkvFileReport(
-                video, "error", report.messages + ["mkvmerge 封裝失敗,原檔未變動"])
+            messages = report.messages + ["mkvmerge 封裝失敗,原檔未變動"]
+            if mux_tail:
+                messages.append("mkvmerge 輸出: " + " | ".join(mux_tail))
+            return MkvFileReport(video, "error", messages)
 
         if out_path is None:
             if not verify_fn(target, tools.mkvmerge):
@@ -168,6 +195,17 @@ def process_mux(
                     target.unlink()
                 return MkvFileReport(
                     video, "error", report.messages + ["輸出驗證失敗,保留原檔"])
+            if any(t.track_type == "video" for t in source_tracks):
+                # 來源本來有視訊軌;丟軌設定(如取消勾選視訊的「保留」)可能讓
+                # 輸出變成只剩音訊/字幕。這種輸出拿去覆蓋原檔是不可逆的資料
+                # 遺失,必須擋下——與丟音軌/字幕軌不同,那多半是有意的。
+                output_tracks = track_list_fn(target, tools.mkvmerge)
+                if not any(t.track_type == "video" for t in output_tracks):
+                    if target.exists():
+                        target.unlink()
+                    return MkvFileReport(
+                        video, "error",
+                        report.messages + ["輸出缺少視訊軌,已保留原檔"])
             try:
                 os.replace(target, video)
             except OSError as exc:

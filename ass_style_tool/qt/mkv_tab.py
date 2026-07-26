@@ -38,6 +38,7 @@ class MkvTab(QWidget):
         self._scan_worker = None
         self._scan_dialog: Optional[ScanProgressDialog] = None
         self._scanned_folder: Optional[str] = None
+        self._closing = False
         self._preview_dir = Path(tempfile.mkdtemp(prefix="ass_mkv_preview_"))
         self.setAcceptDrops(True)
 
@@ -234,6 +235,8 @@ class MkvTab(QWidget):
         self.scan_button.setEnabled(True)
 
     def _on_scan_done(self, files_tracks: dict) -> None:
+        if self._closing:
+            return
         self._finish_scan()
         self.populate(files_tracks)
         total_tracks = sum(len(v) for v in files_tracks.values())
@@ -241,6 +244,8 @@ class MkvTab(QWidget):
                       f"共 {total_tracks} 條 ASS 字幕軌")
 
     def _on_scan_cancelled(self) -> None:
+        if self._closing:
+            return
         self._finish_scan()
         self._scanned_folder = None   # 取消 = 沒掃描過,允許同一資料夾重新觸發掃描
         # 不呼叫 populate:保留上一次的結果與表格內容。
@@ -414,6 +419,7 @@ class MkvTab(QWidget):
 
     # ---------- 清理 ----------
     def shutdown(self) -> None:
+        self._closing = True
         for worker in (self._worker, self._scan_worker):
             if worker is not None:
                 worker.cancel()
@@ -421,6 +427,12 @@ class MkvTab(QWidget):
             if thread is not None:
                 thread.quit()
                 thread.wait()
+        # 沒有這行的話,取消/掃描完成時開出的模態 ScanProgressDialog 會留在
+        # 畫面上、_scan_dialog 也留著沒清——套件化的 console=False 版本裡,
+        # 主視窗關閉後 quitOnLastWindowClosed 因為這個還可見的對話框而永遠
+        # 不會成立,process 會卡著不退出(對照 MuxTab.shutdown() 已有的
+        # _finish_track_scan() 收尾)。
+        self._finish_scan()
         import shutil
         shutil.rmtree(self._preview_dir, ignore_errors=True)
 

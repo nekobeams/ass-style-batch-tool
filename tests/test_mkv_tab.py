@@ -294,6 +294,29 @@ def test_dialog_cancel_actually_aborts_scan(qapp, monkeypatch, tmp_path):
             thread.wait(3000)
 
 
+# ---------- Fix 1:關閉分頁不能留下孤兒的掃描對話框 ----------
+
+def test_shutdown_closes_orphaned_scan_dialog(qapp, monkeypatch):
+    """重點測試:掃描中途關閉整個分頁(對應使用者關掉主視窗)時,
+    shutdown() 之前只收執行緒、沒收掉模態的 ScanProgressDialog——打包版
+    是 console=False,主視窗關閉後 quitOnLastWindowClosed 因為這個還
+    可見的對話框永遠不成立,process 會卡著不退出。shutdown() 現在要
+    比照 MuxTab.shutdown() 呼叫 _finish_scan() 把對話框真的關掉。"""
+    from ass_style_tool.qt.scan_progress_dialog import ScanProgressDialog
+    tab = _tab(monkeypatch)
+    dialog = ScanProgressDialog(tab)
+    dialog.show()
+    tab._scan_dialog = dialog
+    assert dialog.isVisible() is True
+
+    tab.shutdown()
+
+    assert dialog.isVisible() is False
+    assert tab._scan_dialog is None
+    assert tab._scan_thread is None
+    assert tab._scan_worker is None
+
+
 def test_tree_has_alternating_rows(qapp, monkeypatch):
     # QSS 的 alternate-background-color 只有在控件端開啟時才生效
     tab = _tab(monkeypatch)

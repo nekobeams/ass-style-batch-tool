@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QButtonGroup,
                                QTableWidgetItem, QVBoxLayout, QWidget)
 
 from ..episode_match import find_files
+from ..languages import LANGUAGES as _LANGUAGES
 from ..mkv_batch import MkvTools
 from ..mkv_mux import MuxMeta, MuxPair
 from ..profile import Profile
@@ -27,16 +28,9 @@ from .scan_progress_dialog import ScanProgressDialog
 _HEADERS = ["封裝", "影片", "字幕", "集數", "狀態"]
 _STATUS_LABELS = {"matched": "已配對", "no_subtitle": "無對應字幕",
                   "ambiguous": "配對模糊", "no_episode": "無法判斷集數"}
-# 常見字幕語言(mkvmerge 用 ISO 639-2;一律用書目碼 chi/fre/ger…,與既有一致)。
-# 最常用的三個排最前面維持原本的順手程度,「未定」保持在最後。
-_LANGUAGES = [
-    ("中文", "chi"), ("日文", "jpn"), ("英文", "eng"),
-    ("韓文", "kor"), ("西班牙文", "spa"), ("法文", "fre"),
-    ("德文", "ger"), ("義大利文", "ita"), ("葡萄牙文", "por"),
-    ("俄文", "rus"), ("泰文", "tha"), ("越南文", "vie"),
-    ("印尼文", "ind"), ("阿拉伯文", "ara"),
-    ("未定", "und"),
-]
+# 常見字幕語言清單移到 ..languages(與 modify_tracks_dialog 的軌道語言欄
+# 共用,避免同一份清單在兩處各自維護)。_LANGUAGES 這個名字繼續保留、
+# re-export,既有呼叫端與測試都是這樣引用的。
 
 
 class MuxTab(QWidget):
@@ -53,9 +47,11 @@ class MuxTab(QWidget):
         self._scan_worker = None
         self._scanned_key: Optional[tuple] = None
         self._track_edits: dict = {}
+        self._track_edits_key: Optional[tuple] = None
         self._track_scan_thread: Optional[QThread] = None
         self._track_scan_worker = None
         self._track_scan_dialog: Optional[ScanProgressDialog] = None
+        self._closing = False
         self.setAcceptDrops(True)
 
         mkvmerge = mkvmerge_path()
@@ -257,12 +253,20 @@ class MuxTab(QWidget):
         self._scan_thread.start()
 
     def _on_scan_done(self, pairs: list) -> None:
+        if self._closing:
+            return
         if self._scan_thread is not None:
             self._scan_thread.quit()
             self._scan_thread.wait()
         self._scan_thread = None
         self._scan_worker = None
         self.scan_button.setEnabled(True)
+        if self._track_edits and self._scanned_key != self._track_edits_key:
+            # 換了一組影片/字幕資料夾:先前設定的軌道修改是依 track id 套用
+            # 的,套到新資料夾的檔案上等於用錯誤的軌道 id 亂改,必須清掉。
+            self._track_edits = {}
+            self._track_edits_key = None
+            self.modify_tracks_button.setText("修改既有軌道…")
         s = self.subtitle_edit.text().strip()
         if s and Path(s).is_dir():
             subs, _ = find_files(Path(s))
@@ -423,6 +427,8 @@ class MuxTab(QWidget):
         self._track_scan_worker = None
 
     def _on_track_scan_done(self, tracks_by_file: dict) -> None:
+        if self._closing:
+            return
         self._finish_track_scan()
         if not any(tracks_by_file.values()):
             self.log.emit("所有影片都讀不到軌道資訊")
@@ -430,11 +436,14 @@ class MuxTab(QWidget):
         dialog = ModifyTracksDialog(tracks_by_file, self._track_edits, self)
         if dialog.exec():
             self._track_edits = dialog.get_edits()
+            self._track_edits_key = self._scanned_key
             self.modify_tracks_button.setText(
                 "修改既有軌道…(已設定)" if self._has_track_edits()
                 else "修改既有軌道…")
 
     def _on_track_scan_cancelled(self) -> None:
+        if self._closing:
+            return
         self._finish_track_scan()
         self.log.emit("軌道掃描已取消")
 
@@ -467,7 +476,8 @@ class MuxTab(QWidget):
         self._thread = QThread()
         self._worker = MuxWorker(pairs, self.current_meta(), operation,
                                  self._tools, output_dir,
-                                 edits=self._track_edits)
+                                 edits=(self._track_edits
+                                       if self._has_track_edits() else {}))
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)
         self._worker.progress.connect(self._on_progress)
@@ -500,6 +510,7 @@ class MuxTab(QWidget):
         self._refresh_modify_button()
 
     def shutdown(self) -> None:
+        self._closing = True
         for worker in (self._worker, self._scan_worker,
                        self._track_scan_worker):
             if worker is not None and hasattr(worker, "cancel"):

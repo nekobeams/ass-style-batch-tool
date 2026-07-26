@@ -84,6 +84,34 @@ def test_probe_oserror_returns_none(monkeypatch):
     assert probe_video_resolution(Path("x.mkv")) is None
 
 
+def test_probe_uses_bundled_ffprobe_path(monkeypatch):
+    """Fix 2:cmd[0] 必須來自 tools.ffprobe_path(),不能寫死 "ffprobe"
+    字面字串——打包後 PATH 沒有 {app}\\tools,寫死字串會讓內建的
+    ffprobe.exe 永遠找不到(見 tools.ffprobe_path 的 PATH → 內建目錄邏輯)。
+    """
+    sentinel = Path(r"C:\install\tools\ffprobe.exe")
+    monkeypatch.setattr(
+        "ass_style_tool.resolution.ffprobe_path", lambda: sentinel)
+    captured = {}
+
+    def fake_run(cmd, **kwargs):
+        captured["cmd"] = cmd
+        return FakeCompleted(0, "1920,1080\n")
+
+    monkeypatch.setattr("ass_style_tool.resolution.subprocess.run", fake_run)
+    assert probe_video_resolution(Path("x.mkv")) == (1920, 1080)
+    assert captured["cmd"][0] == str(sentinel)
+
+
+def test_ffprobe_available_uses_bundled_path(monkeypatch):
+    monkeypatch.setattr(
+        "ass_style_tool.resolution.ffprobe_path", lambda: Path("x/ffprobe.exe"))
+    from ass_style_tool.resolution import ffprobe_available
+    assert ffprobe_available() is True
+    monkeypatch.setattr("ass_style_tool.resolution.ffprobe_path", lambda: None)
+    assert ffprobe_available() is False
+
+
 def test_probe_suppresses_console_window(monkeypatch):
     import subprocess
     captured = {}

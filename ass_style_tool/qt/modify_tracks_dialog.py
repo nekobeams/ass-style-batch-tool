@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox,
                                QHeaderView, QLineEdit, QTableWidget,
                                QTableWidgetItem, QVBoxLayout, QWidget)
 
+from ..languages import LANGUAGES
 from ..mkv_io import MediaTrack
 from ..track_edit import TrackEdit
 from ..track_info import build_track_info_rows
@@ -38,7 +39,7 @@ class ModifyTracksDialog(QDialog):
         self._tracks = list(self._tracks_by_file[first]) if first else []
         existing = existing or {}
         self._keep_checks: List[QCheckBox] = []
-        self._lang_edits: List[QLineEdit] = []
+        self._lang_combos: List[QComboBox] = []
         self._name_edits: List[QLineEdit] = []
         self._default_combos: List[QComboBox] = []
         self._forced_combos: List[QComboBox] = []
@@ -69,11 +70,9 @@ class ModifyTracksDialog(QDialog):
                 r, 1, QTableWidgetItem(_TYPE_LABELS.get(t.track_type,
                                                         t.track_type)))
             self.table.setItem(r, 2, QTableWidgetItem(t.codec_id))
-            lang = QLineEdit(e.language or "")
-            lang.setPlaceholderText(t.language or "und")
-            lang.setStyleSheet("QLineEdit { background: transparent; }")
-            self.table.setCellWidget(r, 3, lang)
-            self._lang_edits.append(lang)
+            lang_combo = self._language_combo(t.language, e.language)
+            self.table.setCellWidget(r, 3, lang_combo)
+            self._lang_combos.append(lang_combo)
             name = QLineEdit(e.track_name or "")
             name.setPlaceholderText(t.track_name)
             name.setStyleSheet("QLineEdit { background: transparent; }")
@@ -115,6 +114,21 @@ class ModifyTracksDialog(QDialog):
         lay.setAlignment(Qt.AlignCenter)
         lay.addWidget(w)
         return wrap
+
+    def _language_combo(self, current_language: str,
+                        value: Optional[str]) -> QComboBox:
+        """語言欄:精選 ISO-639-2 清單(與 mux_tab 共用),不是自由輸入,
+        使用者打錯字(如「zh」「中文」)就不可能再讓整批檔案 mux 失敗。
+        第一項是「不變」(data=""),維持既有 QLineEdit 留空=不變的語意。
+        """
+        combo = QComboBox()
+        combo.setStyleSheet("QComboBox { background: transparent; }")
+        combo.addItem(f"(不變,目前:{current_language or 'und'})", "")
+        for label, code in LANGUAGES:
+            combo.addItem(f"{label} ({code})", code)
+        idx = combo.findData(value or "")
+        combo.setCurrentIndex(idx if idx >= 0 else 0)
+        return combo
 
     def _tristate_combo(self, value: Optional[bool]) -> QComboBox:
         combo = QComboBox()
@@ -158,13 +172,13 @@ class ModifyTracksDialog(QDialog):
     def get_edits(self) -> Dict[int, TrackEdit]:
         edits: Dict[int, TrackEdit] = {}
         for r, t in enumerate(self._tracks):
-            lang = self._lang_edits[r].text().strip()
+            lang = self._lang_combos[r].currentData() or None
             name = self._name_edits[r].text().strip()
             edits[t.track_id] = TrackEdit(
                 keep=self._keep_checks[r].isChecked(),
                 set_default=self._default_combos[r].currentData(),
                 set_forced=self._forced_combos[r].currentData(),
-                language=lang or None,
+                language=lang,
                 track_name=name or None,
                 track_type=t.track_type,
             )

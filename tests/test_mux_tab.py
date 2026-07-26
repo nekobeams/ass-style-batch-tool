@@ -287,6 +287,27 @@ def test_modify_tracks_stores_edits(qapp, monkeypatch):
     assert tab._track_edits == {1: TrackEdit(keep=False)}
 
 
+# ---------- Fix 1 回歸:MuxTab 這邊本來就有做,補上正式測試 ----------
+
+def test_shutdown_closes_orphaned_track_scan_dialog(qapp, monkeypatch):
+    """MuxTab.shutdown() 本來就會呼叫 _finish_track_scan() 收掉修改軌道
+    掃描用的模態對話框(mkv_tab 那邊原本沒有,是 Fix 1 的重點)。這裡補上
+    先前缺的 shutdown() 測試,釘住這個行為不會被日後改動悄悄弄丟。"""
+    from ass_style_tool.qt.scan_progress_dialog import ScanProgressDialog
+    tab = _tab(monkeypatch)
+    dialog = ScanProgressDialog(tab)
+    dialog.show()
+    tab._track_scan_dialog = dialog
+    assert dialog.isVisible() is True
+
+    tab.shutdown()
+
+    assert dialog.isVisible() is False
+    assert tab._track_scan_dialog is None
+    assert tab._track_scan_thread is None
+    assert tab._track_scan_worker is None
+
+
 def test_table_has_alternating_rows(qapp, monkeypatch):
     tab = _tab(monkeypatch)
     assert tab.table.alternatingRowColors() is True
