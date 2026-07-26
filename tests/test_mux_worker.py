@@ -139,3 +139,58 @@ def test_mux_worker_forwards_edits(qapp):
                        process_fn=fake_process, edits=edits)
     worker.run()
     assert captured["edits"] == edits
+
+
+def test_track_scan_worker_emits_progress_and_map(qapp):
+    from pathlib import Path
+    from ass_style_tool.qt.batch_worker import TrackScanWorker
+    from ass_style_tool.mkv_io import MediaTrack
+
+    paths = [Path("a.mkv"), Path("b.mkv"), Path("c.mkv")]
+
+    def fake_list(path, mkvmerge):
+        return [MediaTrack(0, "video", "V", "und", "", True, False)]
+
+    worker = TrackScanWorker(paths, Path("mkvmerge.exe"), list_fn=fake_list)
+    seen = []
+    got = {}
+    worker.progress.connect(lambda d, t: seen.append((d, t)))
+    worker.finished.connect(lambda m: got.update(m))
+    worker.run()
+    assert seen == [(1, 3), (2, 3), (3, 3)]
+    assert sorted(p.name for p in got) == ["a.mkv", "b.mkv", "c.mkv"]
+    assert got[Path("a.mkv")][0].track_type == "video"
+
+
+def test_track_scan_worker_cancel_stops_early(qapp):
+    from pathlib import Path
+    from ass_style_tool.qt.batch_worker import TrackScanWorker
+
+    paths = [Path("a.mkv"), Path("b.mkv"), Path("c.mkv")]
+    calls = []
+
+    def fake_list(path, mkvmerge):
+        calls.append(path)
+        worker.cancel()          # 第一個檔掃完就要求取消
+        return []
+
+    worker = TrackScanWorker(paths, Path("mkvmerge.exe"), list_fn=fake_list)
+    events = []
+    worker.finished.connect(lambda m: events.append("finished"))
+    worker.cancelled.connect(lambda: events.append("cancelled"))
+    worker.run()
+    assert events == ["cancelled"]   # 取消不可發 finished
+    assert len(calls) == 1           # 真的提早停,不是跑完才丟棄
+
+
+def test_track_scan_worker_empty_list_finishes_empty(qapp):
+    from pathlib import Path
+    from ass_style_tool.qt.batch_worker import TrackScanWorker
+
+    worker = TrackScanWorker([], Path("mkvmerge.exe"), list_fn=lambda p, m: [])
+    got = {"finished": None, "progress": []}
+    worker.finished.connect(lambda m: got.__setitem__("finished", m))
+    worker.progress.connect(lambda a, b: got["progress"].append((a, b)))
+    worker.run()
+    assert got["finished"] == {}
+    assert got["progress"] == []

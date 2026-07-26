@@ -9,7 +9,7 @@ from PySide6.QtCore import QObject, Signal
 from ..batch_runner import process_file
 from ..episode_match import ass_output_name, find_files
 from ..mkv_batch import MkvTools, process_mkv
-from ..mkv_io import list_ass_tracks
+from ..mkv_io import list_all_tracks, list_ass_tracks
 from ..mkv_mux import MuxMeta, MuxPair, pair_for_mux, process_mux
 from ..profile import Profile
 from ..scale_engine import ScaleOptions, scale_file
@@ -158,6 +158,37 @@ class MkvScanWorker(QObject):
         total = len(files)
         result = {}
         for i, path in enumerate(files, start=1):
+            # 檢查點在每個檔案之前;執行中的那一次 list_fn 會先跑完
+            if self._cancelled:
+                self.cancelled.emit()   # 丟棄 result,不發 finished
+                return
+            result[path] = self._list_fn(path, self._mkvmerge)
+            self.progress.emit(i, total)
+        self.finished.emit(result)
+
+
+class TrackScanWorker(QObject):
+    """掃描指定的影片清單,列舉每檔的所有軌道;支援進度回報與取消。"""
+
+    finished = Signal(object)      # dict[Path, list[MediaTrack]]
+    progress = Signal(int, int)    # 已完成, 總數
+    cancelled = Signal()           # 使用者取消(部分結果丟棄)
+
+    def __init__(self, video_paths, mkvmerge: Path,
+                 list_fn=list_all_tracks) -> None:
+        super().__init__()
+        self._paths = [Path(p) for p in video_paths]
+        self._mkvmerge = mkvmerge
+        self._list_fn = list_fn
+        self._cancelled = False
+
+    def cancel(self) -> None:
+        self._cancelled = True
+
+    def run(self) -> None:
+        total = len(self._paths)
+        result = {}
+        for i, path in enumerate(self._paths, start=1):
             # 檢查點在每個檔案之前;執行中的那一次 list_fn 會先跑完
             if self._cancelled:
                 self.cancelled.emit()   # 丟棄 result,不發 finished
