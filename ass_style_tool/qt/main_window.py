@@ -33,12 +33,10 @@ class MainWindow(QMainWindow):
         # 自成一列會佔掉一整條垂直空間,分頁內容還得再往下擠。
         self._theme_mode = "system"
         self.theme_button = QPushButton("☀ / 🌙")
-        # 左右對稱的內距:原本的 0/8/2/12 是為舊的靜態雙符號微調的,
-        # 文字會隨模式在一到兩個符號之間變動,不對稱的內距會看起來偏一邊。
+        # 左右對稱的內距(原本是 0/8/2/12,看起來偏一邊)
         self.theme_button.setStyleSheet(
             "QPushButton { font-size: 13px; padding: 2px 10px; "
-            "min-width: 52px; min-height: 24px; max-height: 24px; "
-            "text-align: center; }")
+            "min-height: 24px; max-height: 24px; text-align: center; }")
         self._theme_menu = QMenu(self)
         self._theme_group = QActionGroup(self._theme_menu)
         self._theme_group.setExclusive(True)
@@ -111,13 +109,8 @@ class MainWindow(QMainWindow):
         apply_titlebar_theme(self, resolved == "dark")
         mode_label = _MODE_LABELS.get(self.current_mode(), self.current_mode())
         resolved_label = "深色" if resolved == "dark" else "淺色"
-        # 只用符號,但仍分得出「跟隨系統」與「手動鎖定」:兩個符號=自動,
-        # 單一符號=已鎖定該模式。系統本身是深色時,自動與手動深色的顏色
-        # 完全一樣,沒有這個區別就看不出目前是哪種狀態。
-        if self.current_mode() == "system":
-            self.theme_button.setText("☀ / 🌙")
-        else:
-            self.theme_button.setText("🌙" if resolved == "dark" else "☀")
+        # 按鈕固定顯示 ☀ / 🌙,不隨模式改變;目前是自動還是手動鎖定,
+        # 由 tooltip 與右鍵選單的勾選呈現。
         self.theme_button.setToolTip(
             f"點擊切換深/淺,右鍵選擇跟隨系統"
             f"(目前:{mode_label},套用:{resolved_label})")

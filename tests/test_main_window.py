@@ -113,22 +113,34 @@ def test_toggle_syncs_menu_checkmark(qapp, monkeypatch, tmp_path):
         window.deleteLater()
 
 
-def test_button_symbols_distinguish_auto_from_pinned(qapp, monkeypatch, tmp_path):
-    """系統本身是深色時,自動與手動深色的顏色完全一樣,只能靠符號分辨:
-    兩個符號 = 跟隨系統,單一符號 = 已鎖定該模式。"""
+def test_button_keeps_the_sun_moon_symbol_across_modes(qapp, monkeypatch,
+                                                       tmp_path):
+    """按鈕外觀固定是 ☀ / 🌙,不隨模式變動。"""
+    window = _window(monkeypatch, tmp_path)
+    try:
+        before = window.theme_button.text()
+        assert "☀" in before and "🌙" in before
+        window._toggle_theme()
+        assert window.theme_button.text() == before
+        window._set_theme_mode("system")
+        assert window.theme_button.text() == before
+    finally:
+        window.deleteLater()
+
+
+def test_tooltip_reflects_auto_versus_pinned(qapp, monkeypatch, tmp_path):
+    """符號固定不變,所以目前是自動還是手動鎖定改由 tooltip 呈現。"""
     window = _window(monkeypatch, tmp_path)
     try:
         assert window.current_mode() == "system"
-        auto_text = window.theme_button.text()
-        assert "☀" in auto_text and "🌙" in auto_text        # 兩個符號 = 自動
-
-        window._toggle_theme()                                # 變成手動鎖定
-        pinned = window.theme_button.text()
-        assert ("☀" in pinned) != ("🌙" in pinned)            # 只剩一個符號
-
-        window._set_theme_mode("system")                      # 右鍵選單的路徑
-        restored = window.theme_button.text()
-        assert "☀" in restored and "🌙" in restored
+        # 要比對「目前:跟隨系統」而不是只比對「跟隨系統」——後者在提示文字
+        # 「右鍵選擇跟隨系統」裡永遠都在,不管什麼模式都會通過。
+        assert "目前:跟隨系統" in window.theme_button.toolTip()
+        window._toggle_theme()                                # 手動鎖定
+        tip = window.theme_button.toolTip()
+        assert "目前:深色" in tip or "目前:淺色" in tip
+        window._set_theme_mode("system")
+        assert "目前:跟隨系統" in window.theme_button.toolTip()
     finally:
         window.deleteLater()
 
