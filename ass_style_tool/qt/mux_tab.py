@@ -20,9 +20,10 @@ from ..profile import Profile
 from ..scale_engine import ScaleError
 from ..tools import mkvextract_path, mkvmerge_path
 from ..track_edit import TrackEdit
-from .batch_worker import MuxScanWorker, MuxWorker
+from .batch_worker import MuxScanWorker, MuxWorker, TrackScanWorker
 from .modify_tracks_dialog import ModifyTracksDialog
 from .scale_panel import ScalePanel
+from .scan_progress_dialog import ScanProgressDialog
 
 _HEADERS = ["封裝", "影片", "字幕", "集數", "狀態"]
 _STATUS_LABELS = {"matched": "已配對", "no_subtitle": "無對應字幕",
@@ -53,6 +54,9 @@ class MuxTab(QWidget):
         self._scan_worker = None
         self._scanned_key: Optional[tuple] = None
         self._track_edits: dict = {}
+        self._track_scan_thread: Optional[QThread] = None
+        self._track_scan_worker = None
+        self._track_scan_dialog: Optional[ScanProgressDialog] = None
         self.setAcceptDrops(True)
 
         mkvmerge = mkvmerge_path()
@@ -375,25 +379,65 @@ class MuxTab(QWidget):
             for e in self._track_edits.values())
 
     def _on_modify_tracks(self) -> None:
+        if self._track_scan_thread is not None:
+            self.log.emit("軌道掃描進行中")
+            return
         matched = [p for p in self._pairs if p.status == "matched"]
         if not matched:
             self.log.emit("沒有可用的來源影片可掃描軌道")
             return
-        video = matched[0].video_path
-        QApplication.setOverrideCursor(Qt.WaitCursor)
-        try:
-            tracks = list_all_tracks(video, self._tools.mkvmerge)
-        finally:
-            QApplication.restoreOverrideCursor()
-        if not tracks:
-            self.log.emit(f"無法讀取軌道: {video.name}")
+        self._track_scan_thread = QThread()
+        self._track_scan_worker = TrackScanWorker(
+            [p.video_path for p in matched], self._tools.mkvmerge)
+        self._track_scan_worker.moveToThread(self._track_scan_thread)
+        self._track_scan_thread.started.connect(self._track_scan_worker.run)
+        self._track_scan_worker.finished.connect(self._on_track_scan_done)
+        self._track_scan_worker.cancelled.connect(
+            self._on_track_scan_cancelled)
+        self._track_scan_dialog = ScanProgressDialog(self)
+        self._track_scan_worker.progress.connect(
+            self._track_scan_dialog.set_progress)
+        self._track_scan_dialog.cancelled.connect(
+            self._request_track_scan_cancel)
+        self._track_scan_dialog.show()   # 非 exec():維持非同步流程
+        self._track_scan_thread.start()
+
+    def _request_track_scan_cancel(self) -> None:
+        """直接呼叫 worker.cancel(),不用 signal→worker slot 的連線。
+
+        worker 已 moveToThread,但該執行緒在 run() 執行期間不會跑事件迴圈,
+        排隊的 cancel() 要等掃描結束才會被處理——等於完全沒有作用。
+        """
+        if self._track_scan_worker is not None:
+            self._track_scan_worker.cancel()
+
+    def _finish_track_scan(self) -> None:
+        """完成/取消共用的收尾:關對話框、收執行緒。"""
+        if self._track_scan_dialog is not None:
+            self._track_scan_dialog.hide()
+            self._track_scan_dialog.deleteLater()
+            self._track_scan_dialog = None
+        if self._track_scan_thread is not None:
+            self._track_scan_thread.quit()
+            self._track_scan_thread.wait()
+        self._track_scan_thread = None
+        self._track_scan_worker = None
+
+    def _on_track_scan_done(self, tracks_by_file: dict) -> None:
+        self._finish_track_scan()
+        if not any(tracks_by_file.values()):
+            self.log.emit("所有影片都讀不到軌道資訊")
             return
-        dialog = ModifyTracksDialog(tracks, self._track_edits, self)
+        dialog = ModifyTracksDialog(tracks_by_file, self._track_edits, self)
         if dialog.exec():
             self._track_edits = dialog.get_edits()
             self.modify_tracks_button.setText(
                 "修改既有軌道…(已設定)" if self._has_track_edits()
                 else "修改既有軌道…")
+
+    def _on_track_scan_cancelled(self) -> None:
+        self._finish_track_scan()
+        self.log.emit("軌道掃描已取消")
 
     # ---------- 執行 ----------
     def _on_run(self) -> None:
@@ -457,7 +501,12 @@ class MuxTab(QWidget):
         self._refresh_modify_button()
 
     def shutdown(self) -> None:
-        for thread in (self._thread, self._scan_thread):
+        for worker in (self._worker, self._scan_worker,
+                       self._track_scan_worker):
+            if worker is not None and hasattr(worker, "cancel"):
+                worker.cancel()
+        for thread in (self._thread, self._scan_thread,
+                       self._track_scan_thread):
             if thread is not None:
                 thread.quit()
                 thread.wait()

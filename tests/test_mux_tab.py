@@ -238,26 +238,38 @@ def test_restore_settings_defaults_outdir_when_unset(qapp, monkeypatch, tmp_path
 
 
 def test_modify_tracks_stores_edits(qapp, monkeypatch):
+    """`_on_modify_tracks` 現在是非同步批次掃描:啟動真正的 QThread,
+    掃描完成後透過 `_on_track_scan_done` 開啟對話框。這裡讓 worker 使用
+    一個快速的假 list_fn,並用 processEvents 等執行緒真正跑完,而不是
+    直接假設它是同步呼叫(對應寫這個測試前那版同步實作)。
+    """
+    import time
     import ass_style_tool.qt.mux_tab as mux_tab_mod
     from ass_style_tool.qt.mux_tab import MuxTab
+    from ass_style_tool.qt.batch_worker import TrackScanWorker
     from ass_style_tool.mkv_io import MediaTrack
     from ass_style_tool.mkv_mux import MuxPair
     from ass_style_tool.track_edit import TrackEdit
+    from pathlib import Path
 
     # 讓 tools 視為可用
-    monkeypatch.setattr(mux_tab_mod, "mkvmerge_path", lambda: __import__("pathlib").Path("mkvmerge"))
-    monkeypatch.setattr(mux_tab_mod, "mkvextract_path", lambda: __import__("pathlib").Path("mkvextract"))
+    monkeypatch.setattr(mux_tab_mod, "mkvmerge_path", lambda: Path("mkvmerge"))
+    monkeypatch.setattr(mux_tab_mod, "mkvextract_path", lambda: Path("mkvextract"))
     tab = MuxTab(lambda: None)
 
     # 有一部 matched 影片
-    tab._pairs = [MuxPair(__import__("pathlib").Path("v.mkv"), None, 1, "matched")]
+    tab._pairs = [MuxPair(Path("v.mkv"), None, 1, "matched")]
 
-    monkeypatch.setattr(
-        mux_tab_mod, "list_all_tracks",
-        lambda video, mkvmerge: [MediaTrack(1, "audio", "A", "jpn", "", True, False)])
+    def fake_list_fn(video, mkvmerge):
+        return [MediaTrack(1, "audio", "A", "jpn", "", True, False)]
+
+    def factory(video_paths, mkvmerge, list_fn=None):
+        return TrackScanWorker(video_paths, mkvmerge, list_fn=fake_list_fn)
+
+    monkeypatch.setattr(mux_tab_mod, "TrackScanWorker", factory)
 
     class FakeDialog:
-        def __init__(self, tracks, existing, parent):
+        def __init__(self, tracks_by_file, existing, parent):
             pass
         def exec(self):
             return 1
@@ -266,6 +278,11 @@ def test_modify_tracks_stores_edits(qapp, monkeypatch):
 
     monkeypatch.setattr(mux_tab_mod, "ModifyTracksDialog", FakeDialog)
     tab._on_modify_tracks()
+
+    deadline = time.monotonic() + 5.0
+    while tab._track_scan_thread is not None and time.monotonic() < deadline:
+        qapp.processEvents()
+
     assert tab._track_edits == {1: TrackEdit(keep=False)}
 
 
@@ -283,3 +300,64 @@ def test_table_selects_full_rows(qapp, monkeypatch):
 def test_run_button_tagged_accent(qapp, monkeypatch):
     tab = _tab(monkeypatch)
     assert tab.run_button.property("accent") is True
+
+
+def test_track_scan_done_opens_dialog_with_map(qapp, monkeypatch):
+    import ass_style_tool.qt.mux_tab as mux_tab_mod
+    from pathlib import Path
+    from ass_style_tool.mkv_io import MediaTrack
+    from ass_style_tool.track_edit import TrackEdit
+
+    monkeypatch.setattr(mux_tab_mod, "mkvmerge_path", lambda: Path("mkvmerge"))
+    monkeypatch.setattr(mux_tab_mod, "mkvextract_path", lambda: Path("mkvx"))
+    tab = mux_tab_mod.MuxTab(lambda: None)
+
+    seen = {}
+
+    class FakeDialog:
+        def __init__(self, tracks_by_file, existing, parent):
+            seen["map"] = tracks_by_file
+        def exec(self):
+            return 1
+        def get_edits(self):
+            return {2: TrackEdit(keep=False, track_type="subtitles")}
+
+    monkeypatch.setattr(mux_tab_mod, "ModifyTracksDialog", FakeDialog)
+    scanned = {Path("a.mkv"): [MediaTrack(2, "subtitles", "S", "chi", "",
+                                          False, False)]}
+    tab._on_track_scan_done(scanned)
+    assert seen["map"] == scanned                  # 整份 map 傳進對話框
+    assert tab._track_edits == {2: TrackEdit(keep=False,
+                                             track_type="subtitles")}
+
+
+def test_track_scan_cancelled_leaves_edits_untouched(qapp, monkeypatch):
+    import ass_style_tool.qt.mux_tab as mux_tab_mod
+    from pathlib import Path
+
+    monkeypatch.setattr(mux_tab_mod, "mkvmerge_path", lambda: Path("mkvmerge"))
+    monkeypatch.setattr(mux_tab_mod, "mkvextract_path", lambda: Path("mkvx"))
+    tab = mux_tab_mod.MuxTab(lambda: None)
+
+    def boom(*a, **k):
+        raise AssertionError("取消後不該開啟對話框")
+
+    monkeypatch.setattr(mux_tab_mod, "ModifyTracksDialog", boom)
+    tab._track_edits = {}
+    tab._on_track_scan_cancelled()
+    assert tab._track_edits == {}
+
+
+def test_empty_scan_result_does_not_open_dialog(qapp, monkeypatch):
+    import ass_style_tool.qt.mux_tab as mux_tab_mod
+    from pathlib import Path
+
+    monkeypatch.setattr(mux_tab_mod, "mkvmerge_path", lambda: Path("mkvmerge"))
+    monkeypatch.setattr(mux_tab_mod, "mkvextract_path", lambda: Path("mkvx"))
+    tab = mux_tab_mod.MuxTab(lambda: None)
+
+    def boom(*a, **k):
+        raise AssertionError("沒有任何軌道時不該開啟對話框")
+
+    monkeypatch.setattr(mux_tab_mod, "ModifyTracksDialog", boom)
+    tab._on_track_scan_done({Path("a.mkv"): []})    # 全部讀不到軌道
