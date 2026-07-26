@@ -70,3 +70,68 @@ def test_preview_readout_wired_to_style_editor(qapp, monkeypatch, tmp_path):
         assert "字級" in labels
     finally:
         window.deleteLater()
+
+
+def _window(monkeypatch, tmp_path):
+    """用暫存 ini 建 MainWindow,避免動到使用者真正的 QSettings。"""
+    from PySide6.QtCore import QSettings
+    import ass_style_tool.qt.main_window as mw
+    ini = tmp_path / "theme.ini"
+    monkeypatch.setattr(
+        mw, "QSettings",
+        lambda *a, **k: QSettings(str(ini), QSettings.Format.IniFormat))
+    return mw.MainWindow()
+
+
+def test_left_click_toggles_between_dark_and_light(qapp, monkeypatch, tmp_path):
+    """左鍵必定翻面:不論起點是跟隨系統還是手動,按下去顏色一定改變。"""
+    window = _window(monkeypatch, tmp_path)
+    try:
+        import ass_style_tool.qt.main_window as mw
+        before = mw.resolve_theme(
+            window.current_mode(), mw.system_is_dark(qapp))
+        window._toggle_theme()
+        assert window.current_mode() in ("dark", "light")
+        assert window.current_mode() != before or before not in ("dark", "light")
+        after = mw.resolve_theme(window.current_mode(), mw.system_is_dark(qapp))
+        assert after != before          # 真的翻面了
+        window._toggle_theme()
+        assert mw.resolve_theme(
+            window.current_mode(), mw.system_is_dark(qapp)) == before
+    finally:
+        window.deleteLater()
+
+
+def test_toggle_syncs_menu_checkmark(qapp, monkeypatch, tmp_path):
+    """左鍵切換後,右鍵選單的勾選必須同步,否則會顯示過期狀態。"""
+    window = _window(monkeypatch, tmp_path)
+    try:
+        window._toggle_theme()
+        mode = window.current_mode()
+        assert window._theme_actions[mode].isChecked() is True
+    finally:
+        window.deleteLater()
+
+
+def test_button_text_distinguishes_auto_from_pinned(qapp, monkeypatch, tmp_path):
+    """系統本身是深色時,自動與手動深色顏色相同,只能靠文字分辨。"""
+    window = _window(monkeypatch, tmp_path)
+    try:
+        assert window.current_mode() == "system"
+        assert "自動" in window.theme_button.text()
+        window._toggle_theme()                      # 變成手動鎖定
+        assert "自動" not in window.theme_button.text()
+        window._set_theme_mode("system")            # 右鍵選單走的路徑
+        assert "自動" in window.theme_button.text()
+    finally:
+        window.deleteLater()
+
+
+def test_theme_button_lives_in_the_tab_bar_corner(qapp, monkeypatch, tmp_path):
+    """按鈕要在分頁籤同一列,不是自成一列。"""
+    from PySide6.QtCore import Qt
+    window = _window(monkeypatch, tmp_path)
+    try:
+        assert window.tabs.cornerWidget(Qt.TopRightCorner) is window.theme_button
+    finally:
+        window.deleteLater()

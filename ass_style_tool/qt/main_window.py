@@ -1,13 +1,14 @@
 """v2 Qt 主視窗外殼:分頁籤、主題切換、log、QSettings 持久化。"""
 from __future__ import annotations
 
-from PySide6.QtCore import QSettings
+from PySide6.QtCore import QSettings, Qt
 from PySide6.QtGui import QAction, QActionGroup
-from PySide6.QtWidgets import (QApplication, QHBoxLayout, QLabel, QMainWindow,
-                               QMenu, QPlainTextEdit, QPushButton, QSplitter,
+from PySide6.QtWidgets import (QApplication, QLabel, QMainWindow, QMenu,
+                               QPlainTextEdit, QPushButton, QSplitter,
                                QTabWidget, QVBoxLayout, QWidget)
 
-from .theme import THEME_MODES, apply_theme, apply_titlebar_theme
+from .theme import (THEME_MODES, apply_theme, apply_titlebar_theme,
+                    resolve_theme, system_is_dark)
 from .mkv_tab import MkvTab
 from .mux_tab import MuxTab
 from .preview_panel import PreviewPanel
@@ -27,11 +28,10 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central)
         layout = QVBoxLayout(central)
 
-        # 頂列:主題切換圖示按鈕(靠右;點開選單選 跟隨系統/深色/淺色)
+        # 主題切換圖示按鈕(點開選單選 跟隨系統/深色/淺色)。
+        # 用 QTabWidget 的角落控件放到分頁籤同一列的右端,而不是自成一列——
+        # 自成一列會佔掉一整條垂直空間,分頁內容還得再往下擠。
         self._theme_mode = "system"
-        top = QHBoxLayout()
-        top.setContentsMargins(8, 8, 12, 4)
-        top.addStretch(1)
         self.theme_button = QPushButton("☀ / 🌙")
         self.theme_button.setStyleSheet(
             "QPushButton { font-size: 13px; padding: 0px 8px 2px 12px; "
@@ -50,12 +50,15 @@ class MainWindow(QMainWindow):
         self._theme_menu.triggered.connect(self._on_theme_menu)
         # 用 QPushButton + 手動彈出選單,避免 QToolButton.setMenu() 的下拉箭頭
         # 在 Fusion 樣式下保留版面空間、把內容擠偏的問題。
-        self.theme_button.clicked.connect(self._show_theme_menu)
-        top.addWidget(self.theme_button)
-        layout.addLayout(top)
+        # 左鍵直接翻深/淺;右鍵才開選單(裡面才有「跟隨系統」)
+        self.theme_button.clicked.connect(self._toggle_theme)
+        self.theme_button.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.theme_button.customContextMenuRequested.connect(
+            self._show_theme_menu)
 
         # 分頁籤
         self.tabs = QTabWidget()
+        self.tabs.setCornerWidget(self.theme_button, Qt.TopRightCorner)
         self.style_editor = StyleEditor()
         self.subtitle_tab = SubtitleFileTab(self.style_editor.current_profile)
         self.subtitle_tab.log.connect(self.append_log)
@@ -103,24 +106,46 @@ class MainWindow(QMainWindow):
     def _apply_current_theme(self) -> None:
         resolved = apply_theme(QApplication.instance(), self.current_mode())
         apply_titlebar_theme(self, resolved == "dark")
-        # 目前狀態放 tooltip 與選單勾選;按鈕維持 ☀ / 🌙 靜態圖示
         mode_label = _MODE_LABELS.get(self.current_mode(), self.current_mode())
         resolved_label = "深色" if resolved == "dark" else "淺色"
+        # 按鈕文字直接分辨「跟隨系統」與「手動鎖定」——只看顏色的話,
+        # 系統本身是深色時,自動與手動深色長得一模一樣。
+        if self.current_mode() == "system":
+            self.theme_button.setText("☀/🌙 自動")
+        else:
+            self.theme_button.setText(
+                "🌙 深色" if resolved == "dark" else "☀ 淺色")
         self.theme_button.setToolTip(
-            f"切換主題(目前:{mode_label},套用:{resolved_label})")
+            f"點擊切換深/淺,右鍵選擇跟隨系統"
+            f"(目前:{mode_label},套用:{resolved_label})")
 
-    def _show_theme_menu(self) -> None:
+    def _toggle_theme(self) -> None:
+        """左鍵:直接在深/淺之間翻面。
+
+        以「目前實際套用的結果」為起點,而不是以模式為起點——這樣不論原本是
+        跟隨系統還是手動鎖定,按下去必定看得到顏色改變。
+        """
+        resolved = resolve_theme(
+            self.current_mode(), system_is_dark(QApplication.instance()))
+        self._set_theme_mode("light" if resolved == "dark" else "dark")
+
+    def _set_theme_mode(self, mode: str) -> None:
+        if mode == self._theme_mode:
+            return
+        self._theme_mode = mode
+        # 左鍵切換時也要同步選單勾選,否則右鍵打開會顯示過期的狀態
+        if mode in self._theme_actions:
+            self._theme_actions[mode].setChecked(True)
+        self.settings.setValue("theme_mode", mode)
+        self._apply_current_theme()
+        self.append_log(f"主題切換為:{_MODE_LABELS.get(mode, mode)}")
+
+    def _show_theme_menu(self, _pos=None) -> None:
         pos = self.theme_button.mapToGlobal(self.theme_button.rect().bottomLeft())
         self._theme_menu.exec(pos)
 
     def _on_theme_menu(self, action) -> None:
-        mode = action.data()
-        if mode == self._theme_mode:
-            return
-        self._theme_mode = mode
-        self.settings.setValue("theme_mode", mode)
-        self._apply_current_theme()
-        self.append_log(f"主題切換為:{_MODE_LABELS.get(mode, mode)}")
+        self._set_theme_mode(action.data())
 
     def _on_system_scheme_changed(self, _scheme) -> None:
         if self.current_mode() == "system":
