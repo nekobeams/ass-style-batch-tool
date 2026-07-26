@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Callable, List, Optional
 
 from PySide6.QtCore import Qt, QSettings, QThread, Signal
-from PySide6.QtWidgets import (QAbstractItemView, QApplication, QButtonGroup,
+from PySide6.QtWidgets import (QAbstractItemView, QButtonGroup,
                                QCheckBox, QComboBox, QFileDialog, QHBoxLayout,
                                QHeaderView, QLabel, QLineEdit, QProgressBar,
                                QPushButton, QRadioButton, QTableWidget,
@@ -14,7 +14,6 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QButtonGroup,
 
 from ..episode_match import find_files
 from ..mkv_batch import MkvTools
-from ..mkv_io import list_all_tracks
 from ..mkv_mux import MuxMeta, MuxPair
 from ..profile import Profile
 from ..scale_engine import ScaleError
@@ -510,6 +509,10 @@ class MuxTab(QWidget):
             if thread is not None:
                 thread.quit()
                 thread.wait()
+        # 沒有這行的話 _track_scan_thread/_worker/_dialog 會留著已被
+        # quit() 的殘骸,之後排隊中的 cancelled signal 可能在 tab 已經
+        # 拆完之後才觸發 _on_track_scan_cancelled。
+        self._finish_track_scan()
 
     # ---------- 設定持久化 ----------
     def save_settings(self, settings: QSettings) -> None:

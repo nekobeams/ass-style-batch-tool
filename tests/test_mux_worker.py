@@ -157,7 +157,8 @@ def test_track_scan_worker_emits_progress_and_map(qapp):
     worker.progress.connect(lambda d, t: seen.append((d, t)))
     worker.finished.connect(lambda m: got.update(m))
     worker.run()
-    assert seen == [(1, 3), (2, 3), (3, 3)]
+    # (0, 3) 先發出:讓對話框在第一個檔案跑完前就切到確定範圍的進度條(Fix 6)
+    assert seen == [(0, 3), (1, 3), (2, 3), (3, 3)]
     assert sorted(p.name for p in got) == ["a.mkv", "b.mkv", "c.mkv"]
     assert got[Path("a.mkv")][0].track_type == "video"
 
@@ -193,4 +194,5 @@ def test_track_scan_worker_empty_list_finishes_empty(qapp):
     worker.progress.connect(lambda a, b: got["progress"].append((a, b)))
     worker.run()
     assert got["finished"] == {}
-    assert got["progress"] == []
+    # (0, 0) 仍會先發出(Fix 6:進度在迴圈前無條件送一次),即使總數是 0
+    assert got["progress"] == [(0, 0)]

@@ -28,9 +28,13 @@ class ModifyTracksDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("修改既有軌道")
         self._tracks_by_file = dict(tracks_by_file)
-        # 範本取排序後的第一個檔案——與資訊面板的排序一致,不會各自為政
-        first = (sorted(self._tracks_by_file, key=lambda p: p.name)[0]
-                 if self._tracks_by_file else None)
+        # 範本取排序後、實際有軌道的第一個檔案——與資訊面板的排序一致,
+        # 但跳過讀不到軌道(list_all_tracks 失敗回傳 [])的檔案,否則
+        # 剛好排最前面的那個壞檔會讓整個對話框空白,OK 後清空所有設定。
+        first = next(
+            (p for p in sorted(self._tracks_by_file, key=lambda p: p.name)
+             if self._tracks_by_file[p]),
+            None)
         self._tracks = list(self._tracks_by_file[first]) if first else []
         existing = existing or {}
         self._keep_checks: List[QCheckBox] = []
@@ -48,7 +52,15 @@ class ModifyTracksDialog(QDialog):
         self.table.verticalHeader().setVisible(False)
         self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.Stretch)
         for r, t in enumerate(self._tracks):
-            e = existing.get(t.track_id, TrackEdit())
+            e = existing.get(t.track_id)
+            if (e is not None and e.track_type is not None
+                    and e.track_type != t.track_type):
+                # 同一個 ID 曾經是別種軌道設定的——這批範本裡它是另一種
+                # 軌道,套用會重演 prefill 把設定「改型別」帶過去的問題,
+                # 視為沒有既有設定。
+                e = None
+            if e is None:
+                e = TrackEdit()
             keep = QCheckBox()
             keep.setChecked(e.keep)
             self.table.setCellWidget(r, 0, self._center(keep))

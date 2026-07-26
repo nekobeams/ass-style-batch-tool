@@ -283,6 +283,7 @@ def test_modify_tracks_stores_edits(qapp, monkeypatch):
     while tab._track_scan_thread is not None and time.monotonic() < deadline:
         qapp.processEvents()
 
+    assert tab._track_scan_thread is None, "scan did not finish"
     assert tab._track_edits == {1: TrackEdit(keep=False)}
 
 
@@ -360,4 +361,76 @@ def test_empty_scan_result_does_not_open_dialog(qapp, monkeypatch):
         raise AssertionError("沒有任何軌道時不該開啟對話框")
 
     monkeypatch.setattr(mux_tab_mod, "ModifyTracksDialog", boom)
+    messages = []
+    tab.log.connect(messages.append)
     tab._on_track_scan_done({Path("a.mkv"): []})    # 全部讀不到軌道
+    assert any("所有影片都讀不到軌道資訊" in m for m in messages)
+
+
+def test_scan_dialog_cancel_genuinely_stops_the_scan(qapp, monkeypatch):
+    """釘住取消路徑本身,而不只是「取消後不開對話框」的表面行為。
+
+    `_track_scan_dialog.cancelled` 必須接到 `_request_track_scan_cancel`
+    (直接呼叫 worker.cancel(),同執行緒同步呼叫),不能改接
+    `worker.cancel`(跨執行緒排入 worker 自己的事件佇列——但 worker 在
+    run() 執行期間根本不跑事件迴圈,排進去的 cancel() 要等整批掃完才會
+    被處理,等於形同虛設)。這正是本專案先前出過、被抓到的那個 bug。
+
+    用真正的 QThread + 會拖時間的假 list_fn,跑到至少完成一檔後,呼叫
+    使用者實際會走的路徑——`_track_scan_dialog.reject()`——確認掃描
+    真的提早停止(未跑完全部檔案),且對話框從未開啟。
+    """
+    import time
+    import ass_style_tool.qt.mux_tab as mux_tab_mod
+    from ass_style_tool.qt.batch_worker import TrackScanWorker
+    from ass_style_tool.mkv_io import MediaTrack
+    from ass_style_tool.mkv_mux import MuxPair
+
+    monkeypatch.setattr(mux_tab_mod, "mkvmerge_path", lambda: Path("mkvmerge"))
+    monkeypatch.setattr(mux_tab_mod, "mkvextract_path", lambda: Path("mkvextract"))
+    tab = mux_tab_mod.MuxTab(lambda: None)
+
+    total = 20
+    tab._pairs = [MuxPair(Path(f"v{i}.mkv"), None, i, "matched")
+                  for i in range(total)]
+
+    completed: list = []
+
+    def slow_list_fn(video, mkvmerge):
+        time.sleep(0.05)
+        completed.append(video)
+        return [MediaTrack(1, "audio", "A", "jpn", "", True, False)]
+
+    def factory(video_paths, mkvmerge, list_fn=None):
+        return TrackScanWorker(video_paths, mkvmerge, list_fn=slow_list_fn)
+
+    monkeypatch.setattr(mux_tab_mod, "TrackScanWorker", factory)
+
+    def boom(*a, **k):
+        raise AssertionError("取消後不該開啟修改軌道對話框")
+
+    monkeypatch.setattr(mux_tab_mod, "ModifyTracksDialog", boom)
+
+    try:
+        tab._on_modify_tracks()
+
+        deadline = time.monotonic() + 5.0
+        while len(completed) < 1 and time.monotonic() < deadline:
+            qapp.processEvents()
+        assert len(completed) >= 1, "scan never completed a single file"
+        assert tab._track_scan_dialog is not None
+
+        tab._track_scan_dialog.reject()   # 使用者實際點取消/Esc/叉叉的路徑
+
+        deadline = time.monotonic() + 5.0
+        while tab._track_scan_thread is not None and time.monotonic() < deadline:
+            qapp.processEvents()
+
+        assert tab._track_scan_thread is None, "scan did not finish/cancel"
+        assert len(completed) < total, "cancel did not stop the scan early"
+    finally:
+        if tab._track_scan_worker is not None:
+            tab._track_scan_worker.cancel()
+        if tab._track_scan_thread is not None:
+            tab._track_scan_thread.quit()
+            tab._track_scan_thread.wait(2000)

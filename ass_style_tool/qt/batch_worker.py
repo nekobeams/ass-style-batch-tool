@@ -188,6 +188,7 @@ class TrackScanWorker(QObject):
     def run(self) -> None:
         total = len(self._paths)
         result = {}
+        self.progress.emit(0, total)  # 先讓對話框切到確定範圍,不是等第一檔跑完才有反應
         for i, path in enumerate(self._paths, start=1):
             # 檢查點在每個檔案之前;執行中的那一次 list_fn 會先跑完
             if self._cancelled:

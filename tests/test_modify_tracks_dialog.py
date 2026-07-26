@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from ass_style_tool.mkv_io import MediaTrack
 from ass_style_tool.track_edit import TrackEdit
 
@@ -10,9 +12,6 @@ def _tracks():
         MediaTrack(1, "audio", "A_FLAC", "jpn", "", True, False),
         MediaTrack(2, "subtitles", "S_TEXT/ASS", "chi", "繁中", False, False),
     ]
-
-
-from pathlib import Path
 
 
 def _files():
@@ -52,6 +51,21 @@ def test_existing_prefill(qapp):
     assert d._keep_checks[2].isChecked() is False
     assert d._forced_combos[2].currentData() is True
     assert d._lang_edits[2].text() == "eng"
+
+
+def test_existing_prefill_with_mismatched_type_is_discarded(qapp):
+    """既有設定是為別種軌道存的(例如上一批次 id 2 是字幕),這批範本裡
+    id 2 卻是別的類型——prefill 不能沿用,否則 get_edits() 會把「為字幕
+    做的丟棄設定」重新蓋上目前的類型,讓 build_source_track_flags 的
+    type guard 誤判為安全,正是 Fix 1 要防的情境。"""
+    from ass_style_tool.qt.modify_tracks_dialog import ModifyTracksDialog
+    # _tracks() 的 id 2 是 subtitles;existing 卻記錄它曾是 audio 的設定
+    d = ModifyTracksDialog(
+        _files(), existing={2: TrackEdit(keep=False, track_type="audio")})
+    assert d._keep_checks[2].isChecked() is True   # 不合的 prefill 被丟棄,回到預設
+    edits = d.get_edits()
+    assert edits[2].track_type == "subtitles"
+    assert edits[2].keep is True
 
 
 def test_table_has_alternating_rows(qapp):
@@ -95,8 +109,6 @@ def test_get_edits_records_track_type(qapp):
 
 
 def test_info_table_shows_one_row_per_file(qapp):
-    from pathlib import Path
-    from ass_style_tool.mkv_io import MediaTrack
     from ass_style_tool.qt.modify_tracks_dialog import ModifyTracksDialog
 
     files = {
@@ -110,8 +122,6 @@ def test_info_table_shows_one_row_per_file(qapp):
 
 
 def test_info_table_follows_selected_track_row(qapp):
-    from pathlib import Path
-    from ass_style_tool.mkv_io import MediaTrack
     from ass_style_tool.qt.modify_tracks_dialog import ModifyTracksDialog
 
     files = {
@@ -126,3 +136,20 @@ def test_info_table_follows_selected_track_row(qapp):
     d.table.selectRow(0)                       # 改選視訊軌(ID 0)
     b_row = 1 if d.info_table.item(1, 0).text() == "b.mkv" else 0
     assert "✗" in d.info_table.item(b_row, 1).text()   # b.mkv 沒有軌 0
+
+
+def test_template_skips_unreadable_first_file(qapp):
+    """list_all_tracks 讀失敗回傳 []。若排序後第一個檔案剛好是那個壞檔,
+    範本不該跟著空白——否則整張編輯表零列,get_edits() 回傳 {},OK
+    後會把使用者原本的設定整批清空(Fix 2)。"""
+    from ass_style_tool.qt.modify_tracks_dialog import ModifyTracksDialog
+
+    files = {
+        Path("a_broken.mkv"): [],            # 字母序最前,但讀不到軌道
+        Path("b_ok.mkv"): _tracks(),
+    }
+    d = ModifyTracksDialog(files)
+    assert len(d._tracks) == 3
+    edits = d.get_edits()
+    assert set(edits) == {0, 1, 2}
+    assert edits[2].track_type == "subtitles"
