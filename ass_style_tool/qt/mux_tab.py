@@ -27,9 +27,16 @@ from .scale_panel import ScalePanel
 _HEADERS = ["封裝", "影片", "字幕", "集數", "狀態"]
 _STATUS_LABELS = {"matched": "已配對", "no_subtitle": "無對應字幕",
                   "ambiguous": "配對模糊", "no_episode": "無法判斷集數"}
-# 常見字幕語言(mkvmerge 用 ISO 639-2)
-_LANGUAGES = [("中文", "chi"), ("日文", "jpn"), ("英文", "eng"),
-              ("未定", "und")]
+# 常見字幕語言(mkvmerge 用 ISO 639-2;一律用書目碼 chi/fre/ger…,與既有一致)。
+# 最常用的三個排最前面維持原本的順手程度,「未定」保持在最後。
+_LANGUAGES = [
+    ("中文", "chi"), ("日文", "jpn"), ("英文", "eng"),
+    ("韓文", "kor"), ("西班牙文", "spa"), ("法文", "fre"),
+    ("德文", "ger"), ("義大利文", "ita"), ("葡萄牙文", "por"),
+    ("俄文", "rus"), ("泰文", "tha"), ("越南文", "vie"),
+    ("印尼文", "ind"), ("阿拉伯文", "ara"),
+    ("未定", "und"),
+]
 
 
 class MuxTab(QWidget):

@@ -113,18 +113,35 @@ def test_toggle_syncs_menu_checkmark(qapp, monkeypatch, tmp_path):
         window.deleteLater()
 
 
-def test_button_text_distinguishes_auto_from_pinned(qapp, monkeypatch, tmp_path):
-    """系統本身是深色時,自動與手動深色顏色相同,只能靠文字分辨。"""
+def test_button_symbols_distinguish_auto_from_pinned(qapp, monkeypatch, tmp_path):
+    """系統本身是深色時,自動與手動深色的顏色完全一樣,只能靠符號分辨:
+    兩個符號 = 跟隨系統,單一符號 = 已鎖定該模式。"""
     window = _window(monkeypatch, tmp_path)
     try:
         assert window.current_mode() == "system"
-        assert "自動" in window.theme_button.text()
-        window._toggle_theme()                      # 變成手動鎖定
-        assert "自動" not in window.theme_button.text()
-        window._set_theme_mode("system")            # 右鍵選單走的路徑
-        assert "自動" in window.theme_button.text()
+        auto_text = window.theme_button.text()
+        assert "☀" in auto_text and "🌙" in auto_text        # 兩個符號 = 自動
+
+        window._toggle_theme()                                # 變成手動鎖定
+        pinned = window.theme_button.text()
+        assert ("☀" in pinned) != ("🌙" in pinned)            # 只剩一個符號
+
+        window._set_theme_mode("system")                      # 右鍵選單的路徑
+        restored = window.theme_button.text()
+        assert "☀" in restored and "🌙" in restored
     finally:
         window.deleteLater()
+
+
+def test_language_list_keeps_common_three_first_and_und_last(qapp):
+    """新增語言不能打亂原本最順手的前三個,「未定」也要留在最後。"""
+    from ass_style_tool.qt.mux_tab import _LANGUAGES
+    codes = [code for _label, code in _LANGUAGES]
+    assert codes[:3] == ["chi", "jpn", "eng"]
+    assert codes[-1] == "und"
+    assert len(set(codes)) == len(codes)          # 沒有重複代碼
+    for _label, code in _LANGUAGES:
+        assert len(code) == 3                     # ISO 639-2 一律三碼
 
 
 def test_theme_button_lives_in_the_tab_bar_corner(qapp, monkeypatch, tmp_path):
