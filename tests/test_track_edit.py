@@ -62,3 +62,41 @@ def test_only_ids_present_in_tracks_produce_flags():
     flags = build_source_track_flags(
         {9: TrackEdit(keep=False, set_default=True)}, _tracks())
     assert flags == []
+
+
+def _audio_at_2():
+    """軌 2 是音訊的檔案——與範本(字幕)不同類型。"""
+    return [
+        MediaTrack(0, "video", "V_HEVC", "und", "", True, False),
+        MediaTrack(1, "audio", "A_FLAC", "jpn", "", True, False),
+        MediaTrack(2, "audio", "A_AC3", "eng", "", False, False),
+    ]
+
+
+def test_type_mismatch_does_not_drop_the_wrong_track():
+    # 使用者把「字幕軌 2」設為丟棄;這個檔案的軌 2 卻是音訊 → 不可丟音訊
+    edits = {2: TrackEdit(keep=False, track_type="subtitles")}
+    flags = build_source_track_flags(edits, _audio_at_2())
+    assert "--no-audio" not in flags
+    assert "--audio-tracks" not in flags
+    assert flags == []          # 這個檔案完全不受影響
+
+
+def test_type_mismatch_does_not_emit_attributes():
+    edits = {2: TrackEdit(set_default=True, language="chi",
+                          track_name="繁中", track_type="subtitles")}
+    flags = build_source_track_flags(edits, _audio_at_2())
+    assert flags == []
+
+
+def test_type_match_still_applies():
+    edits = {2: TrackEdit(set_default=True, track_type="subtitles")}
+    flags = build_source_track_flags(edits, _tracks())   # 軌 2 是字幕
+    assert flags[flags.index("--default-track") + 1] == "2:yes"
+
+
+def test_track_type_none_keeps_old_behaviour():
+    # 沒記錄類型 → 不比對,維持既有行為(回歸保護)
+    edits = {2: TrackEdit(keep=False)}
+    flags = build_source_track_flags(edits, _audio_at_2())
+    assert "--no-audio" in flags or "--audio-tracks" in flags
