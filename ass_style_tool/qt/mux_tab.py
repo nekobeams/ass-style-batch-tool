@@ -5,7 +5,7 @@ import dataclasses
 from pathlib import Path
 from typing import Callable, List, Optional
 
-from PySide6.QtCore import Qt, QSettings, QThread, Signal
+from PySide6.QtCore import Qt, QByteArray, QSettings, QThread, Signal
 from PySide6.QtWidgets import (QAbstractItemView, QButtonGroup,
                                QCheckBox, QComboBox, QFileDialog, QHBoxLayout,
                                QHeaderView, QLabel, QLineEdit, QProgressBar,
@@ -557,5 +557,8 @@ class MuxTab(QWidget):
         else:
             self.outdir_radio.setChecked(True)
         state = settings.value("mux/splitter")
-        if state is not None:
+        # 直接判斷型別而不是靠 QSettings 的 type= 參數:PySide6 在轉換失敗時
+        # 並不會如預期回傳 None/預設值,而是把原始(型別不對的)值原樣回傳,
+        # 傳進 restoreState() 一樣會炸——手改/遷移壞掉的設定值必須擋在這裡。
+        if isinstance(state, QByteArray):
             self.splitter.restoreState(state)
