@@ -13,24 +13,47 @@ def _track(tid=2):
     return SubtitleTrack(tid, "S_TEXT/ASS", "chi", "繁中", False, False)
 
 
-def test_scan_worker_lists_tracks(qapp, tmp_path):
+def test_scan_worker_lists_tracks_for_given_paths(qapp, tmp_path):
     from ass_style_tool.qt.batch_worker import MkvScanWorker
-    (tmp_path / "e1.mkv").write_bytes(b"")
-    (tmp_path / "sub").mkdir()
-    (tmp_path / "sub" / "e2.mkv").write_bytes(b"")
-    (tmp_path / "note.txt").write_text("x")
+    a = tmp_path / "e1.mkv"
+    b = tmp_path / "e2.mkv"
+    a.write_bytes(b"")
+    b.write_bytes(b"")
 
     def fake_list(path, mkvmerge):
         return [_track(2)] if path.name == "e1.mkv" else []
 
-    worker = MkvScanWorker(tmp_path, Path("mkvmerge.exe"), list_fn=fake_list)
+    worker = MkvScanWorker([a, b], Path("mkvmerge.exe"), list_fn=fake_list)
     got = {}
     worker.finished.connect(lambda d: got.update(d))
     worker.run()
-    names = sorted(p.name for p in got)
-    assert names == ["e1.mkv", "e2.mkv"]
-    assert [t.track_id for t in got[tmp_path / "e1.mkv"]] == [2]
-    assert got[tmp_path / "sub" / "e2.mkv"] == []
+    assert sorted(p.name for p in got) == ["e1.mkv", "e2.mkv"]
+    assert [t.track_id for t in got[a]] == [2]
+    assert got[b] == []
+
+
+def test_scan_worker_only_scans_the_paths_it_was_given(qapp, tmp_path):
+    """回歸:worker 不再自己 rglob 資料夾,分頁給什麼就掃什麼。
+
+    改版前它遞迴整個資料夾,會把子資料夾與未勾選的檔案一起送進
+    mkvmerge -J。
+    """
+    from ass_style_tool.qt.batch_worker import MkvScanWorker
+    wanted = tmp_path / "e1.mkv"
+    wanted.write_bytes(b"")
+    (tmp_path / "e2.mkv").write_bytes(b"")
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "sub" / "e3.mkv").write_bytes(b"")
+
+    seen = []
+
+    def fake_list(path, mkvmerge):
+        seen.append(path)
+        return []
+
+    worker = MkvScanWorker([wanted], Path("mkvmerge.exe"), list_fn=fake_list)
+    worker.run()
+    assert seen == [wanted]
 
 
 def test_mkv_worker_runs_and_reports(qapp, tmp_path):
@@ -150,20 +173,26 @@ def test_mkv_worker_replace_original_mode_no_collision_check(qapp, tmp_path):
 
 def test_scan_worker_emits_progress_per_file(qapp, tmp_path):
     from ass_style_tool.qt.batch_worker import MkvScanWorker
+    paths = []
     for name in ("e1.mkv", "e2.mkv", "e3.mkv"):
-        (tmp_path / name).write_bytes(b"")
-    worker = MkvScanWorker(tmp_path, Path("mkvmerge.exe"),
-                           list_fn=lambda p, m: [])
+        p = tmp_path / name
+        p.write_bytes(b"")
+        paths.append(p)
+    worker = MkvScanWorker(paths, Path("mkvmerge.exe"), list_fn=lambda p, m: [])
     seen = []
     worker.progress.connect(lambda done, total: seen.append((done, total)))
     worker.run()
-    assert seen == [(1, 3), (2, 3), (3, 3)]
+    # 開頭那筆 (0, 3) 讓進度對話框立刻切到確定範圍,不必等第一檔掃完
+    assert seen == [(0, 3), (1, 3), (2, 3), (3, 3)]
 
 
 def test_scan_worker_cancel_stops_early_and_emits_cancelled(qapp, tmp_path):
     from ass_style_tool.qt.batch_worker import MkvScanWorker
+    paths = []
     for name in ("e1.mkv", "e2.mkv", "e3.mkv"):
-        (tmp_path / name).write_bytes(b"")
+        p = tmp_path / name
+        p.write_bytes(b"")
+        paths.append(p)
     calls = []
 
     def fake_list(path, mkvmerge):
@@ -171,7 +200,7 @@ def test_scan_worker_cancel_stops_early_and_emits_cancelled(qapp, tmp_path):
         worker.cancel()          # 第一個檔掃完就要求取消
         return []
 
-    worker = MkvScanWorker(tmp_path, Path("mkvmerge.exe"), list_fn=fake_list)
+    worker = MkvScanWorker(paths, Path("mkvmerge.exe"), list_fn=fake_list)
     events = []
     worker.finished.connect(lambda d: events.append("finished"))
     worker.cancelled.connect(lambda: events.append("cancelled"))
@@ -180,14 +209,12 @@ def test_scan_worker_cancel_stops_early_and_emits_cancelled(qapp, tmp_path):
     assert len(calls) == 1           # 真的提早停,不是跑完才丟棄
 
 
-def test_scan_worker_no_mkv_finishes_empty(qapp, tmp_path):
+def test_scan_worker_empty_list_finishes_empty(qapp):
     from ass_style_tool.qt.batch_worker import MkvScanWorker
-    (tmp_path / "note.txt").write_text("x")
-    worker = MkvScanWorker(tmp_path, Path("mkvmerge.exe"),
-                           list_fn=lambda p, m: [])
+    worker = MkvScanWorker([], Path("mkvmerge.exe"), list_fn=lambda p, m: [])
     got = {"finished": None, "progress": []}
     worker.finished.connect(lambda d: got.__setitem__("finished", d))
     worker.progress.connect(lambda a, b: got["progress"].append((a, b)))
     worker.run()
     assert got["finished"] == {}
-    assert got["progress"] == []
+    assert got["progress"] == [(0, 0)]

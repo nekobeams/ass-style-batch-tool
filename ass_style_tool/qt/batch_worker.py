@@ -135,16 +135,21 @@ class ScaleWorker(QObject):
 
 
 class MkvScanWorker(QObject):
-    """遞迴掃描資料夾內 *.mkv 並列舉各檔 ASS 字幕軌;支援進度回報與取消。"""
+    """列舉指定 MKV 清單各檔的 ASS 字幕軌;支援進度回報與取消。
+
+    吃檔案清單而非資料夾:MKV 分頁的資料夾掃描已經改成只列檔名、不跑
+    外部程序,mkvmerge -J 只在使用者真的要選軌(或按下開始處理而尚未
+    設定規則)時才跑。形狀刻意與 TrackScanWorker 一致。
+    """
 
     finished = Signal(object)      # dict[Path, list[SubtitleTrack]]
     progress = Signal(int, int)    # 已完成, 總數
     cancelled = Signal()           # 使用者取消(部分結果丟棄)
 
-    def __init__(self, folder: Path, mkvmerge: Path,
+    def __init__(self, paths, mkvmerge: Path,
                  list_fn=list_ass_tracks) -> None:
         super().__init__()
-        self._folder = Path(folder)
+        self._paths = [Path(p) for p in paths]
         self._mkvmerge = mkvmerge
         self._list_fn = list_fn
         self._cancelled = False
@@ -153,11 +158,10 @@ class MkvScanWorker(QObject):
         self._cancelled = True
 
     def run(self) -> None:
-        # 先收集清單以取得總數(供進度條顯示確定範圍)
-        files = [p for p in sorted(self._folder.rglob("*.mkv")) if p.is_file()]
-        total = len(files)
+        total = len(self._paths)
         result = {}
-        for i, path in enumerate(files, start=1):
+        self.progress.emit(0, total)  # 先讓對話框切到確定範圍,不是等第一檔跑完才有反應
+        for i, path in enumerate(self._paths, start=1):
             # 檢查點在每個檔案之前;執行中的那一次 list_fn 會先跑完
             if self._cancelled:
                 self.cancelled.emit()   # 丟棄 result,不發 finished

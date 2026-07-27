@@ -200,7 +200,9 @@ class MkvTab(QWidget):
         self.scan_button.setEnabled(False)
         self.run_button.setEnabled(False)
         self._scan_thread = QThread()
-        self._scan_worker = MkvScanWorker(Path(folder), self._tools.mkvmerge)
+        self._scan_worker = MkvScanWorker(
+            sorted(p for p in Path(folder).glob("*.mkv") if p.is_file()),
+            self._tools.mkvmerge)
         self._scan_worker.moveToThread(self._scan_thread)
         self._scan_thread.started.connect(self._scan_worker.run)
         self._scan_worker.finished.connect(self._on_scan_done)
