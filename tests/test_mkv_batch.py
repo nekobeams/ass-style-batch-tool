@@ -18,7 +18,7 @@ def _track(tid, lang="chi", name="繁中"):
     return SubtitleTrack(tid, "S_TEXT/ASS", lang, name, False, False)
 
 
-# ---------- 一鍵選整季 ----------
+# ---------- 軌道比對鍵 ----------
 
 def test_track_key():
     assert track_key(_track(2)) == ("chi", "繁中")
