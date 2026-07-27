@@ -1,8 +1,8 @@
-"""縮放字級模式的參數面板。"""
+"""縮放字級模式的參數面板(單欄版面,塞得進 240px 的設定側欄)。"""
 from __future__ import annotations
 
-from PySide6.QtWidgets import (QCheckBox, QGridLayout, QLabel, QLineEdit,
-                               QRadioButton, QWidget)
+from PySide6.QtWidgets import (QCheckBox, QHBoxLayout, QLabel, QLineEdit,
+                               QRadioButton, QVBoxLayout, QWidget)
 
 from ..scale_engine import ScaleError, ScaleOptions
 
@@ -10,35 +10,48 @@ from ..scale_engine import ScaleError, ScaleOptions
 class ScalePanel(QWidget):
     def __init__(self) -> None:
         super().__init__()
-        grid = QGridLayout(self)
-        grid.setContentsMargins(0, 4, 0, 4)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 4, 0, 4)
+        root.setSpacing(6)
 
+        factor_row = QHBoxLayout()
         self.factor_radio = QRadioButton("倍率 ×")
         self.factor_radio.setChecked(True)
         self.factor_edit = QLineEdit("1.25")
         self.factor_edit.setMaximumWidth(80)
-        grid.addWidget(self.factor_radio, 0, 0)
-        grid.addWidget(self.factor_edit, 0, 1)
+        factor_row.addWidget(self.factor_radio)
+        factor_row.addWidget(self.factor_edit)
+        factor_row.addStretch(1)
+        root.addLayout(factor_row)
 
+        target_row = QHBoxLayout()
         self.target_radio = QRadioButton("主 Style 設為")
         self.target_edit = QLineEdit("72")
         self.target_edit.setMaximumWidth(80)
-        grid.addWidget(self.target_radio, 1, 0)
-        grid.addWidget(self.target_edit, 1, 1)
-        grid.addWidget(QLabel("基準 Style:"), 1, 2)
+        target_row.addWidget(self.target_radio)
+        target_row.addWidget(self.target_edit)
+        target_row.addStretch(1)
+        root.addLayout(target_row)
+
+        base_row = QHBoxLayout()
+        base_row.addWidget(QLabel("基準"))
         self.base_edit = QLineEdit("Default")
         self.base_edit.setMaximumWidth(140)
-        grid.addWidget(self.base_edit, 1, 3)
+        base_row.addWidget(self.base_edit, 0)
+        base_row.addStretch(1)
+        root.addLayout(base_row)
 
-        self.deco_check = QCheckBox("同步縮放外框/陰影")
+        self.deco_check = QCheckBox("外框/陰影")
+        self.deco_check.setToolTip("同步縮放外框和陰影效果")
         self.deco_check.setChecked(True)
-        self.inline_check = QCheckBox("縮放對白內 \\fs")
+        self.inline_check = QCheckBox("對白 \\fs")
+        self.inline_check.setToolTip("縮放對白內的字級標籤")
         self.inline_check.setChecked(True)
-        self.fscxy_check = QCheckBox("同步縮放 \\fscx/\\fscy(會改變字幅比例)")
-        grid.addWidget(self.deco_check, 2, 0, 1, 2)
-        grid.addWidget(self.inline_check, 2, 2, 1, 2)
-        grid.addWidget(self.fscxy_check, 3, 0, 1, 4)
-        grid.setColumnStretch(4, 1)
+        # 標題縮短、細節移到 tooltip:側欄只有 240px,長標籤會把分頁撐寬
+        self.fscxy_check = QCheckBox("字幅比")
+        self.fscxy_check.setToolTip("同步縮放 \\fscx/\\fscy(會改變字幅比例)")
+        for check in (self.deco_check, self.inline_check, self.fscxy_check):
+            root.addWidget(check)
 
     def get_options(self) -> ScaleOptions:
         try:

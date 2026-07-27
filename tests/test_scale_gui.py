@@ -137,3 +137,15 @@ def test_dry_run_disabled_while_run_in_progress(qapp):
     tab._thread = None
     tab._update_dry_run_enabled()
     assert tab.dry_run_button.isEnabled() is True
+
+
+def test_scale_panel_fits_the_settings_sidebar(qapp):
+    """單欄版面:面板寬度要塞得進 240px 的設定側欄。
+
+    原本是 4 欄 QGridLayout(倍率、基準 Style、三個核取方塊橫排),
+    在側欄裡會把整個分頁撐寬。
+    """
+    from ass_style_tool.qt.layout_helpers import SIDEBAR_MIN_WIDTH
+    from ass_style_tool.qt.scale_panel import ScalePanel
+    panel = ScalePanel()
+    assert panel.sizeHint().width() <= SIDEBAR_MIN_WIDTH
