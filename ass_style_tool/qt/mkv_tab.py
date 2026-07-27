@@ -11,7 +11,7 @@ import tempfile
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Set, Tuple
 
-from PySide6.QtCore import Qt, QSettings, QThread, Signal
+from PySide6.QtCore import Qt, QByteArray, QSettings, QThread, Signal
 from PySide6.QtWidgets import (QAbstractItemView, QButtonGroup, QFileDialog,
                                QHBoxLayout, QHeaderView, QLabel, QLineEdit,
                                QProgressBar, QPushButton, QRadioButton,
@@ -23,7 +23,7 @@ from ..mkv_io import SubtitleTrack, extract_track
 from ..profile import Profile
 from ..scale_engine import ScaleError
 from ..tools import mkvextract_path, mkvmerge_path
-from ..track_select import TrackKey, resolve_tracks
+from ..track_select import TrackKey, all_keys, resolve_tracks
 from .batch_worker import MkvScanWorker, MkvWorker
 from .layout_helpers import (action_row, group, main_splitter, page_layout,
                              settings_sidebar)
@@ -296,7 +296,7 @@ class MkvTab(QWidget):
         if self._scan_thread is not None:
             self.log.emit("軌道掃描進行中")
             return
-        files = self.checked_files()
+        files = [p for p in self.checked_files() if p not in self._files_tracks]
         if not files:
             self.log.emit("沒有勾選任何 MKV")
             return
@@ -379,7 +379,17 @@ class MkvTab(QWidget):
             return
         dialog = SelectTracksDialog(available, self._track_keys, self)
         if dialog.exec():
-            self._apply_keys(dialog.get_keys())
+            template_path = next(
+                (p for p in sorted(available, key=lambda p: p.name)
+                 if available[p]),
+                None)
+            template_keys = (all_keys({template_path: available[template_path]})
+                             if template_path is not None else set())
+            # 對話框只能顯示/切換範本檔本身有的鍵;既有規則裡範本檔沒有的鍵,
+            # 對話框根本無從呈現,重開一次就會被靜默清掉——保留它們,只有
+            # 範本檔真的能顯示的鍵才依使用者這次的勾選結果更新。
+            preserved = (self._track_keys or set()) - template_keys
+            self._apply_keys(dialog.get_keys() | preserved)
 
     # ---------- 送進預覽 ----------
     def _current_file(self) -> Optional[Path]:
@@ -525,5 +535,8 @@ class MkvTab(QWidget):
         else:
             self.outdir_radio.setChecked(True)
         state = settings.value("mkv/splitter")
-        if state is not None:
+        # 直接判斷型別而不是靠 QSettings 的 type= 參數:PySide6 在轉換失敗時
+        # 並不會如預期回傳 None/預設值,而是把原始(型別不對的)值原樣回傳,
+        # 傳進 restoreState() 一樣會炸——手改/遷移壞掉的設定值必須擋在這裡。
+        if isinstance(state, QByteArray):
             self.splitter.restoreState(state)

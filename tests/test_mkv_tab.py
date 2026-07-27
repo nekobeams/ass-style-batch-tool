@@ -119,6 +119,58 @@ def test_modify_button_shows_the_selected_count(qapp, monkeypatch):
     assert tab.modify_tracks_button.text() == "修改既有軌道…(已選 2 條)"
 
 
+def test_open_select_dialog_applies_the_chosen_keys(qapp, monkeypatch):
+    """實際走 _open_select_dialog:對話框接受後,選定的鍵要真的落進 _track_keys。"""
+    tab = _tab(monkeypatch)
+    tab.populate(FILES)
+    tab._files_tracks = dict(TRACKS)
+
+    class FakeDialog:
+        def __init__(self, available, existing, parent):
+            self.available = available
+            self.existing = existing
+
+        def exec(self):
+            return 1
+
+        def get_keys(self):
+            return {("chi", "繁中")}
+
+    monkeypatch.setattr("ass_style_tool.qt.mkv_tab.SelectTracksDialog", FakeDialog)
+    tab._open_select_dialog()
+    assert tab._track_keys == {("chi", "繁中")}
+    assert tab.modify_tracks_button.text() == "修改既有軌道…(已選 1 條)"
+
+
+def test_reopening_dialog_preserves_keys_the_new_template_cannot_show(qapp, monkeypatch):
+    """回歸(最終審查抓到的真實 bug):換範本檔(取消勾選某檔)後重開對話框,
+    對話框只能顯示/切換新範本檔本身有的鍵——舊規則裡新範本檔沒有的鍵,
+    對話框無從呈現,絕不能因為重開一次就被靜默清掉。"""
+    tab = _tab(monkeypatch)
+    tab.populate(FILES)
+    tab._files_tracks = dict(TRACKS)
+    # e1(範本檔,繁中/简中)先被取消勾選;e2(简中/繁中)變成新範本檔,
+    # 沒有任何一種 TRACKS 以外的鍵——用一個 e2 完全沒有的鍵驗證保留。
+    tab.file_table.item(0, 0).setCheckState(__import__("PySide6.QtCore", fromlist=["Qt"]).Qt.CheckState.Unchecked)
+    tab._track_keys = {("chi", "简中"), ("jpn", "")}   # ("jpn","") 不存在於任何 TRACKS 檔案,模擬「新範本檔完全沒有的鍵」
+
+    class FakeDialog:
+        def __init__(self, available, existing, parent):
+            self.available = available
+
+        def exec(self):
+            return 1
+
+        def get_keys(self):
+            # 使用者在對話框裡看到的只有範本檔(e2)本身的鍵,勾了簡中
+            return {("chi", "简中")}
+
+    monkeypatch.setattr("ass_style_tool.qt.mkv_tab.SelectTracksDialog", FakeDialog)
+    tab._open_select_dialog()
+    # 範本檔能顯示的鍵(簡中)照使用者這次的選擇;範本檔顯示不出來的鍵(jpn)保留
+    assert tab._track_keys == {("chi", "简中"), ("jpn", "")}
+
+
 # ---------- 掃描資料夾只列檔案,不跑外部程序 ----------
 
 def test_scan_lists_mkv_files_without_running_mkvmerge(qapp, monkeypatch, tmp_path):
