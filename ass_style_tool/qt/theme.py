@@ -123,12 +123,13 @@ QScrollBar::handle:horizontal:hover { background: $handle_hover; }
 QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0; }
 
 QGroupBox {
-    border: 1px solid $border; border-radius: 3px;
-    margin-top: 8px; padding-top: 8px;
+    border: 1px solid $border; border-radius: 4px;
+    margin-top: 14px; padding-top: 10px;
 }
 QGroupBox::title {
     subcontrol-origin: margin; subcontrol-position: top left;
-    left: 8px; padding: 0 4px; color: $text_dim;
+    left: 10px; padding: 0 6px; color: $text_dim;
+    font-weight: 600;
 }
 
 QProgressBar {

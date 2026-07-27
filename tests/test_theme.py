@@ -78,3 +78,11 @@ def test_qss_for_fails_loudly_on_incomplete_palette(monkeypatch):
     monkeypatch.setattr(theme, "_DARK", _Partial())
     with pytest.raises(KeyError):
         theme.qss_for("dark")
+
+
+def test_groupbox_title_is_emphasised_in_both_themes():
+    """群組盒標題要有字重與留白,否則分組在視覺上等於沒發生。"""
+    from ass_style_tool.qt.theme import qss_for
+    for theme in ("dark", "light"):
+        title_block = qss_for(theme).split("QGroupBox::title")[1].split("}")[0]
+        assert "font-weight" in title_block
