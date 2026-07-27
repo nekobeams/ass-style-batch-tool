@@ -19,6 +19,8 @@ from ..profile import Profile
 from ..scale_engine import ScaleError, read_as_ass_text, scale_text
 from .batch_worker import BatchWorker, ScaleWorker
 from .gui_helpers import preview_rows
+from .layout_helpers import (action_row, group, main_splitter, page_layout,
+                             settings_sidebar)
 from .scale_panel import ScalePanel
 
 _HEADERS = ["集數", "字幕檔", "影片檔", "狀態"]
@@ -39,7 +41,7 @@ class SubtitleFileTab(QWidget):
         self._scanned_folder: Optional[str] = None
         self.setAcceptDrops(True)
 
-        root = QVBoxLayout(self)
+        root = page_layout(self)
 
         folder_row = QHBoxLayout()
         folder_row.addWidget(QLabel("資料夾:"))
@@ -52,26 +54,6 @@ class SubtitleFileTab(QWidget):
         folder_row.addWidget(browse)
         root.addLayout(folder_row)
 
-        # 操作模式:套用樣式(既有)/ 縮放字級(新)
-        mode_row = QHBoxLayout()
-        mode_row.addWidget(QLabel("操作模式:"))
-        self.apply_mode_radio = QRadioButton("套用樣式")
-        self.apply_mode_radio.setChecked(True)
-        self.scale_mode_radio = QRadioButton("縮放字級")
-        mode_row.addWidget(self.apply_mode_radio)
-        mode_row.addWidget(self.scale_mode_radio)
-        mode_row.addStretch(1)
-        root.addLayout(mode_row)
-
-        self._mode_group = QButtonGroup(self)
-        self._mode_group.addButton(self.apply_mode_radio)
-        self._mode_group.addButton(self.scale_mode_radio)
-
-        self.scale_panel = ScalePanel()
-        self.scale_panel.setHidden(True)
-        root.addWidget(self.scale_panel)
-        self.scale_mode_radio.toggled.connect(self._on_mode_changed)
-
         self.table = QTableWidget(0, len(_HEADERS))
         self.table.setAlternatingRowColors(True)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -80,29 +62,56 @@ class SubtitleFileTab(QWidget):
         self.table.horizontalHeader().setSectionResizeMode(
             1, QHeaderView.Stretch)
         self.table.cellDoubleClicked.connect(self._on_row_double_clicked)
-        root.addWidget(self.table, 1)
 
-        # 輸出模式
-        out_row = QHBoxLayout()
+        # ----- 設定側欄:操作模式 -----
+        mode_box = QVBoxLayout()
+        self.apply_mode_radio = QRadioButton("套用樣式")
+        self.apply_mode_radio.setChecked(True)
+        self.scale_mode_radio = QRadioButton("縮放字級")
+        mode_box.addWidget(self.apply_mode_radio)
+        mode_box.addWidget(self.scale_mode_radio)
+        self.scale_panel = ScalePanel()
+        self.scale_panel.setHidden(True)
+        mode_box.addWidget(self.scale_panel)
+        self.scale_mode_radio.toggled.connect(self._on_mode_changed)
+
+        self._mode_group = QButtonGroup(self)
+        self._mode_group.addButton(self.apply_mode_radio)
+        self._mode_group.addButton(self.scale_mode_radio)
+
+        # ----- 設定側欄:輸出 -----
+        out_box = QVBoxLayout()
         self.inplace_radio = QRadioButton("原地覆蓋(備份 .bak)")
         self.inplace_radio.setChecked(True)
-        self.outdir_radio = QRadioButton("輸出到資料夾:")
+        self.outdir_radio = QRadioButton("輸出到資料夾")
+        out_box.addWidget(self.inplace_radio)
+        out_box.addWidget(self.outdir_radio)
+        outdir_row = QHBoxLayout()
         self.outdir_edit = QLineEdit()
         out_browse = QPushButton("…")
+        out_browse.setMaximumWidth(32)
         out_browse.clicked.connect(self._browse_out)
-        out_row.addWidget(self.inplace_radio)
-        out_row.addWidget(self.outdir_radio)
-        out_row.addWidget(self.outdir_edit, 1)
-        out_row.addWidget(out_browse)
-        root.addLayout(out_row)
+        outdir_row.addWidget(self.outdir_edit, 1)
+        outdir_row.addWidget(out_browse)
+        out_box.addLayout(outdir_row)
 
         self._output_group = QButtonGroup(self)
         self._output_group.addButton(self.inplace_radio)
         self._output_group.addButton(self.outdir_radio)
 
-        action_row = QHBoxLayout()
+        self.splitter = main_splitter(
+            self.table,
+            settings_sidebar(group("操作模式", mode_box),
+                             group("輸出", out_box)))
+        root.addWidget(self.splitter, 1)
+
         self.scan_button = QPushButton("重新掃描")
         self.scan_button.clicked.connect(self._on_scan)
+        self.dry_run_button = QPushButton("試算預覽(不寫檔)")
+        self.dry_run_button.setEnabled(False)
+        self.dry_run_button.clicked.connect(self._on_dry_run)
+        self.open_out_button = QPushButton("開啟輸出資料夾")
+        self.open_out_button.clicked.connect(self._open_output)
         self.run_button = QPushButton("開始套用樣式")
         self.run_button.setProperty("accent", True)
         self.run_button.setEnabled(False)
@@ -110,18 +119,9 @@ class SubtitleFileTab(QWidget):
         self.cancel_button = QPushButton("取消")
         self.cancel_button.setEnabled(False)
         self.cancel_button.clicked.connect(self._on_cancel)
-        self.open_out_button = QPushButton("開啟輸出資料夾")
-        self.open_out_button.clicked.connect(self._open_output)
-        action_row.addWidget(self.scan_button)
-        action_row.addWidget(self.run_button)
-        self.dry_run_button = QPushButton("試算預覽(不寫檔)")
-        self.dry_run_button.setEnabled(False)
-        self.dry_run_button.clicked.connect(self._on_dry_run)
-        action_row.addWidget(self.dry_run_button)
-        action_row.addWidget(self.cancel_button)
-        action_row.addWidget(self.open_out_button)
-        action_row.addStretch(1)
-        root.addLayout(action_row)
+        root.addLayout(action_row(
+            [self.scan_button, self.dry_run_button, self.open_out_button],
+            [self.run_button, self.cancel_button]))
 
         self.progress = QProgressBar()
         root.addWidget(self.progress)
@@ -329,6 +329,7 @@ class SubtitleFileTab(QWidget):
             "subtitle/output_mode",
             "outdir" if self.outdir_radio.isChecked() else "inplace")
         settings.setValue("subtitle/outdir", self.outdir_edit.text())
+        settings.setValue("subtitle/splitter", self.splitter.saveState())
 
     def restore_settings(self, settings: QSettings) -> None:
         self.folder_edit.setText(settings.value("subtitle/folder", ""))
@@ -337,6 +338,9 @@ class SubtitleFileTab(QWidget):
             self.outdir_radio.setChecked(True)
         else:
             self.inplace_radio.setChecked(True)
+        state = settings.value("subtitle/splitter")
+        if state is not None:
+            self.splitter.restoreState(state)
 
     # ---------- 開啟輸出資料夾 ----------
     def _open_output(self) -> None:

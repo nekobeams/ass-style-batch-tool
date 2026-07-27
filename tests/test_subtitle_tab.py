@@ -240,3 +240,36 @@ def test_run_button_tagged_accent(qapp):
     from ass_style_tool.qt.subtitle_tab import SubtitleFileTab
     tab = SubtitleFileTab(lambda: profile_from_values(DEFAULT_VALUES))
     assert tab.run_button.property("accent") is True
+
+
+def test_settings_live_in_the_sidebar_not_under_the_table(qapp):
+    """方案 C:設定控件在分隔器右側的側欄裡,不再堆在表格下方搶垂直空間。"""
+    from ass_style_tool.qt.subtitle_tab import SubtitleFileTab
+    from ass_style_tool.profile_fields import DEFAULT_VALUES, profile_from_values
+    tab = SubtitleFileTab(lambda: profile_from_values(DEFAULT_VALUES))
+    assert tab.splitter.widget(0) is tab.table
+    sidebar = tab.splitter.widget(1)
+    for widget in (tab.apply_mode_radio, tab.scale_mode_radio, tab.scale_panel,
+                   tab.inplace_radio, tab.outdir_radio, tab.outdir_edit):
+        assert sidebar.isAncestorOf(widget), f"{widget} 不在設定側欄裡"
+
+
+def test_save_settings_records_splitter_state(qapp, tmp_path):
+    from PySide6.QtCore import QSettings
+    from ass_style_tool.qt.subtitle_tab import SubtitleFileTab
+    from ass_style_tool.profile_fields import DEFAULT_VALUES, profile_from_values
+    settings = QSettings(str(tmp_path / "t.ini"), QSettings.Format.IniFormat)
+    tab = SubtitleFileTab(lambda: profile_from_values(DEFAULT_VALUES))
+    tab.save_settings(settings)
+    assert settings.value("subtitle/splitter") is not None
+
+
+def test_restore_settings_without_saved_splitter_is_safe(qapp, tmp_path):
+    """沒存過分隔器狀態時不得把 None 丟給 restoreState。"""
+    from PySide6.QtCore import QSettings
+    from ass_style_tool.qt.subtitle_tab import SubtitleFileTab
+    from ass_style_tool.profile_fields import DEFAULT_VALUES, profile_from_values
+    settings = QSettings(str(tmp_path / "empty.ini"), QSettings.Format.IniFormat)
+    tab = SubtitleFileTab(lambda: profile_from_values(DEFAULT_VALUES))
+    tab.restore_settings(settings)      # 不可拋例外
+    assert tab.splitter.count() == 2
