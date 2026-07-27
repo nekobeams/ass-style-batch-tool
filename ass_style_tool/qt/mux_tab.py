@@ -21,6 +21,8 @@ from ..scale_engine import ScaleError
 from ..tools import mkvextract_path, mkvmerge_path
 from ..track_edit import TrackEdit
 from .batch_worker import MuxScanWorker, MuxWorker, TrackScanWorker
+from .layout_helpers import (action_row, group, main_splitter, page_layout,
+                             settings_sidebar)
 from .modify_tracks_dialog import ModifyTracksDialog
 from .scale_panel import ScalePanel
 from .scan_progress_dialog import ScanProgressDialog
@@ -60,11 +62,11 @@ class MuxTab(QWidget):
         self._tools = (MkvTools(mkvmerge, mkvextract)
                        if self.tools_available else None)
 
-        root = QVBoxLayout(self)
+        root = page_layout(self)
         if not self.tools_available:
             warn = QLabel("⚠ 找不到 mkvmerge:請安裝 MKVToolNix 後重新啟動"
                           "(封裝功能已停用)")
-            warn.setStyleSheet("color: #d08a00;")
+            warn.setStyleSheet("QLabel { color: #d08a00; }")
             root.addWidget(warn)
 
         vrow = QHBoxLayout()
@@ -94,72 +96,86 @@ class MuxTab(QWidget):
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
         self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
-        root.addWidget(self.table, 1)
 
-        # 軌資訊
-        meta_row = QHBoxLayout()
-        meta_row.addWidget(QLabel("語言:"))
-        self.language_combo = QComboBox()
-        for label, code in _LANGUAGES:
-            self.language_combo.addItem(f"{label} ({code})", code)
-        meta_row.addWidget(self.language_combo)
-        meta_row.addWidget(QLabel("軌名:"))
-        self.trackname_edit = QLineEdit()
-        meta_row.addWidget(self.trackname_edit, 1)
-        self.default_check = QCheckBox("預設軌")
-        self.forced_check = QCheckBox("強制軌")
-        meta_row.addWidget(self.default_check)
-        meta_row.addWidget(self.forced_check)
-        root.addLayout(meta_row)
-
-        # 封裝前處理
-        op_row = QHBoxLayout()
-        op_row.addWidget(QLabel("封裝前:"))
+        # ----- 側欄:封裝前處理 -----
+        pre_box = QVBoxLayout()
         self.direct_mode_radio = QRadioButton("原字幕直接封")
         self.direct_mode_radio.setChecked(True)
         self.apply_mode_radio = QRadioButton("先套用目前樣式")
         self.scale_mode_radio = QRadioButton("先縮放字級")
-        op_row.addWidget(self.direct_mode_radio)
-        op_row.addWidget(self.apply_mode_radio)
-        op_row.addWidget(self.scale_mode_radio)
-        op_row.addStretch(1)
-        root.addLayout(op_row)
-
-        self._preprocess_group = QButtonGroup(self)
-        self._preprocess_group.addButton(self.direct_mode_radio)
-        self._preprocess_group.addButton(self.apply_mode_radio)
-        self._preprocess_group.addButton(self.scale_mode_radio)
-
+        for radio in (self.direct_mode_radio, self.apply_mode_radio,
+                      self.scale_mode_radio):
+            pre_box.addWidget(radio)
         self.scale_panel = ScalePanel()
         self.scale_panel.setHidden(True)
-        root.addWidget(self.scale_panel)
+        pre_box.addWidget(self.scale_panel)
         self.scale_mode_radio.toggled.connect(
             lambda on: self.scale_panel.setHidden(not on))
 
-        # 輸出模式
-        out_row = QHBoxLayout()
-        self.outdir_radio = QRadioButton("輸出到資料夾:")
+        self._preprocess_group = QButtonGroup(self)
+        for radio in (self.direct_mode_radio, self.apply_mode_radio,
+                      self.scale_mode_radio):
+            self._preprocess_group.addButton(radio)
+
+        # ----- 側欄:新字幕軌 -----
+        meta_box = QVBoxLayout()
+        lang_row = QHBoxLayout()
+        lang_row.addWidget(QLabel("語言"))
+        self.language_combo = QComboBox()
+        for label, code in _LANGUAGES:
+            self.language_combo.addItem(f"{label} ({code})", code)
+        lang_row.addWidget(self.language_combo, 1)
+        meta_box.addLayout(lang_row)
+        name_row = QHBoxLayout()
+        name_row.addWidget(QLabel("軌名"))
+        self.trackname_edit = QLineEdit()
+        name_row.addWidget(self.trackname_edit, 1)
+        meta_box.addLayout(name_row)
+        flag_row = QHBoxLayout()
+        self.default_check = QCheckBox("預設軌")
+        self.forced_check = QCheckBox("強制軌")
+        flag_row.addWidget(self.default_check)
+        flag_row.addWidget(self.forced_check)
+        flag_row.addStretch(1)
+        meta_box.addLayout(flag_row)
+
+        # ----- 側欄:既有軌道 -----
+        old_box = QVBoxLayout()
+        self.modify_tracks_button = QPushButton("修改既有軌道…")
+        self.modify_tracks_button.setEnabled(False)
+        self.modify_tracks_button.clicked.connect(self._on_modify_tracks)
+        old_box.addWidget(self.modify_tracks_button)
+
+        # ----- 側欄:輸出 -----
+        out_box = QVBoxLayout()
+        self.outdir_radio = QRadioButton("輸出到資料夾")
         self.outdir_radio.setChecked(True)
+        out_box.addWidget(self.outdir_radio)
+        outdir_row = QHBoxLayout()
         self.outdir_edit = QLineEdit()
         out_browse = QPushButton("…")
+        out_browse.setMaximumWidth(32)
         out_browse.clicked.connect(self._browse_out)
+        outdir_row.addWidget(self.outdir_edit, 1)
+        outdir_row.addWidget(out_browse)
+        out_box.addLayout(outdir_row)
         self.replace_radio = QRadioButton("取代原影片(驗證後覆蓋)")
-        out_row.addWidget(self.outdir_radio)
-        out_row.addWidget(self.outdir_edit, 1)
-        out_row.addWidget(out_browse)
-        out_row.addWidget(self.replace_radio)
-        root.addLayout(out_row)
+        out_box.addWidget(self.replace_radio)
 
         self._output_group = QButtonGroup(self)
         self._output_group.addButton(self.outdir_radio)
         self._output_group.addButton(self.replace_radio)
 
-        action_row = QHBoxLayout()
+        self.splitter = main_splitter(
+            self.table,
+            settings_sidebar(group("封裝前處理", pre_box),
+                             group("新字幕軌", meta_box),
+                             group("既有軌道", old_box),
+                             group("輸出", out_box)))
+        root.addWidget(self.splitter, 1)
+
         self.scan_button = QPushButton("重新掃描")
         self.scan_button.clicked.connect(self._on_scan)
-        self.modify_tracks_button = QPushButton("修改既有軌道…")
-        self.modify_tracks_button.setEnabled(False)
-        self.modify_tracks_button.clicked.connect(self._on_modify_tracks)
         self.run_button = QPushButton("開始封裝")
         self.run_button.setProperty("accent", True)
         self.run_button.setEnabled(False)
@@ -167,11 +183,8 @@ class MuxTab(QWidget):
         self.cancel_button = QPushButton("取消")
         self.cancel_button.setEnabled(False)
         self.cancel_button.clicked.connect(self._on_cancel)
-        for b in (self.scan_button, self.modify_tracks_button,
-                  self.run_button, self.cancel_button):
-            action_row.addWidget(b)
-        action_row.addStretch(1)
-        root.addLayout(action_row)
+        root.addLayout(action_row([self.scan_button],
+                                  [self.run_button, self.cancel_button]))
 
         prow = QHBoxLayout()
         self.progress = QProgressBar()
@@ -533,6 +546,7 @@ class MuxTab(QWidget):
             "mux/output_mode",
             "replace" if self.replace_radio.isChecked() else "outdir")
         settings.setValue("mux/outdir", self.outdir_edit.text())
+        settings.setValue("mux/splitter", self.splitter.saveState())
 
     def restore_settings(self, settings: QSettings) -> None:
         self.video_edit.setText(settings.value("mux/video_folder", ""))
@@ -542,3 +556,6 @@ class MuxTab(QWidget):
             self.replace_radio.setChecked(True)
         else:
             self.outdir_radio.setChecked(True)
+        state = settings.value("mux/splitter")
+        if state is not None:
+            self.splitter.restoreState(state)

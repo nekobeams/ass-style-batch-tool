@@ -455,3 +455,35 @@ def test_scan_dialog_cancel_genuinely_stops_the_scan(qapp, monkeypatch):
         if tab._track_scan_thread is not None:
             tab._track_scan_thread.quit()
             tab._track_scan_thread.wait(2000)
+
+
+# ---------- 方案 C:設定側欄 ----------
+
+def test_settings_live_in_the_sidebar_not_under_the_table(qapp, monkeypatch):
+    """方案 C:封裝分頁原本 9 條裸露橫列把表格擠成兩三列高,設定改進側欄。"""
+    tab = _tab(monkeypatch)
+    assert tab.splitter.widget(0) is tab.table
+    sidebar = tab.splitter.widget(1)
+    for widget in (tab.direct_mode_radio, tab.apply_mode_radio,
+                   tab.scale_mode_radio, tab.scale_panel,
+                   tab.language_combo, tab.trackname_edit,
+                   tab.default_check, tab.forced_check,
+                   tab.modify_tracks_button,
+                   tab.outdir_radio, tab.outdir_edit, tab.replace_radio):
+        assert sidebar.isAncestorOf(widget), f"{widget} 不在設定側欄裡"
+
+
+def test_save_settings_records_splitter_state(qapp, monkeypatch, tmp_path):
+    from PySide6.QtCore import QSettings
+    settings = QSettings(str(tmp_path / "t.ini"), QSettings.Format.IniFormat)
+    tab = _tab(monkeypatch)
+    tab.save_settings(settings)
+    assert settings.value("mux/splitter") is not None
+
+
+def test_restore_settings_without_saved_splitter_is_safe(qapp, monkeypatch, tmp_path):
+    from PySide6.QtCore import QSettings
+    settings = QSettings(str(tmp_path / "empty.ini"), QSettings.Format.IniFormat)
+    tab = _tab(monkeypatch)
+    tab.restore_settings(settings)      # 不可拋例外
+    assert tab.splitter.count() == 2
