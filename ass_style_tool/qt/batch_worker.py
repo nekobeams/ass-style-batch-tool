@@ -134,20 +134,20 @@ class ScaleWorker(QObject):
         self.finished.emit(ok, 0, error)
 
 
-class MkvScanWorker(QObject):
-    """列舉指定 MKV 清單各檔的 ASS 字幕軌;支援進度回報與取消。
+class _TrackListWorker(QObject):
+    """列舉指定清單各檔的軌道資訊;支援進度回報與取消。
 
-    吃檔案清單而非資料夾:MKV 分頁的資料夾掃描已經改成只列檔名、不跑
-    外部程序,mkvmerge -J 只在使用者真的要選軌(或按下開始處理而尚未
-    設定規則)時才跑。形狀刻意與 TrackScanWorker 一致。
+    `MkvScanWorker` 與 `TrackScanWorker` 共用的基底類別:兩者的差異只在
+    預設的 `list_fn`(以及各自的公開文件字串),`__init__`/`cancel`/`run`
+    的行為完全一致,故抽出這裡,避免日後(例如新增單檔錯誤 signal)要
+    手動同步改兩份。
     """
 
-    finished = Signal(object)      # dict[Path, list[SubtitleTrack]]
+    finished = Signal(object)      # dict[Path, list[...]]
     progress = Signal(int, int)    # 已完成, 總數
     cancelled = Signal()           # 使用者取消(部分結果丟棄)
 
-    def __init__(self, paths, mkvmerge: Path,
-                 list_fn=list_ass_tracks) -> None:
+    def __init__(self, paths, mkvmerge: Path, list_fn) -> None:
         super().__init__()
         self._paths = [Path(p) for p in paths]
         self._mkvmerge = mkvmerge
@@ -171,36 +171,28 @@ class MkvScanWorker(QObject):
         self.finished.emit(result)
 
 
-class TrackScanWorker(QObject):
-    """掃描指定的影片清單,列舉每檔的所有軌道;支援進度回報與取消。"""
+class MkvScanWorker(_TrackListWorker):
+    """列舉指定 MKV 清單各檔的 ASS 字幕軌;支援進度回報與取消。
 
-    finished = Signal(object)      # dict[Path, list[MediaTrack]]
-    progress = Signal(int, int)    # 已完成, 總數
-    cancelled = Signal()           # 使用者取消(部分結果丟棄)
+    吃檔案清單而非資料夾:MKV 分頁的資料夾掃描已經改成只列檔名、不跑
+    外部程序,mkvmerge -J 只在使用者真的要選軌(或按下開始處理而尚未
+    設定規則)時才跑。實際行為由 `_TrackListWorker` 提供。
+    """
+
+    def __init__(self, paths, mkvmerge: Path,
+                 list_fn=list_ass_tracks) -> None:
+        super().__init__(paths, mkvmerge, list_fn)
+
+
+class TrackScanWorker(_TrackListWorker):
+    """掃描指定的影片清單,列舉每檔的所有軌道;支援進度回報與取消。
+
+    實際行為由 `_TrackListWorker` 提供。
+    """
 
     def __init__(self, video_paths, mkvmerge: Path,
                  list_fn=list_all_tracks) -> None:
-        super().__init__()
-        self._paths = [Path(p) for p in video_paths]
-        self._mkvmerge = mkvmerge
-        self._list_fn = list_fn
-        self._cancelled = False
-
-    def cancel(self) -> None:
-        self._cancelled = True
-
-    def run(self) -> None:
-        total = len(self._paths)
-        result = {}
-        self.progress.emit(0, total)  # 先讓對話框切到確定範圍,不是等第一檔跑完才有反應
-        for i, path in enumerate(self._paths, start=1):
-            # 檢查點在每個檔案之前;執行中的那一次 list_fn 會先跑完
-            if self._cancelled:
-                self.cancelled.emit()   # 丟棄 result,不發 finished
-                return
-            result[path] = self._list_fn(path, self._mkvmerge)
-            self.progress.emit(i, total)
-        self.finished.emit(result)
+        super().__init__(video_paths, mkvmerge, list_fn)
 
 
 class MkvWorker(QObject):
