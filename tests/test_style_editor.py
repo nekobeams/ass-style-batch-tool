@@ -194,6 +194,15 @@ def test_style_editor_wraps_content_in_scrollarea_with_readout(qapp):
     assert isinstance(editor.readout_view, ReadoutView)    # 底部有讀出元件
 
 
+def test_font_warning_stylesheet_uses_typed_selector(qapp):
+    """未加型別選擇器的 setStyleSheet 會往下級聯,曾經把 dark 模式下拉選單
+    的對比度從 13.36:1 拖垮到 1.25:1。font_warning 必須用 "QLabel { ... }"
+    包住規則,而不是裸的 "color: ...;"。"""
+    from ass_style_tool.qt.style_editor import StyleEditor
+    editor = StyleEditor()
+    assert editor.font_warning.styleSheet().strip().startswith("QLabel")
+
+
 def test_style_editor_readout_view_renders(qapp):
     from ass_style_tool.qt.style_editor import StyleEditor
     from ass_style_tool.preview_readout import OriginalValues, build_readout

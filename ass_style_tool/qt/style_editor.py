@@ -109,7 +109,7 @@ class StyleEditor(QWidget):
 
         # 字型未安裝警告(接在字型欄位之後顯示)
         self.font_warning = QLabel("⚠ 系統未安裝此字型,播放器會改用預設字型")
-        self.font_warning.setStyleSheet("color: #d08a00;")
+        self.font_warning.setStyleSheet("QLabel { color: #d08a00; }")
         self.font_warning.setVisible(False)
         form.addRow("", self.font_warning)
 
