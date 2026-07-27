@@ -44,13 +44,26 @@ def test_no_episode_returns_none():
 
 def test_find_files(tmp_path):
     (tmp_path / "a [01].ass").write_text("x", encoding="utf-8")
-    (tmp_path / "sub" ).mkdir()
-    (tmp_path / "sub" / "b [02].ssa").write_text("x", encoding="utf-8")
+    (tmp_path / "b [02].ssa").write_text("x", encoding="utf-8")
     (tmp_path / "v [01].mkv").write_bytes(b"")
     (tmp_path / "note.txt").write_text("x", encoding="utf-8")
     subs, videos = find_files(tmp_path)
     assert [p.name for p in subs] == ["a [01].ass", "b [02].ssa"]
     assert [p.name for p in videos] == ["v [01].mkv"]
+
+
+def test_find_files_ignores_subfolders(tmp_path):
+    """選資料夾固定只掃當層:子資料夾的字幕與影片一律不納入。
+
+    使用者明確決定不加「包含子資料夾」勾選框(畫面已經太擠)。
+    """
+    (tmp_path / "a [01].ass").write_text("x", encoding="utf-8")
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "sub" / "b [02].ssa").write_text("x", encoding="utf-8")
+    (tmp_path / "sub" / "v [02].mkv").write_bytes(b"")
+    subs, videos = find_files(tmp_path)
+    assert [p.name for p in subs] == ["a [01].ass"]
+    assert videos == []
 
 
 def _paths(*names: str) -> list[Path]:

@@ -51,9 +51,14 @@ class MatchResult:
 
 
 def find_files(folder: Path) -> Tuple[List[Path], List[Path]]:
+    """列出資料夾**當層**的字幕檔與影片檔(不進子資料夾)。
+
+    刻意不遞迴:整季素材放同一層是常態,而遞迴會把不相干的子資料夾一起
+    掃進來,還讓「不同子資料夾同名影片」在以檔名當 key 的面板裡撞在一起。
+    """
     subs: List[Path] = []
     videos: List[Path] = []
-    for path in sorted(Path(folder).rglob("*")):
+    for path in sorted(Path(folder).glob("*")):
         if not path.is_file():
             continue
         ext = path.suffix.lower()
