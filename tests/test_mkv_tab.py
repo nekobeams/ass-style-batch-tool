@@ -145,14 +145,20 @@ def test_open_select_dialog_applies_the_chosen_keys(qapp, monkeypatch):
 def test_reopening_dialog_preserves_keys_the_new_template_cannot_show(qapp, monkeypatch):
     """回歸(最終審查抓到的真實 bug):換範本檔(取消勾選某檔)後重開對話框,
     對話框只能顯示/切換新範本檔本身有的鍵——舊規則裡新範本檔沒有的鍵,
-    對話框無從呈現,絕不能因為重開一次就被靜默清掉。"""
+    對話框無從呈現,絕不能因為重開一次就被靜默清掉。
+
+    同時驗證:新範本檔 CAN 顯示但使用者這次未選的鍵,必須被清掉(不能只因為
+    它以前在 _track_keys 裡就保留)。"""
     tab = _tab(monkeypatch)
     tab.populate(FILES)
     tab._files_tracks = dict(TRACKS)
-    # e1(範本檔,繁中/简中)先被取消勾選;e2(简中/繁中)變成新範本檔,
-    # 沒有任何一種 TRACKS 以外的鍵——用一個 e2 完全沒有的鍵驗證保留。
+    # e1(範本檔,繁中/简中)先被取消勾選;e2(简中/繁中)變成新範本檔。
     tab.file_table.item(0, 0).setCheckState(__import__("PySide6.QtCore", fromlist=["Qt"]).Qt.CheckState.Unchecked)
-    tab._track_keys = {("chi", "简中"), ("jpn", "")}   # ("jpn","") 不存在於任何 TRACKS 檔案,模擬「新範本檔完全沒有的鍵」
+    # 初始規則:三個鍵
+    # - ("chi", "繁中"): e2 CAN 顯示,但使用者這次不勾 → 必須被清掉
+    # - ("chi", "简中"): e2 CAN 顯示,使用者會勾 → 保留
+    # - ("jpn", ""): e2 無法顯示 → 保留
+    tab._track_keys = {("chi", "繁中"), ("chi", "简中"), ("jpn", "")}
 
     class FakeDialog:
         def __init__(self, available, existing, parent):
@@ -162,12 +168,15 @@ def test_reopening_dialog_preserves_keys_the_new_template_cannot_show(qapp, monk
             return 1
 
         def get_keys(self):
-            # 使用者在對話框裡看到的只有範本檔(e2)本身的鍵,勾了簡中
+            # 使用者在對話框裡看到的只有範本檔(e2)本身的鍵,只勾了簡中
             return {("chi", "简中")}
 
     monkeypatch.setattr("ass_style_tool.qt.mkv_tab.SelectTracksDialog", FakeDialog)
     tab._open_select_dialog()
-    # 範本檔能顯示的鍵(簡中)照使用者這次的選擇;範本檔顯示不出來的鍵(jpn)保留
+    # 驗證三個行為:
+    # 1. ("chi", "简中") 保留(使用者選了)
+    # 2. ("jpn", "") 保留(範本檔顯示不出來)
+    # 3. ("chi", "繁中") 被清掉(範本檔能顯示,但使用者沒選)
     assert tab._track_keys == {("chi", "简中"), ("jpn", "")}
 
 
