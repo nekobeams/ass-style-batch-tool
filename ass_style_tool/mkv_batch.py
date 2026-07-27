@@ -12,7 +12,7 @@ import subprocess
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Set, Tuple
+from typing import Callable, List, Optional, Tuple
 
 from .ass_style import apply_profile, load_subs, save_subs
 from .mkv_io import Replacement, SubtitleTrack, extract_track, remux
@@ -20,22 +20,11 @@ from .scale_engine import ScaleOptions, scale_file
 from .subprocess_utils import no_window_kwargs
 
 
-# ---------- 一鍵選整季同類型軌 ----------
+# ---------- 軌道比對鍵 ----------
 
 def track_key(track: SubtitleTrack) -> Tuple[str, str]:
     """同類型軌的比對鍵:(語言, 軌名)。"""
     return (track.language, track.track_name)
-
-
-def select_same_type(
-    reference: List[SubtitleTrack],
-    files_tracks: Dict[Path, List[SubtitleTrack]],
-) -> Dict[Path, Set[int]]:
-    keys = {track_key(t) for t in reference}
-    return {
-        path: {t.track_id for t in tracks if track_key(t) in keys}
-        for path, tracks in files_tracks.items()
-    }
 
 
 # ---------- 單軌轉換 ----------

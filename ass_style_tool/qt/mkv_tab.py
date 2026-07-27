@@ -1,27 +1,37 @@
-"""「MKV」分頁:掃描 MKV 字幕軌、勾選、一鍵選整季、批次重封裝、送進預覽。"""
+"""「MKV」分頁:列出資料夾內的 MKV、用規則選定要重新套樣式的舊字幕軌、批次重封裝。
+
+分頁主畫面只列檔案。「要對哪幾條舊字幕軌套樣式」由「修改既有軌道…」對話框
+控制:在範本檔上勾選,規則以 (語言, 軌名) 套用到整批影片。mkvmerge -J 只在
+真的需要軌道資訊時才跑(開對話框、或尚未設定規則就按開始處理),選資料夾
+本身不跑任何外部程序。
+"""
 from __future__ import annotations
 
 import tempfile
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Set, Tuple
 
 from PySide6.QtCore import Qt, QSettings, QThread, Signal
-from PySide6.QtWidgets import (QButtonGroup, QFileDialog, QHBoxLayout, QLabel,
-                               QLineEdit, QProgressBar, QPushButton,
-                               QRadioButton, QTreeWidget, QTreeWidgetItem,
-                               QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QAbstractItemView, QButtonGroup, QFileDialog,
+                               QHBoxLayout, QHeaderView, QLabel, QLineEdit,
+                               QProgressBar, QPushButton, QRadioButton,
+                               QTableWidget, QTableWidgetItem, QVBoxLayout,
+                               QWidget)
 
-from ..mkv_batch import MkvTools, select_same_type
+from ..mkv_batch import MkvTools, track_key
 from ..mkv_io import SubtitleTrack, extract_track
 from ..profile import Profile
 from ..scale_engine import ScaleError
 from ..tools import mkvextract_path, mkvmerge_path
+from ..track_select import TrackKey, resolve_tracks
 from .batch_worker import MkvScanWorker, MkvWorker
+from .layout_helpers import (action_row, group, main_splitter, page_layout,
+                             settings_sidebar)
 from .scale_panel import ScalePanel
 from .scan_progress_dialog import ScanProgressDialog
+from .select_tracks_dialog import SelectTracksDialog
 
-_ROLE_PATH = Qt.UserRole
-_ROLE_TRACK = Qt.UserRole + 1
+_HEADERS = ["MKV", "將套用的軌"]
 
 
 class MkvTab(QWidget):
@@ -31,7 +41,10 @@ class MkvTab(QWidget):
     def __init__(self, get_profile: Callable[[], Profile]) -> None:
         super().__init__()
         self._get_profile = get_profile
+        self._files: List[Path] = []
         self._files_tracks: Dict[Path, List[SubtitleTrack]] = {}
+        self._track_keys: Optional[Set[TrackKey]] = None  # None = 從未設定
+        self._pending_action: Optional[str] = None        # "dialog" | "run"
         self._thread: Optional[QThread] = None
         self._worker = None
         self._scan_thread: Optional[QThread] = None
@@ -48,12 +61,12 @@ class MkvTab(QWidget):
         self._tools = (MkvTools(mkvmerge, mkvextract)
                        if self.tools_available else None)
 
-        root = QVBoxLayout(self)
+        root = page_layout(self)
 
         if not self.tools_available:
             warn = QLabel("⚠ 找不到 mkvmerge/mkvextract:請安裝 MKVToolNix "
                           "後重新啟動(功能已停用,不影響其他分頁)")
-            warn.setStyleSheet("color: #d08a00;")
+            warn.setStyleSheet("QLabel { color: #d08a00; }")
             root.addWidget(warn)
 
         folder_row = QHBoxLayout()
@@ -67,58 +80,70 @@ class MkvTab(QWidget):
         folder_row.addWidget(browse)
         root.addLayout(folder_row)
 
-        self.tree = QTreeWidget()
-        self.tree.setAlternatingRowColors(True)
-        self.tree.setHeaderLabels(["MKV / 字幕軌", "語言", "軌名"])
-        self.tree.setColumnWidth(0, 420)
-        root.addWidget(self.tree, 1)
+        self.file_table = QTableWidget(0, len(_HEADERS))
+        self.file_table.setAlternatingRowColors(True)
+        self.file_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.file_table.setHorizontalHeaderLabels(_HEADERS)
+        self.file_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.file_table.verticalHeader().setVisible(False)
+        self.file_table.horizontalHeader().setSectionResizeMode(
+            0, QHeaderView.Stretch)
 
-        # 操作模式
-        mode_row = QHBoxLayout()
-        mode_row.addWidget(QLabel("操作模式:"))
+        # ----- 側欄:操作模式 -----
+        mode_box = QVBoxLayout()
         self.apply_mode_radio = QRadioButton("套用樣式")
         self.apply_mode_radio.setChecked(True)
         self.scale_mode_radio = QRadioButton("縮放字級")
-        mode_row.addWidget(self.apply_mode_radio)
-        mode_row.addWidget(self.scale_mode_radio)
-        mode_row.addStretch(1)
-        root.addLayout(mode_row)
+        mode_box.addWidget(self.apply_mode_radio)
+        mode_box.addWidget(self.scale_mode_radio)
+        self.scale_panel = ScalePanel()
+        self.scale_panel.setHidden(True)
+        mode_box.addWidget(self.scale_panel)
+        self.scale_mode_radio.toggled.connect(
+            lambda on: self.scale_panel.setHidden(not on))
 
         self._mode_group = QButtonGroup(self)
         self._mode_group.addButton(self.apply_mode_radio)
         self._mode_group.addButton(self.scale_mode_radio)
 
-        self.scale_panel = ScalePanel()
-        self.scale_panel.setHidden(True)
-        root.addWidget(self.scale_panel)
-        self.scale_mode_radio.toggled.connect(
-            lambda on: self.scale_panel.setHidden(not on))
+        # ----- 側欄:字幕軌 -----
+        track_box = QVBoxLayout()
+        self.modify_tracks_button = QPushButton("修改既有軌道…")
+        self.modify_tracks_button.clicked.connect(self._on_modify_tracks)
+        track_box.addWidget(self.modify_tracks_button)
+        self.preview_button = QPushButton("送進預覽")
+        self.preview_button.clicked.connect(self._on_send_preview)
+        track_box.addWidget(self.preview_button)
 
-        # 輸出模式
-        out_row = QHBoxLayout()
-        self.outdir_radio = QRadioButton("輸出到資料夾:")
+        # ----- 側欄:輸出 -----
+        out_box = QVBoxLayout()
+        self.outdir_radio = QRadioButton("輸出到資料夾")
         self.outdir_radio.setChecked(True)
+        out_box.addWidget(self.outdir_radio)
+        outdir_row = QHBoxLayout()
         self.outdir_edit = QLineEdit()
         out_browse = QPushButton("…")
+        out_browse.setMaximumWidth(32)
         out_browse.clicked.connect(self._browse_out)
+        outdir_row.addWidget(self.outdir_edit, 1)
+        outdir_row.addWidget(out_browse)
+        out_box.addLayout(outdir_row)
         self.replace_radio = QRadioButton("取代原檔(驗證後覆蓋,不留備份)")
-        out_row.addWidget(self.outdir_radio)
-        out_row.addWidget(self.outdir_edit, 1)
-        out_row.addWidget(out_browse)
-        out_row.addWidget(self.replace_radio)
-        root.addLayout(out_row)
+        out_box.addWidget(self.replace_radio)
 
         self._output_group = QButtonGroup(self)
         self._output_group.addButton(self.outdir_radio)
         self._output_group.addButton(self.replace_radio)
 
-        action_row = QHBoxLayout()
+        self.splitter = main_splitter(
+            self.file_table,
+            settings_sidebar(group("操作模式", mode_box),
+                             group("字幕軌", track_box),
+                             group("輸出", out_box)))
+        root.addWidget(self.splitter, 1)
+
         self.scan_button = QPushButton("重新掃描")
         self.scan_button.clicked.connect(self._on_scan)
-        self.same_type_button = QPushButton("一鍵選整季同類型軌")
-        self.same_type_button.clicked.connect(self._on_same_type)
-        self.preview_button = QPushButton("送進預覽")
-        self.preview_button.clicked.connect(self._on_send_preview)
         self.run_button = QPushButton("開始處理")
         self.run_button.setProperty("accent", True)
         self.run_button.setEnabled(False)
@@ -126,11 +151,8 @@ class MkvTab(QWidget):
         self.cancel_button = QPushButton("取消")
         self.cancel_button.setEnabled(False)
         self.cancel_button.clicked.connect(self._on_cancel)
-        for b in (self.scan_button, self.same_type_button,
-                  self.preview_button, self.run_button, self.cancel_button):
-            action_row.addWidget(b)
-        action_row.addStretch(1)
-        root.addLayout(action_row)
+        root.addLayout(action_row([self.scan_button],
+                                  [self.run_button, self.cancel_button]))
 
         progress_row = QHBoxLayout()
         self.progress = QProgressBar()          # 整批
@@ -143,7 +165,7 @@ class MkvTab(QWidget):
         root.addLayout(progress_row)
 
         if not self.tools_available:
-            for b in (self.scan_button, self.same_type_button,
+            for b in (self.scan_button, self.modify_tracks_button,
                       self.preview_button, self.run_button):
                 b.setEnabled(False)
 
@@ -187,7 +209,7 @@ class MkvTab(QWidget):
             self.outdir_edit.setText(path)
             self.outdir_radio.setChecked(True)
 
-    # ---------- 掃描 ----------
+    # ---------- 列檔(同步,不跑外部程序) ----------
     def _on_scan(self) -> None:
         if self._thread is not None:
             self.log.emit("批次處理進行中,請稍後再掃描")
@@ -197,16 +219,95 @@ class MkvTab(QWidget):
             self.log.emit("請先選擇有效的資料夾")
             return
         self._scanned_folder = folder
+        # 只掃當層。掃到軌道資訊要等使用者按「修改既有軌道…」或直接開始處理。
+        files = sorted(p for p in Path(folder).glob("*.mkv") if p.is_file())
+        self._files_tracks = {}
+        self._apply_keys(None)
+        self.populate(files)
+        self.log.emit(f"找到 {len(files)} 個 MKV")
+
+    def populate(self, files: List[Path]) -> None:
+        self._files = list(files)
+        self.file_table.setRowCount(len(self._files))
+        for row, path in enumerate(self._files):
+            name = QTableWidgetItem(path.name)
+            name.setFlags(name.flags() | Qt.ItemIsUserCheckable)
+            name.setCheckState(Qt.CheckState.Checked)
+            self.file_table.setItem(row, 0, name)
+            self.file_table.setItem(row, 1, QTableWidgetItem(""))
+        self._refresh_track_column()
+        if self._thread is None:
+            self.run_button.setEnabled(bool(self._files)
+                                       and self.tools_available)
+
+    def checked_files(self) -> List[Path]:
+        return [path for row, path in enumerate(self._files)
+                if self.file_table.item(row, 0).checkState()
+                == Qt.CheckState.Checked]
+
+    # ---------- 規則 ----------
+    def _apply_keys(self, keys: Optional[Set[TrackKey]]) -> None:
+        """設定(或清除)規則,並同步按鈕文字與清單的「將套用的軌」欄。"""
+        self._track_keys = keys
+        self.modify_tracks_button.setText(
+            "修改既有軌道…" if keys is None
+            else f"修改既有軌道…(已選 {len(keys)} 條)")
+        self._refresh_track_column()
+
+    def _tracks_for(self, path: Path) -> Optional[List[SubtitleTrack]]:
+        """該檔依目前規則要套用的軌;尚未掃過軌時回 None。"""
+        tracks = self._files_tracks.get(path)
+        if tracks is None:
+            return None
+        if self._track_keys is None:
+            return list(tracks)
+        return [t for t in tracks if track_key(t) in self._track_keys]
+
+    def _refresh_track_column(self) -> None:
+        for row, path in enumerate(self._files):
+            picked = self._tracks_for(path)
+            if picked is None:
+                text = ""
+            elif not picked:
+                text = "✗ 無符合的軌"
+            elif len(picked) == 1:
+                text = f"✓ 軌 {picked[0].track_id}"
+            else:
+                text = "⚠ " + "、".join(f"軌 {t.track_id}" for t in picked)
+            item = self.file_table.item(row, 1)
+            if item is not None:
+                item.setText(text)
+
+    def current_jobs(self) -> List[Tuple[Path, List[SubtitleTrack]]]:
+        """已勾選檔案依目前規則解析出的 (檔案, 軌清單);無軌者不列入。"""
+        available = {p: self._files_tracks[p] for p in self.checked_files()
+                     if p in self._files_tracks}
+        if self._track_keys is None:
+            resolved = {p: list(ts) for p, ts in available.items() if ts}
+        else:
+            resolved = resolve_tracks(self._track_keys, available)
+        return sorted(resolved.items())
+
+    # ---------- 掃軌(唯一會跑 mkvmerge -J 的路徑) ----------
+    def _needs_track_scan(self) -> bool:
+        return any(p not in self._files_tracks for p in self.checked_files())
+
+    def _start_track_scan(self, pending: str) -> None:
+        if self._scan_thread is not None:
+            self.log.emit("軌道掃描進行中")
+            return
+        files = self.checked_files()
+        if not files:
+            self.log.emit("沒有勾選任何 MKV")
+            return
+        self._pending_action = pending
         self.scan_button.setEnabled(False)
-        self.run_button.setEnabled(False)
         self._scan_thread = QThread()
-        self._scan_worker = MkvScanWorker(
-            sorted(p for p in Path(folder).glob("*.mkv") if p.is_file()),
-            self._tools.mkvmerge)
+        self._scan_worker = MkvScanWorker(files, self._tools.mkvmerge)
         self._scan_worker.moveToThread(self._scan_thread)
         self._scan_thread.started.connect(self._scan_worker.run)
-        self._scan_worker.finished.connect(self._on_scan_done)
-        self._scan_worker.cancelled.connect(self._on_scan_cancelled)
+        self._scan_worker.finished.connect(self._on_track_scan_done)
+        self._scan_worker.cancelled.connect(self._on_track_scan_cancelled)
         self._scan_dialog = ScanProgressDialog(self)
         self._scan_worker.progress.connect(self._scan_dialog.set_progress)
         self._scan_dialog.cancelled.connect(self._request_scan_cancel)
@@ -218,7 +319,6 @@ class MkvTab(QWidget):
 
         worker 已 moveToThread,但該執行緒在 run() 執行期間不會跑事件迴圈,
         排隊的 cancel() 要等掃描結束才會被處理——等於完全沒有作用。
-        直接呼叫是本檔其他取消按鈕(以及 mux/subtitle 分頁)一貫的寫法。
         """
         if self._scan_worker is not None:
             self._scan_worker.cancel()
@@ -236,118 +336,77 @@ class MkvTab(QWidget):
         self._scan_worker = None
         self.scan_button.setEnabled(True)
 
-    def _on_scan_done(self, files_tracks: dict) -> None:
+    def _on_track_scan_done(self, files_tracks: dict) -> None:
         if self._closing:
             return
+        pending = self._pending_action
+        self._pending_action = None
         self._finish_scan()
-        self.populate(files_tracks)
-        total_tracks = sum(len(v) for v in files_tracks.values())
+        self._files_tracks.update(files_tracks)
+        self._refresh_track_column()
+        total = sum(len(v) for v in files_tracks.values())
         self.log.emit(f"掃描完成:{len(files_tracks)} 個 MKV,"
-                      f"共 {total_tracks} 條 ASS 字幕軌")
+                      f"共 {total} 條 ASS 字幕軌")
+        if pending == "dialog":
+            self._open_select_dialog()
+        elif pending == "run":
+            self._start_batch()
 
-    def _on_scan_cancelled(self) -> None:
+    def _on_track_scan_cancelled(self) -> None:
         if self._closing:
             return
+        # 取消 = 兩條路都不繼續:不開對話框、不啟動批次,已勾選的清單與
+        # 上次的規則都保持原狀。
+        self._pending_action = None
         self._finish_scan()
-        self._scanned_folder = None   # 取消 = 沒掃描過,允許同一資料夾重新觸發掃描
-        # 不呼叫 populate:保留上一次的結果與表格內容。
-        # 但仍要用與 populate 相同的條件恢復執行鈕,否則舊結果還在、
-        # 執行鈕卻永遠是灰的。
-        if self._thread is None:
-            self.run_button.setEnabled(
-                any(self._files_tracks.values()) and self.tools_available)
-        self.log.emit("掃描已取消")
+        self.log.emit("軌道掃描已取消")
 
-    def populate(self, files_tracks: Dict[Path, List[SubtitleTrack]]) -> None:
-        self._files_tracks = dict(files_tracks)
-        self.tree.clear()
-        for path in sorted(files_tracks):
-            top = QTreeWidgetItem([path.name, "", ""])
-            top.setData(0, _ROLE_PATH, path)
-            tracks = files_tracks[path]
-            if not tracks:
-                top.setText(2, "(無 ASS 字幕軌)")
-            for track in tracks:
-                child = QTreeWidgetItem(
-                    [f"軌 {track.track_id}", track.language,
-                     track.track_name or "-"])
-                child.setData(0, _ROLE_PATH, path)
-                child.setData(0, _ROLE_TRACK, track)
-                child.setFlags(child.flags() | Qt.ItemIsUserCheckable)
-                child.setCheckState(0, Qt.CheckState.Checked)
-                top.addChild(child)
-            self.tree.addTopLevelItem(top)
-        self.tree.expandAll()
-        if self._thread is None:
-            self.run_button.setEnabled(
-                any(files_tracks.values()) and self.tools_available)
+    # ---------- 選軌對話框 ----------
+    def _on_modify_tracks(self) -> None:
+        if self._needs_track_scan():
+            self._start_track_scan("dialog")
+            return
+        if not self.checked_files():
+            self.log.emit("沒有勾選任何 MKV")
+            return
+        self._open_select_dialog()
 
-    # ---------- 勾選 ----------
-    def _iter_track_items(self):
-        for i in range(self.tree.topLevelItemCount()):
-            top = self.tree.topLevelItem(i)
-            for j in range(top.childCount()):
-                yield top.child(j)
-
-    def checked_jobs(self) -> List[Tuple[Path, List[SubtitleTrack]]]:
-        grouped: Dict[Path, List[SubtitleTrack]] = {}
-        for item in self._iter_track_items():
-            if item.checkState(0) == Qt.CheckState.Checked:
-                path = item.data(0, _ROLE_PATH)
-                grouped.setdefault(path, []).append(item.data(0, _ROLE_TRACK))
-        return [(p, ts) for p, ts in grouped.items() if ts]
-
-    def current_track(self) -> Optional[Tuple[Path, SubtitleTrack]]:
-        item = self.tree.currentItem()
-        if item is None:
-            return None
-        track = item.data(0, _ROLE_TRACK)
-        if track is None:
-            return None
-        return item.data(0, _ROLE_PATH), track
-
-    def apply_same_type_from_current(self) -> int:
-        """以目前選取軌所屬檔案的勾選狀態為基準,套用到所有檔案。"""
-        current = self.current_track()
-        if current is None:
-            self.log.emit("請先在樹狀清單選取一條字幕軌作為基準")
-            return 0
-        base_path = current[0]
-        reference = [item.data(0, _ROLE_TRACK)
-                     for item in self._iter_track_items()
-                     if item.data(0, _ROLE_PATH) == base_path
-                     and item.checkState(0) == Qt.CheckState.Checked]
-        selected = select_same_type(reference, self._files_tracks)
-        updated = 0
-        for item in self._iter_track_items():
-            path = item.data(0, _ROLE_PATH)
-            if path == base_path:
-                continue
-            track = item.data(0, _ROLE_TRACK)
-            want = track.track_id in selected.get(path, set())
-            state = Qt.CheckState.Checked if want else Qt.CheckState.Unchecked
-            if item.checkState(0) != state:
-                item.setCheckState(0, state)
-                updated += 1
-        self.log.emit(f"已依基準檔同步 {updated} 條軌的勾選狀態")
-        return updated
-
-    def _on_same_type(self) -> None:
-        self.apply_same_type_from_current()
+    def _open_select_dialog(self) -> None:
+        available = {p: self._files_tracks[p] for p in self.checked_files()
+                     if p in self._files_tracks}
+        if not any(available.values()):
+            self.log.emit("所有勾選的 MKV 都讀不到 ASS 字幕軌")
+            return
+        dialog = SelectTracksDialog(available, self._track_keys, self)
+        if dialog.exec():
+            self._apply_keys(dialog.get_keys())
 
     # ---------- 送進預覽 ----------
+    def _current_file(self) -> Optional[Path]:
+        row = self.file_table.currentRow()
+        if 0 <= row < len(self._files):
+            return self._files[row]
+        return None
+
     def _on_send_preview(self) -> None:
-        current = self.current_track()
-        if current is None:
-            self.log.emit("請先選取一條字幕軌")
+        path = self._current_file()
+        if path is None:
+            self.log.emit("請先選取一個 MKV 檔")
             return
-        mkv_path, track = current
-        temp = self._preview_dir / f"{mkv_path.stem}_track{track.track_id}.ass"
-        if not extract_track(mkv_path, track.track_id, temp,
+        picked = self._tracks_for(path)
+        if picked is None:
+            self.log.emit("這個檔還沒掃過字幕軌,請先按「修改既有軌道…」")
+            return
+        if not picked:
+            self.log.emit("這個檔沒有符合目前選擇的字幕軌")
+            return
+        track = picked[0]
+        temp = self._preview_dir / f"{path.stem}_track{track.track_id}.ass"
+        if not extract_track(path, track.track_id, temp,
                              self._tools.mkvextract):
             self.log.emit(f"抽取軌 {track.track_id} 失敗,無法預覽")
             return
-        self.preview_requested.emit(temp, mkv_path)
+        self.preview_requested.emit(temp, path)
 
     # ---------- 執行 ----------
     def _output_dir(self) -> Optional[Path]:
@@ -360,7 +419,17 @@ class MkvTab(QWidget):
         if self._scan_thread is not None or self._thread is not None:
             self.log.emit("掃描或處理進行中,請稍候")
             return
-        jobs = self.checked_jobs()
+        if not self.checked_files():
+            self.log.emit("沒有勾選任何 MKV")
+            return
+        if self._needs_track_scan():
+            # 從沒開過對話框就直接按開始處理:先掃軌,掃完接著跑批次
+            self._start_track_scan("run")
+            return
+        self._start_batch()
+
+    def _start_batch(self) -> None:
+        jobs = self.current_jobs()
         if not jobs:
             self.log.emit("沒有勾選任何字幕軌")
             return
@@ -385,6 +454,7 @@ class MkvTab(QWidget):
         self.file_progress.setValue(0)
         self.scan_button.setEnabled(False)
         self.run_button.setEnabled(False)
+        self.modify_tracks_button.setEnabled(False)
         self.cancel_button.setEnabled(True)
 
         self._thread = QThread()
@@ -417,6 +487,7 @@ class MkvTab(QWidget):
         self._worker = None
         self.scan_button.setEnabled(True)
         self.run_button.setEnabled(True)
+        self.modify_tracks_button.setEnabled(self.tools_available)
         self.cancel_button.setEnabled(False)
 
     # ---------- 清理 ----------
@@ -432,8 +503,7 @@ class MkvTab(QWidget):
         # 沒有這行的話,取消/掃描完成時開出的模態 ScanProgressDialog 會留在
         # 畫面上、_scan_dialog 也留著沒清——套件化的 console=False 版本裡,
         # 主視窗關閉後 quitOnLastWindowClosed 因為這個還可見的對話框而永遠
-        # 不會成立,process 會卡著不退出(對照 MuxTab.shutdown() 已有的
-        # _finish_track_scan() 收尾)。
+        # 不會成立,process 會卡著不退出。
         self._finish_scan()
         import shutil
         shutil.rmtree(self._preview_dir, ignore_errors=True)
@@ -445,6 +515,7 @@ class MkvTab(QWidget):
             "mkv/output_mode",
             "replace" if self.replace_radio.isChecked() else "outdir")
         settings.setValue("mkv/outdir", self.outdir_edit.text())
+        settings.setValue("mkv/splitter", self.splitter.saveState())
 
     def restore_settings(self, settings: QSettings) -> None:
         self.folder_edit.setText(settings.value("mkv/folder", ""))
@@ -453,3 +524,6 @@ class MkvTab(QWidget):
             self.replace_radio.setChecked(True)
         else:
             self.outdir_radio.setChecked(True)
+        state = settings.value("mkv/splitter")
+        if state is not None:
+            self.splitter.restoreState(state)

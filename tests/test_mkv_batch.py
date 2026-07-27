@@ -6,8 +6,7 @@ import pysubs2
 
 from ass_style_tool.mkv_io import SubtitleTrack
 from ass_style_tool.mkv_batch import (MkvFileReport, MkvTools, process_mkv,
-                                      select_same_type, track_key,
-                                      transform_track_file)
+                                      track_key, transform_track_file)
 from ass_style_tool.scale_engine import ScaleOptions
 from tests.test_ass_style import SAMPLE_ASS
 from tests.test_profile import make_profile
@@ -23,25 +22,6 @@ def _track(tid, lang="chi", name="繁中"):
 
 def test_track_key():
     assert track_key(_track(2)) == ("chi", "繁中")
-
-
-def test_select_same_type_matches_by_lang_and_name():
-    reference = [_track(2, "chi", "繁中")]
-    files = {
-        Path("e1.mkv"): [_track(2, "chi", "繁中"), _track(3, "chi", "简中")],
-        Path("e2.mkv"): [_track(5, "chi", "简中"), _track(7, "chi", "繁中")],
-        Path("e3.mkv"): [_track(1, "jpn", "")],
-    }
-    result = select_same_type(reference, files)
-    assert result[Path("e1.mkv")] == {2}
-    assert result[Path("e2.mkv")] == {7}   # 依 key 而非軌號
-    assert result[Path("e3.mkv")] == set()
-
-
-def test_select_same_type_multiple_reference():
-    reference = [_track(2, "chi", "繁中"), _track(3, "chi", "简中")]
-    files = {Path("e1.mkv"): [_track(4, "chi", "简中"), _track(5, "chi", "繁中")]}
-    assert select_same_type(reference, files)[Path("e1.mkv")] == {4, 5}
 
 
 # ---------- transform_track_file ----------

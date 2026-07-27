@@ -18,57 +18,176 @@ def _tab(monkeypatch, available=True):
     return MkvTab(lambda: profile_from_values(DEFAULT_VALUES))
 
 
-FILES = {
+FILES = [Path("e1.mkv"), Path("e2.mkv"), Path("e3.mkv")]
+
+TRACKS = {
     Path("e1.mkv"): [_track(2, "chi", "繁中"), _track(3, "chi", "简中")],
     Path("e2.mkv"): [_track(5, "chi", "简中"), _track(7, "chi", "繁中")],
     Path("e3.mkv"): [],
 }
 
 
-def test_populate_builds_tree_all_checked(qapp, monkeypatch):
+# ---------- 主畫面只列檔案 ----------
+
+def test_populate_lists_files_all_checked(qapp, monkeypatch):
+    from PySide6.QtCore import Qt
     tab = _tab(monkeypatch)
     tab.populate(FILES)
-    assert tab.tree.topLevelItemCount() == 3
-    jobs = dict(tab.checked_jobs())
+    assert tab.file_table.rowCount() == 3
+    assert [tab.file_table.item(r, 0).text() for r in range(3)] == [
+        "e1.mkv", "e2.mkv", "e3.mkv"]
+    assert all(tab.file_table.item(r, 0).checkState() == Qt.CheckState.Checked
+               for r in range(3))
+    assert tab.checked_files() == FILES
+
+
+def test_track_column_is_blank_before_any_track_scan(qapp, monkeypatch):
+    tab = _tab(monkeypatch)
+    tab.populate(FILES)
+    assert [tab.file_table.item(r, 1).text() for r in range(3)] == ["", "", ""]
+
+
+def test_checked_files_respects_unchecking(qapp, monkeypatch):
+    from PySide6.QtCore import Qt
+    tab = _tab(monkeypatch)
+    tab.populate(FILES)
+    tab.file_table.item(1, 0).setCheckState(Qt.CheckState.Unchecked)
+    assert tab.checked_files() == [Path("e1.mkv"), Path("e3.mkv")]
+
+
+# ---------- 規則解析 ----------
+
+def test_jobs_use_every_ass_track_when_no_rule_was_set(qapp, monkeypatch):
+    """從未開過對話框 = 所有 ASS 字幕軌都套(維持舊的預設行為)。"""
+    tab = _tab(monkeypatch)
+    tab.populate(FILES)
+    tab._files_tracks = dict(TRACKS)
+    jobs = dict(tab.current_jobs())
     assert {t.track_id for t in jobs[Path("e1.mkv")]} == {2, 3}
     assert {t.track_id for t in jobs[Path("e2.mkv")]} == {5, 7}
-    assert Path("e3.mkv") not in jobs      # 無軌檔不成 job
+    assert Path("e3.mkv") not in jobs        # 無軌檔不成 job
 
 
-def test_checked_jobs_respects_unchecking(qapp, monkeypatch):
-    from PySide6.QtCore import Qt
+def test_jobs_follow_the_selected_rule_across_files(qapp, monkeypatch):
+    """規則依語言+軌名,不是軌 ID:e1 的繁中是軌 2,e2 的繁中是軌 7。"""
     tab = _tab(monkeypatch)
     tab.populate(FILES)
-    # 取消 e1 的第二軌(简中)
-    item = tab.tree.topLevelItem(0).child(1)
-    item.setCheckState(0, Qt.CheckState.Unchecked)
-    jobs = dict(tab.checked_jobs())
+    tab._files_tracks = dict(TRACKS)
+    tab._track_keys = {("chi", "繁中")}
+    jobs = dict(tab.current_jobs())
     assert {t.track_id for t in jobs[Path("e1.mkv")]} == {2}
+    assert {t.track_id for t in jobs[Path("e2.mkv")]} == {7}
 
 
-def test_apply_same_type_from_current(qapp, monkeypatch):
-    from PySide6.QtCore import Qt
+def test_track_column_shows_resolution_per_file(qapp, monkeypatch):
     tab = _tab(monkeypatch)
     tab.populate(FILES)
-    # 基準:e1 只勾「繁中」
-    tab.tree.topLevelItem(0).child(1).setCheckState(0, Qt.CheckState.Unchecked)
-    tab.tree.setCurrentItem(tab.tree.topLevelItem(0).child(0))
-    updated = tab.apply_same_type_from_current()
-    assert updated >= 1
-    jobs = dict(tab.checked_jobs())
-    assert {t.track_id for t in jobs[Path("e2.mkv")]} == {7}   # e2 的繁中
+    tab._files_tracks = dict(TRACKS)
+    tab._track_keys = {("chi", "繁中")}
+    tab._refresh_track_column()
+    assert tab.file_table.item(0, 1).text() == "✓ 軌 2"
+    assert tab.file_table.item(1, 1).text() == "✓ 軌 7"
+    assert tab.file_table.item(2, 1).text() == "✗ 無符合的軌"
 
 
-def test_current_track(qapp, monkeypatch):
+def test_track_column_flags_multiple_matches(qapp, monkeypatch):
+    tab = _tab(monkeypatch)
+    tab.populate([Path("e1.mkv")])
+    tab._files_tracks = {
+        Path("e1.mkv"): [_track(2, "und", ""), _track(3, "und", "")]}
+    tab._track_keys = {("und", "")}
+    tab._refresh_track_column()
+    assert tab.file_table.item(0, 1).text() == "⚠ 軌 2、軌 3"
+
+
+def test_rescan_clears_the_previous_rule(qapp, monkeypatch, tmp_path):
+    """換資料夾後舊規則必須失效——軌 ID 與軌組成都可能完全不同。"""
+    tab = _tab(monkeypatch)
+    (tmp_path / "a.mkv").write_bytes(b"")
+    tab._files_tracks = dict(TRACKS)
+    tab._track_keys = {("chi", "繁中")}
+    tab.folder_edit.setText(str(tmp_path))
+    tab._on_scan()
+    assert tab._track_keys is None
+    assert tab._files_tracks == {}
+    assert tab.modify_tracks_button.text() == "修改既有軌道…"
+
+
+def test_modify_button_shows_the_selected_count(qapp, monkeypatch):
+    tab = _tab(monkeypatch)
+    tab._apply_keys({("chi", "繁中"), ("chi", "简中")})
+    assert tab.modify_tracks_button.text() == "修改既有軌道…(已選 2 條)"
+
+
+# ---------- 掃描資料夾只列檔案,不跑外部程序 ----------
+
+def test_scan_lists_mkv_files_without_running_mkvmerge(qapp, monkeypatch, tmp_path):
+    """回歸:選資料夾不應該對每個檔跑一次 mkvmerge -J。"""
+    from ass_style_tool.qt import mkv_tab as mkv_tab_module
+    started = []
+    monkeypatch.setattr(mkv_tab_module, "MkvScanWorker",
+                        lambda *a, **k: started.append(1))
+    (tmp_path / "e1.mkv").write_bytes(b"")
+    (tmp_path / "e2.mkv").write_bytes(b"")
+    (tmp_path / "note.txt").write_text("x")
+    tab = _tab(monkeypatch)
+    tab.folder_edit.setText(str(tmp_path))
+    tab._on_scan()
+    assert started == []
+    assert tab.file_table.rowCount() == 2
+
+
+def test_scan_ignores_subfolders(qapp, monkeypatch, tmp_path):
+    (tmp_path / "e1.mkv").write_bytes(b"")
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "sub" / "e2.mkv").write_bytes(b"")
+    tab = _tab(monkeypatch)
+    tab.folder_edit.setText(str(tmp_path))
+    tab._on_scan()
+    assert [tab.file_table.item(r, 0).text()
+            for r in range(tab.file_table.rowCount())] == ["e1.mkv"]
+
+
+# ---------- 掃軌完成後的分派 ----------
+
+def test_track_scan_done_opens_the_dialog(qapp, monkeypatch):
+    opened = []
     tab = _tab(monkeypatch)
     tab.populate(FILES)
-    tab.tree.setCurrentItem(tab.tree.topLevelItem(1).child(0))
-    path, track = tab.current_track()
-    assert path == Path("e2.mkv")
-    assert track.track_id == 5
-    tab.tree.setCurrentItem(tab.tree.topLevelItem(0))   # 檔案節點
-    assert tab.current_track() is None
+    monkeypatch.setattr(tab, "_open_select_dialog",
+                        lambda: opened.append(1))
+    tab._pending_action = "dialog"
+    tab._on_track_scan_done(TRACKS)
+    assert opened == [1]
+    assert tab._files_tracks == TRACKS
 
+
+def test_track_scan_done_starts_the_batch(qapp, monkeypatch):
+    started = []
+    tab = _tab(monkeypatch)
+    tab.populate(FILES)
+    monkeypatch.setattr(tab, "_start_batch", lambda: started.append(1))
+    tab._pending_action = "run"
+    tab._on_track_scan_done(TRACKS)
+    assert started == [1]
+
+
+def test_track_scan_cancelled_does_neither(qapp, monkeypatch):
+    from ass_style_tool.qt.scan_progress_dialog import ScanProgressDialog
+    calls = []
+    tab = _tab(monkeypatch)
+    tab.populate(FILES)
+    monkeypatch.setattr(tab, "_open_select_dialog", lambda: calls.append("d"))
+    monkeypatch.setattr(tab, "_start_batch", lambda: calls.append("r"))
+    tab._pending_action = "run"
+    tab._scan_dialog = ScanProgressDialog(tab)
+    tab._on_track_scan_cancelled()
+    assert calls == []
+    assert tab._scan_dialog is None
+    assert tab._pending_action is None
+
+
+# ---------- 既有控件與行為 ----------
 
 def test_mode_switch_toggles_scale_panel(qapp, monkeypatch):
     tab = _tab(monkeypatch)
@@ -82,6 +201,7 @@ def test_tools_missing_disables_controls(qapp, monkeypatch):
     assert tab.tools_available is False
     assert tab.scan_button.isEnabled() is False
     assert tab.run_button.isEnabled() is False
+    assert tab.modify_tracks_button.isEnabled() is False
 
 
 def test_run_button_enabled_after_populate(qapp, monkeypatch):
@@ -91,7 +211,27 @@ def test_run_button_enabled_after_populate(qapp, monkeypatch):
     assert tab.run_button.isEnabled() is True
 
 
-# ---------- 自動掃描(選資料夾即載入) ----------
+def test_radio_groups_do_not_interfere(qapp, monkeypatch):
+    tab = _tab(monkeypatch)
+    tab.scale_mode_radio.setChecked(True)
+    tab.replace_radio.setChecked(True)
+    assert tab.scale_mode_radio.isChecked() is True
+    tab.outdir_radio.setChecked(True)
+    assert tab.scale_mode_radio.isChecked() is True
+
+
+def test_file_table_has_alternating_rows(qapp, monkeypatch):
+    # QSS 的 alternate-background-color 只有在控件端開啟時才生效
+    tab = _tab(monkeypatch)
+    assert tab.file_table.alternatingRowColors() is True
+
+
+def test_run_button_tagged_accent(qapp, monkeypatch):
+    tab = _tab(monkeypatch)
+    assert tab.run_button.property("accent") is True
+
+
+# ---------- 自動掃描 ----------
 
 def test_auto_scan_triggers_on_folder_chosen(qapp, monkeypatch, tmp_path):
     tab = _tab(monkeypatch)
@@ -129,15 +269,16 @@ def test_auto_scan_skips_during_run(qapp, monkeypatch, tmp_path):
     assert calls == []
 
 
-# ---------- 各群組 RadioButton 互不干擾 ----------
+# ---------- 版面方案 C ----------
 
-def test_radio_groups_do_not_interfere(qapp, monkeypatch):
+def test_settings_live_in_the_sidebar_not_under_the_list(qapp, monkeypatch):
     tab = _tab(monkeypatch)
-    tab.scale_mode_radio.setChecked(True)
-    tab.replace_radio.setChecked(True)      # 點輸出模式(取代原檔)
-    assert tab.scale_mode_radio.isChecked() is True   # 操作模式不得被取消
-    tab.outdir_radio.setChecked(True)
-    assert tab.scale_mode_radio.isChecked() is True
+    assert tab.splitter.widget(0) is tab.file_table
+    sidebar = tab.splitter.widget(1)
+    for widget in (tab.apply_mode_radio, tab.scale_mode_radio, tab.scale_panel,
+                   tab.modify_tracks_button, tab.outdir_radio, tab.outdir_edit,
+                   tab.replace_radio):
+        assert sidebar.isAncestorOf(widget), f"{widget} 不在設定側欄裡"
 
 
 # ---------- 設定持久化 ----------
@@ -159,6 +300,22 @@ def test_save_and_restore_settings_roundtrip(qapp, monkeypatch, tmp_path):
     assert tab_b.outdir_edit.text() == r"C:\mkv\out"
 
 
+def test_save_settings_records_splitter_state(qapp, monkeypatch, tmp_path):
+    from PySide6.QtCore import QSettings
+    settings = QSettings(str(tmp_path / "t.ini"), QSettings.Format.IniFormat)
+    tab = _tab(monkeypatch)
+    tab.save_settings(settings)
+    assert settings.value("mkv/splitter") is not None
+
+
+def test_restore_settings_without_saved_splitter_is_safe(qapp, monkeypatch, tmp_path):
+    from PySide6.QtCore import QSettings
+    settings = QSettings(str(tmp_path / "empty.ini"), QSettings.Format.IniFormat)
+    tab = _tab(monkeypatch)
+    tab.restore_settings(settings)
+    assert tab.splitter.count() == 2
+
+
 def test_restore_settings_does_not_trigger_scan(qapp, monkeypatch, tmp_path):
     from PySide6.QtCore import QSettings
     settings = QSettings(str(tmp_path / "t.ini"), QSettings.Format.IniFormat)
@@ -174,78 +331,23 @@ def test_restore_settings_does_not_trigger_scan(qapp, monkeypatch, tmp_path):
 def test_restore_settings_defaults_outdir_when_unset(qapp, monkeypatch, tmp_path):
     from PySide6.QtCore import QSettings
     settings = QSettings(str(tmp_path / "t.ini"), QSettings.Format.IniFormat)
-
     tab = _tab(monkeypatch)
     tab.restore_settings(settings)
     assert tab.folder_edit.text() == ""
     assert tab.outdir_radio.isChecked() is True
 
 
-def test_scan_done_closes_dialog_and_populates(qapp, monkeypatch):
-    from ass_style_tool.qt.scan_progress_dialog import ScanProgressDialog
-    tab = _tab(monkeypatch)
-    tab._scan_dialog = ScanProgressDialog(tab)
-    tab._on_scan_done(FILES)
-    assert tab._scan_dialog is None                    # 對話框已關閉並釋放
-    assert tab.tree.topLevelItemCount() == len(FILES)  # 結果有填進表格
+# ---------- 取消掃描與關閉分頁(既有回歸,路徑改成掃軌) ----------
 
+def test_dialog_cancel_actually_aborts_track_scan(qapp, monkeypatch, tmp_path):
+    """重點測試:走真正的使用者路徑(對話框 Cancel/Esc/X)取消掃軌。
 
-def test_scan_cancelled_keeps_previous_results(qapp, monkeypatch):
-    from ass_style_tool.qt.scan_progress_dialog import ScanProgressDialog
-    tab = _tab(monkeypatch)
-    tab.populate(FILES)                          # 先有一次成功掃描的結果
-    before = tab.tree.topLevelItemCount()
-    tab.run_button.setEnabled(False)             # 模擬 _on_scan 把按鈕變灰
-    tab._scan_dialog = ScanProgressDialog(tab)
-    tab._on_scan_cancelled()
-    assert tab._scan_dialog is None              # 對話框已關閉
-    assert tab.tree.topLevelItemCount() == before  # 舊結果保留,未被清空
-    assert tab.run_button.isEnabled() is True    # 依既有結果恢復,不會卡在灰色
-
-
-# ---------- 取消功能相關回歸測試 ----------
-
-def test_scan_cancelled_clears_scanned_folder(qapp, monkeypatch):
-    """Fix 3 回歸:取消後 _scanned_folder 要清空,同一資料夾才能重新觸發掃描。"""
-    from ass_style_tool.qt.scan_progress_dialog import ScanProgressDialog
-    tab = _tab(monkeypatch)
-    tab._scanned_folder = "some/folder"
-    tab._scan_dialog = ScanProgressDialog(tab)
-    tab._on_scan_cancelled()
-    assert tab._scanned_folder is None
-
-
-def test_scan_done_with_shown_dialog_does_not_emit_cancelled(qapp, monkeypatch):
-    """Fix 2 回歸:成功掃描收尾用 hide() 而非 close(),不應觸發 cancelled 信號。
-
-    ScanProgressDialog.reject() 會在使用者按取消/Esc/X 時發出 cancelled,
-    而 QDialog.closeEvent 預設會呼叫 reject()。若收尾呼叫 close(),
-    一次成功的掃描收尾也會誤發 cancelled——必須實際 show() 對話框,
-    這個行為才會被觸發。
-    """
-    from ass_style_tool.qt.scan_progress_dialog import ScanProgressDialog
-    tab = _tab(monkeypatch)
-    dialog = ScanProgressDialog(tab)
-    dialog.show()
-    tab._scan_dialog = dialog
-    cancelled_calls = []
-    dialog.cancelled.connect(lambda: cancelled_calls.append(1))
-    tab._on_scan_done(FILES)
-    assert cancelled_calls == []
-    assert tab._scan_dialog is None
-
-
-def test_dialog_cancel_actually_aborts_scan(qapp, monkeypatch, tmp_path):
-    """Fix 1 回歸(重點測試):走真正的使用者路徑(對話框 Cancel/Esc/X)取消掃描。
-
-    本檔其餘測試全是單執行緒的同步呼叫,這正是這個 bug 完全不會被抓到的
+    本檔其餘測試全是單執行緒的同步呼叫,這正是這類 bug 完全不會被抓到的
     原因:signal→worker slot 的連線在 worker 已 moveToThread 後會被 Qt
-    解析成 queued connection,而 worker 所在的執行緒在 run() 執行期間
-    不會跑事件迴圈,queued 的 cancel() 因此完全不會被處理。
+    解析成 queued connection,而 worker 所在的執行緒在 run() 執行期間不跑
+    事件迴圈,queued 的 cancel() 因此完全不會被處理。
 
-    這裡不自建 worker/thread,而是讓 MkvTab._on_scan 自己的接線建立真正的
-    QThread,並透過 ScanProgressDialog.reject()(對應使用者按 Cancel/Esc/
-    右上角 X)觸發取消,驗證掃描確實提早中止、表格未被填入。
+    這裡不自建 worker/thread,而是讓 MkvTab 自己的接線建立真正的 QThread。
     """
     import time
 
@@ -258,8 +360,8 @@ def test_dialog_cancel_actually_aborts_scan(qapp, monkeypatch, tmp_path):
         time.sleep(0.05)
         return []
 
-    def factory(folder, mkvmerge, list_fn=None):
-        return MkvScanWorker(folder, mkvmerge, list_fn=slow_list_fn)
+    def factory(paths, mkvmerge, list_fn=None):
+        return MkvScanWorker(paths, mkvmerge, list_fn=slow_list_fn)
 
     monkeypatch.setattr("ass_style_tool.qt.mkv_tab.MkvScanWorker", factory)
 
@@ -270,6 +372,8 @@ def test_dialog_cancel_actually_aborts_scan(qapp, monkeypatch, tmp_path):
     tab = _tab(monkeypatch)
     tab.folder_edit.setText(str(tmp_path))
     tab._on_scan()
+    assert tab.file_table.rowCount() == total_files
+    tab._on_modify_tracks()
     thread = tab._scan_thread
     try:
         deadline = time.monotonic() + 5.0
@@ -287,21 +391,17 @@ def test_dialog_cancel_actually_aborts_scan(qapp, monkeypatch, tmp_path):
 
         assert len(calls) < total_files, (
             f"掃描未被中止:{len(calls)}/{total_files} 個檔案已掃描")
-        assert tab.tree.topLevelItemCount() == 0, "取消後的掃描仍填入了表格"
+        assert tab._files_tracks == {}, "取消後的掃描結果仍被採用"
     finally:
         if thread is not None:
             thread.quit()
             thread.wait(3000)
 
 
-# ---------- Fix 1:關閉分頁不能留下孤兒的掃描對話框 ----------
-
 def test_shutdown_closes_orphaned_scan_dialog(qapp, monkeypatch):
-    """重點測試:掃描中途關閉整個分頁(對應使用者關掉主視窗)時,
-    shutdown() 之前只收執行緒、沒收掉模態的 ScanProgressDialog——打包版
-    是 console=False,主視窗關閉後 quitOnLastWindowClosed 因為這個還
-    可見的對話框永遠不成立,process 會卡著不退出。shutdown() 現在要
-    比照 MuxTab.shutdown() 呼叫 _finish_scan() 把對話框真的關掉。"""
+    """掃描中途關閉整個分頁時,shutdown() 要把模態的 ScanProgressDialog
+    真的關掉——打包版是 console=False,主視窗關閉後 quitOnLastWindowClosed
+    因為這個還可見的對話框永遠不成立,process 會卡著不退出。"""
     from ass_style_tool.qt.scan_progress_dialog import ScanProgressDialog
     tab = _tab(monkeypatch)
     dialog = ScanProgressDialog(tab)
@@ -315,14 +415,3 @@ def test_shutdown_closes_orphaned_scan_dialog(qapp, monkeypatch):
     assert tab._scan_dialog is None
     assert tab._scan_thread is None
     assert tab._scan_worker is None
-
-
-def test_tree_has_alternating_rows(qapp, monkeypatch):
-    # QSS 的 alternate-background-color 只有在控件端開啟時才生效
-    tab = _tab(monkeypatch)
-    assert tab.tree.alternatingRowColors() is True
-
-
-def test_run_button_tagged_accent(qapp, monkeypatch):
-    tab = _tab(monkeypatch)
-    assert tab.run_button.property("accent") is True
