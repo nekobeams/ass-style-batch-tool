@@ -951,7 +951,7 @@ cd /c/Claude_code && git add ass_style_tool/qt/scale_panel.py tests/test_scale_g
 
 - [ ] **Step 1: 寫失敗的測試**
 
-在 `tests/test_subtitle_tab.py` 檔尾加(`_tab(...)` 是該檔既有的建構輔助函式;若名稱不同,沿用該檔既有的建構方式):
+在 `tests/test_subtitle_tab.py` 檔尾加。注意這個檔案**沒有** `_tab()` 建構輔助函式(不同於 `test_mkv_tab.py` / `test_mux_tab.py`),每個測試自己 import 並建構 —— 下面的測試沿用該檔既有的寫法,不要為此新增 helper:
 
 ```python
 def test_settings_live_in_the_sidebar_not_under_the_table(qapp):
