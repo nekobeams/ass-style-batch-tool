@@ -114,10 +114,23 @@ begin
   end;
 end;
 
-procedure InitializeWizard();
+var
+  ComponentsDetectionDone: Boolean;
+
+(* app 常數要到使用者選完安裝目錄(wpSelectDir 頁)之後才會初始化;
+   IsFfmpegInstalled 會展開 app 常數,若在 InitializeWizard(精靈剛建立、
+   使用者還沒看到任何畫面時)呼叫會直接丟執行期錯誤(Inno Setup 已知限制)。
+   改成等精靈要顯示「選擇元件」頁(wpSelectComponents,在 wpSelectDir 之後)
+   時才做偵測,且只做一次。 *)
+procedure CurPageChanged(CurPageID: Integer);
 begin
-  if ComponentsParamGiven then
-    Exit;
-  UncheckComponentIfDetected('ffmpeg(影片解析度偵測用)', IsFfmpegInstalled);
-  UncheckComponentIfDetected('MKVToolNix(MKV 字幕封裝/處理用)', IsMkvToolNixInstalled);
+  if (CurPageID = wpSelectComponents) and not ComponentsDetectionDone then
+  begin
+    ComponentsDetectionDone := True;
+    if not ComponentsParamGiven then
+    begin
+      UncheckComponentIfDetected('ffmpeg(影片解析度偵測用)', IsFfmpegInstalled);
+      UncheckComponentIfDetected('MKVToolNix(MKV 字幕封裝/處理用)', IsMkvToolNixInstalled);
+    end;
+  end;
 end;
