@@ -27,7 +27,7 @@ from ..style_scan import scan_styles
 from ..tools import mkvextract_path, mkvmerge_path
 from ..track_select import TrackKey, all_keys, resolve_tracks
 from .batch_worker import MkvScanWorker, MkvWorker
-from .gui_helpers import RESULT_ICONS
+from .gui_helpers import CANCELLED_TEXT, PENDING_TEXT, RESULT_ICONS
 from .layout_helpers import (action_row, group, main_splitter, page_layout,
                              settings_sidebar)
 from .scale_panel import ScalePanel
@@ -286,11 +286,36 @@ class MkvTab(QWidget):
 
     # ---------- 「結果」欄 ----------
     def mark_rows_pending(self) -> None:
-        """開始處理時把整欄換成「處理中…」,避免舊結果被誤讀成這次的。"""
+        """開始處理時把「這批真的會跑」的列換成「處理中…」。
+
+        MkvWorker 只吃 current_jobs()(勾選且依目前規則解析出至少一條
+        軌道的檔案),未勾選、或勾選但目前規則下沒有可套用軌道的檔案本來
+        就不在這批工作內,若整欄一律標成處理中,跑完之後這些列既不會
+        收到 file_done、也沒有任何收尾邏輯會去碰它們,就會永遠卡在
+        「處理中…」——這裡必須用跟 current_jobs() 同一份判斷結果
+        (Task 10 review Finding 1)。
+        """
+        job_names = {path.name for path, _tracks in self.current_jobs()}
+        for row, path in enumerate(self._files):
+            if path.name in job_names:
+                self.file_table.setItem(row, 2, QTableWidgetItem(PENDING_TEXT))
+
+    def _reconcile_stuck_rows(self) -> None:
+        """收尾時把還卡在 PENDING_TEXT 的列換成明確標記。
+
+        使用者取消處理時 MkvWorker 一偵測到取消旗標就直接 break,還沒
+        輪到的列不會收到 file_done,不能留著被誤讀成還在處理中,或跟
+        這次批次的結果搞混(Task 10 review Finding 2)。
+        """
         for r in range(self.file_table.rowCount()):
-            self.file_table.setItem(r, 2, QTableWidgetItem("處理中…"))
+            item = self.file_table.item(r, 2)
+            if item is not None and item.text() == PENDING_TEXT:
+                self.file_table.setItem(r, 2, QTableWidgetItem(CANCELLED_TEXT))
 
     def _set_row_result(self, name: str, status: str) -> None:
+        # 用檔名比對回表格列:這只有在資料夾掃描不遞迴(不會有兩個 MKV
+        # 同名)的前提下才安全——future 若改成遞迴掃描,這裡的比對邏輯
+        # 也要一併換成完整路徑,否則同名檔案的結果會被誤套到錯的列。
         text = RESULT_ICONS.get(status, status)
         for r in range(self.file_table.rowCount()):
             item = self.file_table.item(r, 0)     # 第 0 欄是 MKV 檔名
@@ -608,6 +633,7 @@ class MkvTab(QWidget):
 
     def _on_finished(self, ok: int, skipped: int, error: int) -> None:
         self.log.emit(f"MKV 批次完成:成功 {ok},跳過 {skipped},錯誤 {error}")
+        self._reconcile_stuck_rows()
         if self._thread is not None:
             self._thread.quit()
             self._thread.wait()

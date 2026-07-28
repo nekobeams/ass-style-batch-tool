@@ -23,7 +23,8 @@ from ..style_scan import scan_styles, summarize
 from ..tools import mkvextract_path, mkvmerge_path
 from ..track_edit import TrackEdit
 from .batch_worker import MuxScanWorker, MuxWorker, TrackScanWorker
-from .gui_helpers import RESULT_ICONS, apply_plan_text, scale_plan_text
+from .gui_helpers import (CANCELLED_TEXT, PENDING_TEXT, RESULT_ICONS,
+                          apply_plan_text, scale_plan_text)
 from .layout_helpers import (action_row, group, main_splitter, page_layout,
                              settings_sidebar)
 from .modify_tracks_dialog import ModifyTracksDialog
@@ -442,11 +443,19 @@ class MuxTab(QWidget):
 
     # ---------- 「預計 / 結果」欄 ----------
     def _plan_text_for(self, pair: MuxPair) -> str:
-        """單一列的「預計」欄文字,依目前的封裝前處理模式分支。"""
-        if self.direct_mode_radio.isChecked():
-            return _DIRECT_MODE_PLAN_TEXT
+        """單一列的「預計」欄文字,依目前的封裝前處理模式分支。
+
+        沒配對到字幕的列一律回傳空字串,不論模式——這個檢查必須排在
+        「是不是直接封裝模式」之前:process_mux 對 subtitle_path is None
+        的列一律直接 skip(「無配對字幕,略過」),direct 模式的
+        _DIRECT_MODE_PLAN_TEXT 只有在真的會拿字幕去封裝時才成立,
+        排在後面會讓沒字幕的列也宣稱「直接封裝,不修改字幕」,誤導使用者
+        以為這列真的會被處理(Task 10 review Finding 3)。
+        """
         if pair.subtitle_path is None:
             return ""
+        if self.direct_mode_radio.isChecked():
+            return _DIRECT_MODE_PLAN_TEXT
         file_styles = self._file_styles.get(pair.subtitle_path)
         if self.scale_mode_radio.isChecked():
             try:
@@ -473,11 +482,36 @@ class MuxTab(QWidget):
                 item.setText(self._plan_text_for(pair))
 
     def mark_rows_pending(self) -> None:
-        """開始封裝時把整欄換成「處理中…」,避免舊預告被誤讀成這次的結果。"""
+        """開始封裝時把「這批真的會處理」的列換成「處理中…」。
+
+        MuxWorker 只吃 checked_pairs()(勾選且 status=="matched"),未勾選
+        或沒配對到字幕的列本來就不在這批工作內,若整欄一律標成處理中,
+        跑完之後這些列既不會收到 file_done、也沒有任何收尾邏輯會去碰
+        它們,就會永遠卡在「處理中…」——這裡的判斷條件必須跟
+        checked_pairs() 保持一致(Task 10 review Finding 1)。
+        """
+        for r, pair in enumerate(self._pairs):
+            item = self.table.item(r, 0)
+            if (item is not None and item.checkState() == Qt.CheckState.Checked
+                    and pair.status == "matched"):
+                self.table.setItem(r, 5, QTableWidgetItem(PENDING_TEXT))
+
+    def _reconcile_stuck_rows(self) -> None:
+        """收尾時把還卡在 PENDING_TEXT 的列換成明確標記。
+
+        使用者取消封裝時 MuxWorker 一偵測到取消旗標就直接 break,還沒
+        輪到的列不會收到 file_done,不能留著被誤讀成還在處理中,或跟
+        這次批次的結果搞混(Task 10 review Finding 2)。
+        """
         for r in range(self.table.rowCount()):
-            self.table.setItem(r, 5, QTableWidgetItem("處理中…"))
+            item = self.table.item(r, 5)
+            if item is not None and item.text() == PENDING_TEXT:
+                self.table.setItem(r, 5, QTableWidgetItem(CANCELLED_TEXT))
 
     def _set_row_result(self, name: str, status: str) -> None:
+        # 用檔名比對回表格列:這只有在資料夾掃描不遞迴(不會有兩個影片檔
+        # 同名)的前提下才安全——future 若改成遞迴掃描,這裡的比對邏輯
+        # 也要一併換成完整路徑,否則同名檔案的結果會被誤套到錯的列。
         text = RESULT_ICONS.get(status, status)
         for r in range(self.table.rowCount()):
             item = self.table.item(r, 1)          # 第 1 欄是影片檔名
@@ -641,6 +675,7 @@ class MuxTab(QWidget):
 
     def _on_finished(self, ok: int, skipped: int, error: int) -> None:
         self.log.emit(f"封裝完成:成功 {ok},跳過 {skipped},錯誤 {error}")
+        self._reconcile_stuck_rows()
         if self._thread is not None:
             self._thread.quit()
             self._thread.wait()

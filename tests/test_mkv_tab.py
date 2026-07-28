@@ -755,18 +755,104 @@ def test_result_column_blank_after_populate(qapp, monkeypatch):
 
 
 def test_mark_rows_pending_sets_processing_text(qapp, monkeypatch):
+    """Task 10 review Finding 1:只有目前規則下真的解析出至少一條軌道、
+    會被這批工作處理的檔案(跟 current_jobs() 同一套判斷)會換成
+    「處理中…」;e3 在 TRACKS 裡沒有任何軌道,不屬於這批工作,必須維持
+    原狀。"""
     tab = _tab(monkeypatch)
     tab.populate(FILES)
+    tab._files_tracks = dict(TRACKS)
+    before_e3 = tab.file_table.item(2, 2).text()
     tab.mark_rows_pending()
-    assert all(tab.file_table.item(r, 2).text() == "處理中…" for r in range(3))
+    assert tab.file_table.item(0, 2).text() == "處理中…"
+    assert tab.file_table.item(1, 2).text() == "處理中…"
+    assert tab.file_table.item(2, 2).text() == before_e3
 
 
 def test_set_row_result_replaces_cell(qapp, monkeypatch):
     tab = _tab(monkeypatch)
     tab.populate(FILES)
+    tab._files_tracks = dict(TRACKS)
     tab.mark_rows_pending()
     tab._set_row_result("e1.mkv", "ok")
     assert "✓" in tab.file_table.item(0, 2).text()
+
+
+def test_run_to_completion_reconciles_job_rows_and_preserves_others(
+        qapp, monkeypatch):
+    """Task 10 review Finding 1:e3 在 TRACKS 裡沒有任何軌道,current_jobs()
+    本來就不會排進它——批次跑到底之後,e3 那一列不能被誤標成「處理
+    中…」,也不能在跑完之後留在「處理中…」;真正在這批工作裡的 e1/e2
+    則要拿到各自的結果(混合 ok/error)。驅動真正的 MkvWorker(注入假
+    process_fn,不呼叫外部 mkvmerge),監聽它的 file_done/finished
+    signal,不是逐列手動呼叫 _set_row_result。"""
+    from ass_style_tool.mkv_batch import MkvFileReport
+    from ass_style_tool.qt.batch_worker import MkvWorker
+
+    tab = _tab(monkeypatch)
+    tab.populate(FILES)
+    tab._files_tracks = dict(TRACKS)
+    before_e3 = tab.file_table.item(2, 2).text()
+
+    jobs = tab.current_jobs()
+    assert [p.name for p, _ in jobs] == ["e1.mkv", "e2.mkv"]
+
+    reports = {
+        Path("e1.mkv"): MkvFileReport(Path("e1.mkv"), "ok"),
+        Path("e2.mkv"): MkvFileReport(Path("e2.mkv"), "error"),
+    }
+
+    def fake_process(mkv_path, tracks, operation, tools, out_path=None,
+                     progress_cb=None):
+        return reports[mkv_path]
+
+    tab.mark_rows_pending()
+    assert tab.file_table.item(0, 2).text() == "處理中…"
+    assert tab.file_table.item(1, 2).text() == "處理中…"
+    # 沒有任何可套用軌道、不屬於這批工作的列維持原狀
+    assert tab.file_table.item(2, 2).text() == before_e3
+
+    worker = MkvWorker(jobs, tab.effective_profile(), tab._tools,
+                       output_dir=None, process_fn=fake_process)
+    worker.file_done.connect(tab._set_row_result)
+    worker.finished.connect(tab._on_finished)
+    worker.run()
+
+    assert tab.file_table.item(0, 2).text() == "✓ 已套用"
+    assert tab.file_table.item(1, 2).text() == "✗ 失敗"
+    assert tab.file_table.item(2, 2).text() == before_e3
+
+
+def test_cancelled_run_reconciles_remaining_rows(qapp, monkeypatch):
+    """Task 10 review Finding 2:取消處理時 MkvWorker.run() 一偵測到取消
+    旗標就直接 break,還沒輪到的檔案不會發出 file_done。這裡驅動真正的
+    worker,在第一個檔案完成後立刻取消,確認排在後面、從未被處理過的列
+    不會卡在「處理中…」。"""
+    from ass_style_tool.mkv_batch import MkvFileReport
+    from ass_style_tool.qt.batch_worker import MkvWorker
+
+    tab = _tab(monkeypatch)
+    tab.populate(FILES)
+    tab._files_tracks = dict(TRACKS)
+    jobs = tab.current_jobs()
+    assert len(jobs) == 2   # e1, e2(e3 沒有任何軌道)
+
+    def fake_process(mkv_path, tracks, operation, tools, out_path=None,
+                     progress_cb=None):
+        return MkvFileReport(mkv_path, "ok")
+
+    tab.mark_rows_pending()
+
+    worker = MkvWorker(jobs, tab.effective_profile(), tab._tools,
+                       output_dir=None, process_fn=fake_process)
+    worker.file_done.connect(tab._set_row_result)
+    # 模擬使用者在第一個檔案完成後立刻按下取消
+    worker.file_done.connect(lambda name, status: worker.cancel())
+    worker.finished.connect(tab._on_finished)
+    worker.run()
+
+    assert tab.file_table.item(0, 2).text() == "✓ 已套用"
+    assert tab.file_table.item(1, 2).text() != "處理中…"
 
 
 def test_rescan_restores_blank_result_column(qapp, monkeypatch):

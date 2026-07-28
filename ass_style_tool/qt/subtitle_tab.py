@@ -20,7 +20,8 @@ from ..profile import Profile
 from ..scale_engine import ScaleError, read_as_ass_text, scale_text
 from ..style_scan import summarize
 from .batch_worker import BatchWorker, ScaleWorker
-from .gui_helpers import RESULT_ICONS, apply_plan_text, preview_rows, scale_plan_text
+from .gui_helpers import (CANCELLED_TEXT, PENDING_TEXT, RESULT_ICONS,
+                          apply_plan_text, preview_rows, scale_plan_text)
 from .layout_helpers import (action_row, group, main_splitter, page_layout,
                              settings_sidebar)
 from .scale_panel import ScalePanel
@@ -293,11 +294,33 @@ class SubtitleFileTab(QWidget):
 
     # ---------- 「預計 / 結果」欄的狀態轉換 ----------
     def mark_rows_pending(self) -> None:
-        """開始執行時把整欄換成「處理中…」,避免舊預告被誤讀成這次的結果。"""
+        """開始執行時把整欄換成「處理中…」,避免舊預告被誤讀成這次的結果。
+
+        字幕檔分頁的表格列跟 BatchWorker/ScaleWorker 實際處理的工作是
+        1:1 對應的——populate_preview() 只依 scan.matches 建列,_on_run()
+        也是把整個 scan.matches 交給 worker,不像封裝/MKV 分頁還有
+        「勾選」「配對成功」等篩選,所以這裡不需要像那兩個分頁一樣做
+        子集過濾(Task 10 review Finding 1 只在那兩個分頁成立)。
+        """
         for r in range(self.table.rowCount()):
-            self.table.setItem(r, 4, QTableWidgetItem("處理中…"))
+            self.table.setItem(r, 4, QTableWidgetItem(PENDING_TEXT))
+
+    def _reconcile_stuck_rows(self) -> None:
+        """收尾時把還卡在 PENDING_TEXT 的列換成明確標記。
+
+        取消批次時 BatchWorker/ScaleWorker 一偵測到取消旗標就直接
+        break,還沒輪到的列不會收到 file_done,不能留著被誤讀成還在
+        處理中,或跟這次批次的結果搞混(Task 10 review Finding 2)。
+        """
+        for r in range(self.table.rowCount()):
+            item = self.table.item(r, 4)
+            if item is not None and item.text() == PENDING_TEXT:
+                self.table.setItem(r, 4, QTableWidgetItem(CANCELLED_TEXT))
 
     def _set_row_result(self, name: str, status: str) -> None:
+        # 用檔名比對回表格列:這只有在資料夾掃描不遞迴(不會有兩個字幕檔
+        # 同名)的前提下才安全——future 若改成遞迴掃描,這裡的比對邏輯
+        # 也要一併換成完整路徑,否則同名檔案的結果會被誤套到錯的列。
         text = RESULT_ICONS.get(status, status)
         for r in range(self.table.rowCount()):
             item = self.table.item(r, 1)          # 第 1 欄是字幕檔名
@@ -407,6 +430,7 @@ class SubtitleFileTab(QWidget):
 
     def _on_finished(self, ok: int, skipped: int, error: int) -> None:
         self.log.emit(f"完成:成功 {ok},跳過 {skipped},錯誤 {error}")
+        self._reconcile_stuck_rows()
         if self._thread is not None:
             self._thread.quit()
             self._thread.wait()

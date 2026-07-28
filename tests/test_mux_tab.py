@@ -669,6 +669,18 @@ def test_direct_mode_plan_shows_no_modification_marker(qapp, monkeypatch):
     assert tab.table.item(0, 5).text() == "直接封裝,不修改字幕"
 
 
+def test_direct_mode_plan_blank_for_no_subtitle_row(qapp, monkeypatch):
+    """Task 10 review Finding 3:direct 模式下沒配對到字幕的列(PAIRS 的
+    第 1 列,status="no_subtitle")不能顯示「直接封裝,不修改字幕」——
+    process_mux 對 subtitle_path is None 的列一律直接以 skipped 略過
+    (「無配對字幕,略過」),顯示直封標記會誤導使用者以為這列真的會被
+    處理。"""
+    tab = _tab(monkeypatch)
+    assert tab.direct_mode_radio.isChecked() is True
+    tab.populate(PAIRS)
+    assert tab.table.item(1, 5).text() == ""
+
+
 def test_apply_mode_plan_shows_predicted_size(qapp, monkeypatch):
     from ass_style_tool.style_scan import FileStyles
     tab = _tab(monkeypatch)
@@ -728,11 +740,17 @@ def test_style_selection_change_recomputes_plan_column(qapp, monkeypatch):
 
 
 def test_mark_rows_pending_sets_processing_text(qapp, monkeypatch):
+    """Task 10 review Finding 1:只有真的會被這批工作處理的列(勾選且
+    status=="matched",跟 checked_pairs() 同一套判斷)會換成
+    「處理中…」;PAIRS 的第 1 列是 no_subtitle(從未勾選),不屬於這批
+    工作,必須維持原狀。"""
     tab = _tab(monkeypatch)
     tab.populate(PAIRS)
+    before = tab.table.item(1, 5).text()
     tab.mark_rows_pending()
-    for r in range(tab.table.rowCount()):
-        assert tab.table.item(r, 5).text() == "處理中…"
+    assert tab.table.item(0, 5).text() == "處理中…"
+    assert tab.table.item(2, 5).text() == "處理中…"
+    assert tab.table.item(1, 5).text() == before
 
 
 def test_set_row_result_replaces_cell(qapp, monkeypatch):
@@ -741,6 +759,88 @@ def test_set_row_result_replaces_cell(qapp, monkeypatch):
     tab.mark_rows_pending()
     tab._set_row_result("a [01].mkv", "ok")
     assert "✓" in tab.table.item(0, 5).text()
+
+
+def test_run_to_completion_reconciles_job_rows_and_preserves_others(
+        qapp, monkeypatch):
+    """Task 10 review Finding 1:一個 3 列的表格裡有一列 no_subtitle
+    (PAIRS 第 1 列),批次跑到底之後,那一列不能被誤標成「處理中…」,
+    也不能在跑完之後留在「處理中…」;真正在這批工作裡的兩列則要拿到
+    各自的結果(混合 ok/error)。驅動真正的 MuxWorker(注入假
+    process_fn,不呼叫外部 mkvmerge),監聽它的 file_done/finished
+    signal,不是逐列手動呼叫 _set_row_result。"""
+    from ass_style_tool.mkv_batch import MkvFileReport
+    from ass_style_tool.qt.batch_worker import MuxWorker
+
+    tab = _tab(monkeypatch)
+    tab.populate(PAIRS)
+    before_row1 = tab.table.item(1, 5).text()
+
+    pairs = tab.checked_pairs()
+    assert {p.video_path for p in pairs} == {
+        Path("a [01].mkv"), Path("c [03].mkv")}
+
+    reports = {
+        Path("a [01].mkv"): MkvFileReport(Path("a [01].mkv"), "ok"),
+        Path("c [03].mkv"): MkvFileReport(Path("c [03].mkv"), "error"),
+    }
+
+    def fake_process(pair, meta, operation, tools, out_path=None,
+                     progress_cb=None, edits=None):
+        return reports[pair.video_path]
+
+    tab.mark_rows_pending()
+    assert tab.table.item(0, 5).text() == "處理中…"
+    assert tab.table.item(2, 5).text() == "處理中…"
+    # 沒配對到字幕、不屬於這批工作的列維持原狀
+    assert tab.table.item(1, 5).text() == before_row1
+
+    worker = MuxWorker(pairs, tab.current_meta(), None, tab._tools,
+                       output_dir=None, process_fn=fake_process)
+    worker.file_done.connect(tab._set_row_result)
+    worker.finished.connect(tab._on_finished)
+    worker.run()
+
+    assert tab.table.item(0, 5).text() == "✓ 已套用"
+    assert tab.table.item(2, 5).text() == "✗ 失敗"
+    assert tab.table.item(1, 5).text() == before_row1
+
+
+def test_cancelled_run_reconciles_remaining_rows(qapp, monkeypatch):
+    """Task 10 review Finding 2:取消封裝時 MuxWorker.run() 一偵測到取消
+    旗標就直接 break,還沒輪到的影片不會發出 file_done。這裡驅動真正的
+    worker,在第一部影片完成後立刻取消,確認排在後面、從未被處理過的列
+    不會卡在「處理中…」。"""
+    from ass_style_tool.mkv_batch import MkvFileReport
+    from ass_style_tool.qt.batch_worker import MuxWorker
+
+    tab = _tab(monkeypatch)
+    matched_only = [
+        MuxPair(Path("a [01].mkv"), Path("a [01].ass"), 1, "matched"),
+        MuxPair(Path("b [02].mkv"), Path("b [02].ass"), 2, "matched"),
+        MuxPair(Path("c [03].mkv"), Path("c [03].ass"), 3, "matched"),
+    ]
+    tab.populate(matched_only)
+    pairs = tab.checked_pairs()
+    assert len(pairs) == 3
+
+    def fake_process(pair, meta, operation, tools, out_path=None,
+                     progress_cb=None, edits=None):
+        return MkvFileReport(pair.video_path, "ok")
+
+    tab.mark_rows_pending()
+
+    worker = MuxWorker(pairs, tab.current_meta(), None, tab._tools,
+                       output_dir=None, process_fn=fake_process)
+    worker.file_done.connect(tab._set_row_result)
+    # 模擬使用者在第一部影片完成後立刻按下取消
+    worker.file_done.connect(lambda name, status: worker.cancel())
+    worker.finished.connect(tab._on_finished)
+    worker.run()
+
+    assert tab.table.item(0, 5).text() == "✓ 已套用"
+    assert tab.table.item(1, 5).text() != "處理中…"
+    assert tab.table.item(2, 5).text() != "處理中…"
 
 
 def test_rescan_restores_plan_column(qapp, monkeypatch):

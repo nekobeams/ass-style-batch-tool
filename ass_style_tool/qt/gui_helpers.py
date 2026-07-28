@@ -22,6 +22,18 @@ STATUS_LABELS = {
 # 對照表,避免各分頁各自維護一份容易日後漂移不一致。
 RESULT_ICONS = {"ok": "✓ 已套用", "skipped": "⊘ 略過", "error": "✗ 失敗"}
 
+# 開始批次執行時,每一列「會被這批工作處理」的儲存格先被標成這個文字,
+# 避免舊一輪的結果被誤讀成這次的。三個分頁的 mark_rows_pending()/
+# _set_row_result() 共用同一份文字,以免各自維護導致不同步。
+PENDING_TEXT = "處理中…"
+
+# 使用者取消批次執行時,BatchWorker/ScaleWorker/MuxWorker/MkvWorker 的
+# run() 迴圈一偵測到取消旗標就直接 break,尚未輪到的檔案不會發出
+# file_done——如果收尾時不處理,這些列會永遠卡在 PENDING_TEXT,被誤讀成
+# 還在跑,或跟這次批次的結果搞混。三個分頁的 _on_finished 都要在收尾時
+# 把還卡著 PENDING_TEXT 的列換成這個明確標記(Task 10 review Finding 2)。
+CANCELLED_TEXT = "⊘ 未執行(已取消)"
+
 
 @dataclass
 class PreviewRow:

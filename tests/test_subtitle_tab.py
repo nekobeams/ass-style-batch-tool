@@ -477,6 +477,100 @@ def test_rescan_restores_plan_text(qapp):
     assert "Default 48 →" in tab.table.item(0, 4).text()
 
 
+def test_run_to_completion_reconciles_every_row(qapp, monkeypatch):
+    """Task 10 review Finding 2:批次真的跑到底(沒被取消)之後,不能有
+    任何列卡在「處理中…」。字幕檔分頁的表格列跟 scan.matches 是 1:1
+    對應的,所以這裡用「不同檔案吃到不同結果狀態(ok/skipped/error)」
+    當作混合情境,並驅動真正的 BatchWorker(監聽它的 file_done/finished
+    signal,不是逐列手動呼叫 _set_row_result)。"""
+    import ass_style_tool.qt.batch_worker as batch_worker_mod
+    from ass_style_tool.batch_runner import FileReport
+    from ass_style_tool.qt.batch_worker import BatchWorker
+    from ass_style_tool.style_scan import FileStyles
+
+    matches = [
+        MatchResult(sub_path=Path("a.ass"), episode=1, status="no_video"),
+        MatchResult(sub_path=Path("b.ass"), episode=2, status="no_video"),
+        MatchResult(sub_path=Path("c.ass"), episode=3, status="no_video"),
+    ]
+    scan = ScanResult(matches=matches, warnings=[],
+                      styles={m.sub_path: FileStyles(m.sub_path, {"Default": 48.0},
+                                                     (1920, 1080)) for m in matches})
+
+    reports = {
+        Path("a.ass"): FileReport(Path("a.ass"), "ok"),
+        Path("b.ass"): FileReport(Path("b.ass"), "skipped"),
+        Path("c.ass"): FileReport(Path("c.ass"), "error"),
+    }
+    monkeypatch.setattr(
+        batch_worker_mod, "process_file",
+        lambda match, profile, out: reports[match.sub_path])
+
+    tab = _tab()
+    tab.populate_preview(scan)
+    tab._scan = scan
+    tab.style_picker.set_available(["Default"])
+    tab.style_picker.set_selected(["Default"])
+    tab.mark_rows_pending()
+    for r in range(3):
+        assert tab.table.item(r, 4).text() == "處理中…"
+
+    worker = BatchWorker(scan, tab.effective_profile(), output_dir=None)
+    worker.file_done.connect(tab._set_row_result)
+    worker.finished.connect(tab._on_finished)
+    worker.run()
+
+    assert tab.table.item(0, 4).text() == "✓ 已套用"
+    assert tab.table.item(1, 4).text() == "⊘ 略過"
+    assert tab.table.item(2, 4).text() == "✗ 失敗"
+    assert all(tab.table.item(r, 4).text() != "處理中…" for r in range(3))
+
+
+def test_cancelled_run_reconciles_remaining_rows(qapp, monkeypatch):
+    """Task 10 review Finding 2:取消批次時 BatchWorker.run() 一偵測到
+    取消旗標就直接 break,還沒輪到的檔案不會發出 file_done。既有的 17
+    個測試都是逐列手動呼叫 _set_row_result 灌結果,完全不會踩到這個
+    「worker 提早離開迴圈」的路徑——這裡改成驅動真正的 worker,在第一個
+    檔案完成後立刻取消,確認排在後面、從未被處理過的列不會卡在
+    「處理中…」。"""
+    import ass_style_tool.qt.batch_worker as batch_worker_mod
+    from ass_style_tool.batch_runner import FileReport
+    from ass_style_tool.qt.batch_worker import BatchWorker
+    from ass_style_tool.style_scan import FileStyles
+
+    matches = [
+        MatchResult(sub_path=Path("a.ass"), episode=1, status="no_video"),
+        MatchResult(sub_path=Path("b.ass"), episode=2, status="no_video"),
+        MatchResult(sub_path=Path("c.ass"), episode=3, status="no_video"),
+    ]
+    scan = ScanResult(matches=matches, warnings=[],
+                      styles={m.sub_path: FileStyles(m.sub_path, {"Default": 48.0},
+                                                     (1920, 1080)) for m in matches})
+    monkeypatch.setattr(
+        batch_worker_mod, "process_file",
+        lambda match, profile, out: FileReport(match.sub_path, "ok"))
+
+    tab = _tab()
+    tab.populate_preview(scan)
+    tab._scan = scan
+    tab.style_picker.set_available(["Default"])
+    tab.style_picker.set_selected(["Default"])
+    tab.mark_rows_pending()
+
+    worker = BatchWorker(scan, tab.effective_profile(), output_dir=None)
+    worker.file_done.connect(tab._set_row_result)
+    # 模擬使用者在第一個檔案處理完後立刻按下取消
+    worker.file_done.connect(lambda name, status: worker.cancel())
+    worker.finished.connect(tab._on_finished)
+    worker.run()
+
+    # 第一列真的跑完、拿到結果
+    assert tab.table.item(0, 4).text() == "✓ 已套用"
+    # 後面兩列從沒被 worker 碰過,取消後不能還卡在「處理中…」
+    assert tab.table.item(1, 4).text() != "處理中…"
+    assert tab.table.item(2, 4).text() != "處理中…"
+
+
 def test_switching_mode_recomputes_plan_column(qapp):
     """Task 6 review 發現、延到 Task 10 修:_on_mode_changed 之前不會重算
     預計欄,導致切模式後畫面還留著前一個模式的預告文字(例如切到縮放
