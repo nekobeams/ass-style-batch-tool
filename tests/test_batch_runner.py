@@ -254,3 +254,46 @@ def test_run_batch_collision_srt_and_ass_normalized(tmp_path):
     statuses = [r.status for r in reports]
     assert statuses.count("error") == 1            # 第二個因輸出檔名衝突被擋
     assert (out_dir / "ep1.ass").exists()
+
+
+# ---------- 掃描帶入樣式資訊 / 進度 / 取消 ----------
+
+def test_scan_folder_collects_styles_per_file(tmp_path, monkeypatch):
+    from tests.test_style_scan import write_ass
+    monkeypatch.setattr("ass_style_tool.batch_runner.ffprobe_available",
+                        lambda: False)
+    write_ass(tmp_path / "show [01].ass", [("Default", 48)])
+    write_ass(tmp_path / "show [02].ass", [("Default", 48), ("CHT", 52)])
+    scan = scan_folder(tmp_path)
+    assert set(scan.styles[tmp_path / "show [01].ass"].styles) == {"Default"}
+    assert set(scan.styles[tmp_path / "show [02].ass"].styles) == {"Default",
+                                                                  "CHT"}
+
+
+def test_scan_folder_reports_progress(tmp_path, monkeypatch):
+    from tests.test_style_scan import write_ass
+    monkeypatch.setattr("ass_style_tool.batch_runner.ffprobe_available",
+                        lambda: False)
+    for i in (1, 2, 3):
+        write_ass(tmp_path / f"show [{i:02d}].ass", [("Default", 48)])
+    seen = []
+    scan_folder(tmp_path, progress=lambda done, total: seen.append((done,
+                                                                    total)))
+    assert seen == [(1, 3), (2, 3), (3, 3)]
+
+
+def test_scan_folder_stops_when_cancelled(tmp_path, monkeypatch):
+    from tests.test_style_scan import write_ass
+    monkeypatch.setattr("ass_style_tool.batch_runner.ffprobe_available",
+                        lambda: False)
+    for i in (1, 2, 3, 4):
+        write_ass(tmp_path / f"show [{i:02d}].ass", [("Default", 48)])
+    calls = {"n": 0}
+
+    def should_cancel() -> bool:
+        calls["n"] += 1
+        return calls["n"] > 2      # 前兩個檔案照跑,之後取消
+
+    scan = scan_folder(tmp_path, should_cancel=should_cancel)
+    assert scan.cancelled is True
+    assert len(scan.styles) == 2   # 取消後剩下的檔案沒有被解析

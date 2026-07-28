@@ -4,7 +4,7 @@ from __future__ import annotations
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, List, Optional
+from typing import Callable, Dict, List, Optional
 
 from .ass_style import (apply_profile, get_play_res,
                         get_scaled_border_shadow, load_subs, save_subs)
@@ -13,6 +13,7 @@ from .episode_match import (MatchResult, ass_output_name, find_files,
 from .profile import Profile
 from .resolution import (aspect_mismatch, ffprobe_available,
                          probe_video_resolution, reference_resolution)
+from .style_scan import FileStyles, scan_styles
 
 
 @dataclass
@@ -26,19 +27,39 @@ class FileReport:
 class ScanResult:
     matches: List[MatchResult] = field(default_factory=list)
     warnings: List[str] = field(default_factory=list)
+    styles: Dict[Path, FileStyles] = field(default_factory=dict)
+    cancelled: bool = False
 
 
-def scan_folder(folder: Path) -> ScanResult:
+def scan_folder(
+    folder: Path,
+    *,
+    progress: Optional[Callable[[int, int], None]] = None,
+    should_cancel: Optional[Callable[[], bool]] = None,
+) -> ScanResult:
+    """掃描資料夾:檔名配對 → 影片解析度 → 字幕樣式。
+
+    樣式解析不需要 ffprobe,所以即使找不到 ffprobe 也要繼續跑完
+    (舊版在這裡直接 return,會讓沒裝 ffprobe 的使用者完全看不到樣式)。
+    """
     subs, videos = find_files(folder)
     scan = ScanResult(matches=match_pairs(subs, videos))
     if not subs:
         scan.warnings.append("資料夾內找不到任何 .ass/.ssa/.srt 字幕檔")
-    if not ffprobe_available():
+    have_ffprobe = ffprobe_available()
+    if not have_ffprobe:
         scan.warnings.append("找不到 ffprobe:預覽將不含影片解析度資訊與長寬比警告")
-        return scan
-    for match in scan.matches:
-        if match.video_path is not None:
+
+    total = len(scan.matches)
+    for index, match in enumerate(scan.matches):
+        if should_cancel is not None and should_cancel():
+            scan.cancelled = True
+            break
+        if have_ffprobe and match.video_path is not None:
             match.video_resolution = probe_video_resolution(match.video_path)
+        scan.styles[match.sub_path] = scan_styles(match.sub_path)
+        if progress is not None:
+            progress(index + 1, total)
     return scan
 
 
