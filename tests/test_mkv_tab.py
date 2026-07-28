@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ass_style_tool.mkv_io import SubtitleTrack
+from ass_style_tool.mkv_io import SubtitleTrack, TemplateExtraction
 from ass_style_tool.profile_fields import DEFAULT_VALUES, profile_from_values
 
 
@@ -495,7 +495,8 @@ def test_read_template_styles_fills_picker(qapp, monkeypatch, tmp_path):
     tab.populate(FILES)
     monkeypatch.setattr(
         "ass_style_tool.qt.mkv_tab.extract_template_subtitle",
-        lambda mkv, mkvmerge, mkvextract: tmp_path / "t.ass")
+        lambda mkv, mkvmerge, mkvextract, out_dir:
+            TemplateExtraction(path=tmp_path / "t.ass"))
     monkeypatch.setattr(
         "ass_style_tool.qt.mkv_tab.scan_styles",
         lambda path: FileStyles(path, {"Default": 48.0, "CHT": 52.0}))
@@ -507,15 +508,39 @@ def test_read_template_styles_fills_picker(qapp, monkeypatch, tmp_path):
 
 
 def test_read_template_styles_reports_no_text_track(qapp, monkeypatch):
+    """真的沒有 ASS/SSA 字幕軌(可能是 PGS/VobSub)——訊息要指向「這批影片
+    沒有文字字幕軌」,不能跟抽取失敗混為一談(見下面的
+    test_read_template_styles_reports_extraction_failure)。"""
     tab = _tab(monkeypatch)
     tab.populate(FILES)
     monkeypatch.setattr(
         "ass_style_tool.qt.mkv_tab.extract_template_subtitle",
-        lambda mkv, mkvmerge, mkvextract: None)
+        lambda mkv, mkvmerge, mkvextract, out_dir:
+            TemplateExtraction(path=None, error="no_track"))
     messages = []
     tab.log.connect(messages.append)
     tab.read_template_styles()
     assert any("沒有文字字幕軌" in m for m in messages)
+    # 不能同時冒出「抽取失敗」的措辭,兩種情況的訊息必須是互斥的。
+    assert not any("失敗" in m for m in messages)
+
+
+def test_read_template_styles_reports_extraction_failure(qapp, monkeypatch):
+    """軌道存在,但 mkvextract 抽取失敗(壞檔/磁碟空間/權限…)——訊息要
+    講「抽取失敗」,不能說成「沒有文字字幕軌」,否則使用者會被導去檢查
+    根本不存在的問題(圖形字幕),而錯過真正的原因。"""
+    tab = _tab(monkeypatch)
+    tab.populate(FILES)
+    monkeypatch.setattr(
+        "ass_style_tool.qt.mkv_tab.extract_template_subtitle",
+        lambda mkv, mkvmerge, mkvextract, out_dir:
+            TemplateExtraction(path=None, error="extract_failed"))
+    messages = []
+    tab.log.connect(messages.append)
+    tab.read_template_styles()
+    assert any("失敗" in m for m in messages)
+    # 不能同時冒出「沒有文字字幕軌」的措辭,兩種情況的訊息必須是互斥的。
+    assert not any("沒有文字字幕軌" in m for m in messages)
 
 
 def test_read_template_styles_uses_the_first_file(qapp, monkeypatch, tmp_path):
@@ -527,9 +552,9 @@ def test_read_template_styles_uses_the_first_file(qapp, monkeypatch, tmp_path):
     tab.populate(FILES)
     seen = []
 
-    def fake_extract(mkv, mkvmerge, mkvextract):
+    def fake_extract(mkv, mkvmerge, mkvextract, out_dir):
         seen.append(mkv)
-        return tmp_path / "t.ass"
+        return TemplateExtraction(path=tmp_path / "t.ass")
 
     monkeypatch.setattr(
         "ass_style_tool.qt.mkv_tab.extract_template_subtitle", fake_extract)
@@ -538,6 +563,29 @@ def test_read_template_styles_uses_the_first_file(qapp, monkeypatch, tmp_path):
         lambda path: FileStyles(path, {"Default": 48.0}))
     tab.read_template_styles()
     assert seen == [FILES[0]]
+
+
+def test_read_template_styles_passes_the_tracked_temp_dir(qapp, monkeypatch, tmp_path):
+    """範本檔要寫進分頁自己會清理的暫存目錄(_preview_dir),不是系統暫存
+    目錄——否則每次讀樣式名稱都會在 %TEMP% 底下多留一個檔案,永遠沒人清
+    (見 shutdown() 對 _preview_dir 的 rmtree)。"""
+    from ass_style_tool.style_scan import FileStyles
+    tab = _tab(monkeypatch)
+    tab.populate(FILES)
+    seen_dirs = []
+
+    def fake_extract(mkv, mkvmerge, mkvextract, out_dir):
+        seen_dirs.append(out_dir)
+        return TemplateExtraction(path=tmp_path / "t.ass")
+
+    monkeypatch.setattr(
+        "ass_style_tool.qt.mkv_tab.extract_template_subtitle", fake_extract)
+    monkeypatch.setattr(
+        "ass_style_tool.qt.mkv_tab.scan_styles",
+        lambda path: FileStyles(path, {"Default": 48.0}))
+    tab.read_template_styles()
+    assert seen_dirs == [tab._preview_dir]
+    tab.shutdown()
 
 
 def test_read_template_styles_requires_a_scanned_folder(qapp, monkeypatch):
@@ -563,7 +611,8 @@ def test_read_template_styles_reports_parse_error(qapp, monkeypatch, tmp_path):
     tab.populate(FILES)
     monkeypatch.setattr(
         "ass_style_tool.qt.mkv_tab.extract_template_subtitle",
-        lambda mkv, mkvmerge, mkvextract: tmp_path / "t.ass")
+        lambda mkv, mkvmerge, mkvextract, out_dir:
+            TemplateExtraction(path=tmp_path / "t.ass"))
     monkeypatch.setattr(
         "ass_style_tool.qt.mkv_tab.scan_styles",
         lambda path: FileStyles(path, error="壞檔"))

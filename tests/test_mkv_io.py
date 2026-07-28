@@ -284,3 +284,78 @@ def test_list_all_tracks_oserror_returns_empty(monkeypatch):
         raise OSError("not found")
     monkeypatch.setattr("ass_style_tool.mkv_io.subprocess.run", boom)
     assert list_all_tracks(Path("x.mkv"), Path("mkvmerge")) == []
+
+
+# ---------- extract_template_subtitle ----------
+# 直接測這裡的接線(選第一條軌、組暫存路徑、傳遞 extract_track 的失敗),
+# 不呼叫真的 mkvmerge/mkvextract——list_ass_tracks/extract_track 都用假的
+# 函式注入。test_mkv_tab.py 只測到分頁層的訊息,這條軌道選擇/路徑組合的
+# 邏輯本身在那邊是整個被 monkeypatch 掉的,完全沒被驗到。
+
+from ass_style_tool.mkv_io import TemplateExtraction, extract_template_subtitle
+
+
+def test_extract_template_subtitle_picks_first_track(monkeypatch, tmp_path):
+    tracks = [_track(2), _track(3)]
+    monkeypatch.setattr(
+        "ass_style_tool.mkv_io.list_ass_tracks", lambda mkv, mkvmerge: tracks)
+    seen = {}
+
+    def fake_extract_track(mkv, track_id, out_path, mkvextract):
+        seen["track_id"] = track_id
+        seen["out_path"] = out_path
+        return True
+
+    monkeypatch.setattr(
+        "ass_style_tool.mkv_io.extract_track", fake_extract_track)
+    result = extract_template_subtitle(
+        Path("show.mkv"), Path("mkvmerge"), Path("mkvextract"), tmp_path)
+    assert seen["track_id"] == 2                      # 永遠選第一條,不是 3
+    assert seen["out_path"] == tmp_path / "show.template.ass"
+    assert result == TemplateExtraction(path=tmp_path / "show.template.ass")
+
+
+def test_extract_template_subtitle_no_track_returns_no_track_reason(monkeypatch):
+    monkeypatch.setattr(
+        "ass_style_tool.mkv_io.list_ass_tracks", lambda mkv, mkvmerge: [])
+
+    def fail_if_called(*a, **k):
+        raise AssertionError("沒有字幕軌就不該呼叫 extract_track")
+
+    monkeypatch.setattr(
+        "ass_style_tool.mkv_io.extract_track", fail_if_called)
+    result = extract_template_subtitle(
+        Path("show.mkv"), Path("mkvmerge"), Path("mkvextract"))
+    assert result == TemplateExtraction(path=None, error="no_track")
+
+
+def test_extract_template_subtitle_extraction_failure_returns_extract_failed_reason(
+        monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "ass_style_tool.mkv_io.list_ass_tracks",
+        lambda mkv, mkvmerge: [_track(2)])
+    monkeypatch.setattr(
+        "ass_style_tool.mkv_io.extract_track",
+        lambda mkv, track_id, out_path, mkvextract: False)
+    result = extract_template_subtitle(
+        Path("show.mkv"), Path("mkvmerge"), Path("mkvextract"), tmp_path)
+    assert result == TemplateExtraction(path=None, error="extract_failed")
+
+
+def test_extract_template_subtitle_defaults_to_system_temp_dir(monkeypatch):
+    import tempfile
+    monkeypatch.setattr(
+        "ass_style_tool.mkv_io.list_ass_tracks",
+        lambda mkv, mkvmerge: [_track(2)])
+    seen = {}
+
+    def fake_extract_track(mkv, track_id, out_path, mkvextract):
+        seen["out_path"] = out_path
+        return True
+
+    monkeypatch.setattr(
+        "ass_style_tool.mkv_io.extract_track", fake_extract_track)
+    extract_template_subtitle(
+        Path("show.mkv"), Path("mkvmerge"), Path("mkvextract"))
+    assert seen["out_path"] == (
+        Path(tempfile.gettempdir()) / "show.template.ass")

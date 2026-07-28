@@ -175,21 +175,43 @@ def extract_track(
     return result.returncode == 0
 
 
+@dataclass
+class TemplateExtraction:
+    """extract_template_subtitle() 的結果。
+
+    path 為 None 時 error 說明原因,呼叫端要各自對應不同的提示訊息,
+    不能混為一談:
+      "no_track"       -- 這個檔本來就沒有 ASS/SSA 字幕軌(可能是 PGS/
+                          VobSub 圖形字幕),換個檔也不會有。
+      "extract_failed" -- 軌道存在,但 mkvextract 抽取失敗(壞檔、磁碟
+                          空間不足、權限問題、mkvextract 當掉…)——這批
+                          影片可能有文字字幕,只是這次抽取沒成功。
+    """
+    path: Optional[Path]
+    error: Optional[str] = None
+
+
 def extract_template_subtitle(
-    mkv_path: Path, mkvmerge: Path, mkvextract: Path
-) -> Optional[Path]:
-    """抽出影片中第一條 ASS/SSA 字幕軌到暫存檔,失敗或沒有文字軌回傳 None。
+    mkv_path: Path, mkvmerge: Path, mkvextract: Path,
+    out_dir: Optional[Path] = None,
+) -> TemplateExtraction:
+    """抽出影片中第一條 ASS/SSA 字幕軌到暫存檔,當「讀取樣式名稱」的範本。
 
     只抽一條、只抽一個檔案——這是給「讀取樣式名稱」用的範本,不是批次處理。
     整季逐檔抽取太慢,而使用者的情境是全季樣式名一致。
+
+    out_dir 未指定時退回系統暫存目錄;呼叫端若有自己會清理的暫存目錄
+    (例如分頁的 _preview_dir),應該傳進來,避免範本檔留在系統暫存目錄
+    裡沒人清。
     """
     tracks = list_ass_tracks(mkv_path, mkvmerge)
     if not tracks:
-        return None
-    out_path = Path(tempfile.gettempdir()) / f"{mkv_path.stem}.template.ass"
+        return TemplateExtraction(path=None, error="no_track")
+    directory = out_dir if out_dir is not None else Path(tempfile.gettempdir())
+    out_path = directory / f"{mkv_path.stem}.template.ass"
     if not extract_track(mkv_path, tracks[0].track_id, out_path, mkvextract):
-        return None
-    return out_path
+        return TemplateExtraction(path=None, error="extract_failed")
+    return TemplateExtraction(path=out_path)
 
 
 def remux(

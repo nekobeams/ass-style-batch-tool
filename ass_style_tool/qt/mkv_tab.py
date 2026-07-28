@@ -300,12 +300,11 @@ class MkvTab(QWidget):
         己給齊所有需要的參數),維持原本只看有沒有檔案的邏輯。跟字幕檔/
         封裝分頁(subtitle_tab.py / mux_tab.py)是同一套語意。
         """
-        if self._thread is not None:
-            return
         gated_by_styles = (self.apply_mode_radio.isChecked()
                            and not self.style_picker.selected())
         self.run_button.setEnabled(
-            bool(self._files) and self.tools_available and not gated_by_styles)
+            bool(self._files) and self.tools_available
+            and self._thread is None and not gated_by_styles)
 
     # ---------- 規則 ----------
     def _apply_keys(self, keys: Optional[Set[TrackKey]]) -> None:
@@ -495,11 +494,16 @@ class MkvTab(QWidget):
         if mkvmerge is None or mkvextract is None:
             self.log.emit("找不到 MKVToolNix,無法讀取樣式名稱")
             return
-        template = extract_template_subtitle(files[0], mkvmerge, mkvextract)
-        if template is None:
-            self.log.emit("這批影片沒有文字字幕軌(可能是 PGS/VobSub 圖形字幕)")
+        extraction = extract_template_subtitle(
+            files[0], mkvmerge, mkvextract, self._preview_dir)
+        if extraction.path is None:
+            if extraction.error == "extract_failed":
+                self.log.emit(f"抽取 {files[0].name} 的字幕軌失敗,"
+                              "無法讀取樣式名稱(檔案可能損壞或磁碟空間不足)")
+            else:
+                self.log.emit("這批影片沒有文字字幕軌(可能是 PGS/VobSub 圖形字幕)")
             return
-        result = scan_styles(template)
+        result = scan_styles(extraction.path)
         if result.error is not None:
             self.log.emit(f"範本字幕解析失敗:{result.error}")
             return
