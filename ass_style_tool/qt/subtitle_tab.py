@@ -242,9 +242,12 @@ class SubtitleFileTab(QWidget):
             try:
                 options = self.scale_panel.get_options()
             except ScaleError:
-                # 縮放參數還沒填完整(例如倍率欄位空著):「預計」欄先留空,
-                # 不能讓半成品輸入把整個預覽表格炸掉。
-                return {}
+                # 縮放參數還沒填完整(例如倍率欄位空著):這裡會在「掃描完成
+                # → 切到縮放模式 → 清空/弄壞縮放欄位 → 勾選側欄樣式」等任一
+                # 動作觸發的重算路徑上被打到,不能讓半成品輸入把整個預覽
+                # 表格炸掉,但也不能留空白格——空白跟「還沒算過」分不出來,
+                # 所以每一列都要跟其他早退路徑一樣秀出明確的標記。
+                return {path: "⚠ 縮放參數有誤" for path in styles}
             return {path: scale_plan_text(fs, options)
                     for path, fs in styles.items()}
         profile = self.effective_profile()
@@ -267,9 +270,14 @@ class SubtitleFileTab(QWidget):
 
     def _update_run_enabled(self) -> None:
         has_rows = self.table.rowCount() > 0
-        has_styles = bool(self.style_picker.selected())
         busy = self._thread is not None
-        self.run_button.setEnabled(has_rows and has_styles and not busy)
+        if self.scale_mode_radio.isChecked():
+            # 縮放模式不吃側欄的目標樣式勾選(ScalePanel.get_options() 已經
+            # 自己給齊所有需要的參數),所以按鈕只看有沒有掃到列、有沒有在跑。
+            self.run_button.setEnabled(has_rows and not busy)
+        else:
+            has_styles = bool(self.style_picker.selected())
+            self.run_button.setEnabled(has_rows and has_styles and not busy)
 
     def auto_scan_once(self) -> None:
         """分頁第一次被顯示時自動掃描一次(主視窗切分頁時呼叫)。"""
@@ -294,6 +302,7 @@ class SubtitleFileTab(QWidget):
         self.scale_panel.setHidden(not scale_mode)
         self.run_button.setText("開始縮放" if scale_mode else "開始套用樣式")
         self._update_dry_run_enabled()
+        self._update_run_enabled()
 
     def _update_dry_run_enabled(self) -> None:
         self.dry_run_button.setEnabled(
@@ -380,7 +389,10 @@ class SubtitleFileTab(QWidget):
         self._thread = None
         self._worker = None
         self.scan_button.setEnabled(True)
-        self.run_button.setEnabled(True)
+        # 不能直接把按鈕強制打開:跑批次的期間使用者可能已經改動側欄勾選
+        # (例如把唯一選的樣式取消勾),_update_run_enabled() 才會重新檢查
+        # 目前的狀態是否還滿足可執行的條件。
+        self._update_run_enabled()
         self.cancel_button.setEnabled(False)
         self._update_dry_run_enabled()
 

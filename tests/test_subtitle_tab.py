@@ -365,3 +365,73 @@ def test_auto_scan_once_skips_missing_folder(qapp, monkeypatch, tmp_path):
     tab.folder_edit.setText(str(tmp_path / "不存在"))
     tab.auto_scan_once()
     assert calls == []
+
+
+# ---------- Task 6 review修正:縮放模式的執行按鈕閘門 ----------
+
+def _scan_with_default_style():
+    from ass_style_tool.batch_runner import ScanResult
+    from ass_style_tool.episode_match import MatchResult
+    from ass_style_tool.style_scan import FileStyles
+    return ScanResult(
+        matches=[MatchResult(Path("a.ass"), 1, status="no_video")],
+        styles={Path("a.ass"): FileStyles(Path("a.ass"), {"Default": 48.0},
+                                          (1920, 1080))})
+
+
+def test_run_button_enabled_in_scale_mode_without_style_selection(qapp):
+    """縮放模式不看側欄的目標樣式勾選(ScaleWorker 只吃 ScalePanel.get_options())。"""
+    tab = _tab()
+    tab.scale_mode_radio.setChecked(True)
+    tab._on_scan_finished(_scan_with_default_style())
+    assert tab.style_picker.selected() == []
+    assert tab.run_button.isEnabled() is True
+
+
+def test_run_button_disabled_in_apply_mode_without_style_selection(qapp):
+    tab = _tab()
+    tab._on_scan_finished(_scan_with_default_style())
+    assert tab.apply_mode_radio.isChecked() is True
+    assert tab.style_picker.selected() == []
+    assert tab.run_button.isEnabled() is False
+
+
+def test_switching_to_scale_mode_enables_run_button_immediately(qapp):
+    """從套用模式(無勾選、按鈕關閉)切到縮放模式,不需要任何其他互動就要重新開放。"""
+    tab = _tab()
+    tab._on_scan_finished(_scan_with_default_style())
+    assert tab.run_button.isEnabled() is False
+    tab.scale_mode_radio.setChecked(True)
+    assert tab.run_button.isEnabled() is True
+
+
+def test_on_finished_respects_gate_after_mid_run_uncheck(qapp):
+    """執行中途取消勾選唯一選取的樣式:結束時按鈕必須維持關閉,不能被強制打開。"""
+    from unittest.mock import Mock
+    tab = _tab()
+    tab._on_scan_finished(_scan_with_default_style())
+    tab.style_picker.set_selected(["Default"])
+    assert tab.run_button.isEnabled() is True
+    tab._thread = Mock()          # 模擬批次執行緒仍在跑
+    tab.style_picker.set_selected([])   # 執行中途取消勾選
+    tab._on_finished(1, 0, 0)
+    assert tab.run_button.isEnabled() is False
+
+
+# ---------- Task 6 review修正:縮放模式「預計」欄 ----------
+
+def test_scale_mode_plan_text_shows_predicted_size(qapp):
+    tab = _tab()
+    tab.scale_mode_radio.setChecked(True)
+    tab._on_scan_finished(_scan_with_default_style())
+    text = tab.table.item(0, 4).text()
+    assert text == "Default 48 → 60(×1.2)"
+
+
+def test_scale_mode_scale_error_shows_marker_not_blank(qapp):
+    tab = _tab()
+    tab.scale_mode_radio.setChecked(True)
+    tab.scale_panel.factor_edit.setText("")   # 倍率欄位空著 → get_options() 拋 ScaleError
+    tab._on_scan_finished(_scan_with_default_style())
+    text = tab.table.item(0, 4).text()
+    assert text == "⚠ 縮放參數有誤"
