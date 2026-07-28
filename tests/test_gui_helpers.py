@@ -99,3 +99,83 @@ def test_dialogue_lines_empty():
     empty = LINES_SAMPLE.split("[Events]")[0] + "[Events]\n" \
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
     assert dialogue_lines(_subs_from(empty)) == []
+
+
+# ---------- 「預計」欄文字 ----------
+
+from ass_style_tool.profile_fields import DEFAULT_VALUES, profile_from_values
+from ass_style_tool.qt.gui_helpers import apply_plan_text, scale_plan_text
+from ass_style_tool.scale_engine import ScaleOptions
+from ass_style_tool.style_scan import FileStyles
+
+
+def _profile(**overrides):
+    values = dict(DEFAULT_VALUES)
+    values.update(overrides)
+    return profile_from_values(values)
+
+
+def test_apply_plan_text_shows_old_and_new_size():
+    fs = FileStyles(Path("a.ass"), {"Default": 48.0}, (1920, 1080))
+    # base 1920x1080、fontsize 72 → 縮放係數 1.0,預計 48 → 72
+    text = apply_plan_text(fs, _profile(fontsize="72"), ["Default"])
+    assert text == "Default 48 → 72"
+
+
+def test_apply_plan_text_scales_by_play_res():
+    fs = FileStyles(Path("a.ass"), {"Default": 24.0}, (960, 540))
+    # 960x540 相對於基準 1920x1080 是 0.5 倍 → 72 * 0.5 = 36
+    text = apply_plan_text(fs, _profile(fontsize="72"), ["Default"])
+    assert text == "Default 24 → 36"
+
+
+def test_apply_plan_text_marks_missing_style():
+    fs = FileStyles(Path("a.ass"), {"CHS": 48.0}, (1920, 1080))
+    text = apply_plan_text(fs, _profile(), ["Default"])
+    assert "找不到" in text and "Default" in text
+
+
+def test_apply_plan_text_marks_unreadable_file():
+    fs = FileStyles(Path("a.ass"), error="讀取失敗")
+    assert apply_plan_text(fs, _profile(), ["Default"]) == "⚠ 無法讀取"
+
+
+def test_apply_plan_text_with_no_selection():
+    fs = FileStyles(Path("a.ass"), {"Default": 48.0}, (1920, 1080))
+    assert apply_plan_text(fs, _profile(), []) == "⊘ 未選樣式"
+
+
+def test_scale_plan_text_uses_factor():
+    fs = FileStyles(Path("a.ass"), {"Default": 40.0}, (1920, 1080))
+    text = scale_plan_text(fs, ScaleOptions(factor=1.5, base_style="Default"))
+    assert text == "Default 40 → 60(×1.5)"
+
+
+def test_scale_plan_text_derives_factor_from_target_size():
+    fs = FileStyles(Path("a.ass"), {"Default": 40.0}, (1920, 1080))
+    text = scale_plan_text(fs,
+                           ScaleOptions(target_size=60, base_style="Default"))
+    assert text == "Default 40 → 60(×1.5)"
+
+
+def test_scale_plan_text_marks_missing_base_style():
+    fs = FileStyles(Path("a.ass"), {"CHS": 40.0}, (1920, 1080))
+    text = scale_plan_text(fs, ScaleOptions(factor=1.5, base_style="Default"))
+    assert "找不到基準樣式" in text
+
+
+def test_preview_rows_carries_plan_text():
+    from ass_style_tool.batch_runner import ScanResult
+    from ass_style_tool.episode_match import MatchResult
+    from ass_style_tool.qt.gui_helpers import preview_rows
+    scan = ScanResult(matches=[MatchResult(Path("a.ass"), 1, status="no_video")])
+    rows = preview_rows(scan, {Path("a.ass"): "Default 48 → 72"})
+    assert rows[0].plan == "Default 48 → 72"
+
+
+def test_preview_rows_plan_defaults_to_blank():
+    from ass_style_tool.batch_runner import ScanResult
+    from ass_style_tool.episode_match import MatchResult
+    from ass_style_tool.qt.gui_helpers import preview_rows
+    scan = ScanResult(matches=[MatchResult(Path("a.ass"), 1, status="no_video")])
+    assert preview_rows(scan)[0].plan == ""
