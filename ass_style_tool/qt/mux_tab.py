@@ -23,6 +23,7 @@ from ..style_scan import scan_styles, summarize
 from ..tools import mkvextract_path, mkvmerge_path
 from ..track_edit import TrackEdit
 from .batch_worker import MuxScanWorker, MuxWorker, TrackScanWorker
+from .gui_helpers import RESULT_ICONS, apply_plan_text, scale_plan_text
 from .layout_helpers import (action_row, group, main_splitter, page_layout,
                              settings_sidebar)
 from .modify_tracks_dialog import ModifyTracksDialog
@@ -30,9 +31,13 @@ from .scale_panel import ScalePanel
 from .scan_progress_dialog import ScanProgressDialog
 from .style_picker import StylePicker
 
-_HEADERS = ["封裝", "影片", "字幕", "集數", "狀態"]
+_HEADERS = ["封裝", "影片", "字幕", "集數", "狀態", "預計 / 結果"]
 _STATUS_LABELS = {"matched": "已配對", "no_subtitle": "無對應字幕",
                   "ambiguous": "配對模糊", "no_episode": "無法判斷集數"}
+# 「原字幕直接封」不套用/縮放任何樣式,「預計 / 結果」欄沒有東西可預告;
+# 但仍要顯示明確文字而不是留白——留白會跟「還沒算過」分不出來,尤其是
+# 從套用/縮放模式切回來的當下,空白很容易被誤讀成「這裡本來就沒東西」。
+_DIRECT_MODE_PLAN_TEXT = "直接封裝,不修改字幕"
 # 常見字幕語言清單移到 ..languages(與 modify_tracks_dialog 的軌道語言欄
 # 共用,避免同一份清單在兩處各自維護)。_LANGUAGES 這個名字繼續保留、
 # re-export,既有呼叫端與測試都是這樣引用的。
@@ -46,6 +51,7 @@ class MuxTab(QWidget):
         self._get_profile = get_profile
         self._pairs: List[MuxPair] = []
         self._available_subtitles: List[Path] = []
+        self._file_styles: dict = {}   # subtitle_path -> FileStyles(「預計」欄用)
         self._thread: Optional[QThread] = None
         self._worker = None
         self._scan_thread: Optional[QThread] = None
@@ -125,7 +131,7 @@ class MuxTab(QWidget):
         # group() 的第二參數收的是 QLayout(它會對其呼叫 setContentsMargins /
         # setSpacing),所以 picker 要先包一層 layout,不可直接傳 widget。
         self.style_picker = StylePicker()
-        self.style_picker.changed.connect(self._refresh_run_button)
+        self.style_picker.changed.connect(self._on_styles_changed)
         style_box = QVBoxLayout()
         style_box.addWidget(self.style_picker)
         self.style_group = group("目標樣式", style_box)
@@ -255,6 +261,9 @@ class MuxTab(QWidget):
         # ——秀出來只會讓使用者以為勾選有作用,卻在執行時被靜默忽略。跟字幕
         # 檔分頁(subtitle_tab.py)的縮放模式是同一套語意,兩邊要維持一致。
         self.style_group.setHidden(not self.apply_mode_radio.isChecked())
+        # 三種前處理模式各自的「預計」文字算法不同,切換當下必須重算整欄
+        # (Task 10:同一個 Task 6 review 缺陷在這裡也有一份)。
+        self._recompute_plan_column()
         self._refresh_run_button()
 
     # ---------- 掃描 ----------
@@ -327,10 +336,12 @@ class MuxTab(QWidget):
         if s and Path(s).is_dir():
             subs, _ = find_files(Path(s))
             self._available_subtitles = sorted(subs)
-        results = [scan_styles(p.subtitle_path) for p in pairs
-                  if p.subtitle_path is not None]
+        matched_pairs = [p for p in pairs if p.subtitle_path is not None]
+        results = [scan_styles(p.subtitle_path) for p in matched_pairs]
         summary = summarize(results)
         self.style_picker.set_available(summary.names)
+        self._file_styles = dict(
+            zip((p.subtitle_path for p in matched_pairs), results))
         self.populate(pairs)
         matched = sum(1 for p in pairs if p.status == "matched")
         self.log.emit(f"配對完成:{len(pairs)} 部影片,{matched} 部有對應字幕")
@@ -368,6 +379,8 @@ class MuxTab(QWidget):
             self.table.setItem(
                 r, 4, QTableWidgetItem(
                     _STATUS_LABELS.get(pair.status, pair.status)))
+            self.table.setItem(
+                r, 5, QTableWidgetItem(self._plan_text_for(pair)))
         self._refresh_run_button()
         self._refresh_modify_button()
 
@@ -392,6 +405,10 @@ class MuxTab(QWidget):
         self._pairs[row] = new_pair
         self.table.item(row, 4).setText(
             _STATUS_LABELS.get(new_pair.status, new_pair.status))
+        # 手動指定的字幕檔通常沒掃過樣式(不在 self._file_styles 裡),
+        # _plan_text_for() 對 file_styles=None 會自然回傳空字串——比留著
+        # 前一個字幕檔算出來的舊「預計」文字被誤讀成這次的預告好。
+        self.table.item(row, 5).setText(self._plan_text_for(new_pair))
         check = self.table.item(row, 0)
         check.setCheckState(
             Qt.CheckState.Checked if new_pair.status == "matched"
@@ -423,11 +440,61 @@ class MuxTab(QWidget):
         return replace(self._get_profile(),
                        target_style_names=self.style_picker.selected())
 
+    # ---------- 「預計 / 結果」欄 ----------
+    def _plan_text_for(self, pair: MuxPair) -> str:
+        """單一列的「預計」欄文字,依目前的封裝前處理模式分支。"""
+        if self.direct_mode_radio.isChecked():
+            return _DIRECT_MODE_PLAN_TEXT
+        if pair.subtitle_path is None:
+            return ""
+        file_styles = self._file_styles.get(pair.subtitle_path)
+        if self.scale_mode_radio.isChecked():
+            try:
+                options = self.scale_panel.get_options()
+            except ScaleError:
+                # 縮放參數還沒填完整:同一坑字幕檔分頁(subtitle_tab.py)的
+                # _plans() 已經踩過,這裡不能留空白讓人誤讀成「還沒算過」。
+                return "⚠ 縮放參數有誤"
+            return scale_plan_text(file_styles, options)
+        return apply_plan_text(file_styles, self.effective_profile(),
+                               self.style_picker.selected())
+
+    def _recompute_plan_column(self) -> None:
+        """切換前處理模式、或目標樣式勾選改變時重算整欄。
+
+        `_on_preprocess_mode_changed()`/`_on_styles_changed()` 都要呼叫
+        這個——不然畫面會留著前一個模式(或前一次勾選)算出來的預告,
+        被誤讀成「目前這個模式/勾選會這樣改」(跟字幕檔分頁同一個 Task 6
+        review 發現、延到 Task 10 修的缺陷)。
+        """
+        for r, pair in enumerate(self._pairs):
+            item = self.table.item(r, 5)
+            if item is not None:
+                item.setText(self._plan_text_for(pair))
+
+    def mark_rows_pending(self) -> None:
+        """開始封裝時把整欄換成「處理中…」,避免舊預告被誤讀成這次的結果。"""
+        for r in range(self.table.rowCount()):
+            self.table.setItem(r, 5, QTableWidgetItem("處理中…"))
+
+    def _set_row_result(self, name: str, status: str) -> None:
+        text = RESULT_ICONS.get(status, status)
+        for r in range(self.table.rowCount()):
+            item = self.table.item(r, 1)          # 第 1 欄是影片檔名
+            if item is not None and item.text() == name:
+                self.table.setItem(r, 5, QTableWidgetItem(text))
+                return
+
     def _output_dir(self) -> Optional[Path]:
         if self.replace_radio.isChecked():
             return None
         text = self.outdir_edit.text().strip()
         return Path(text) if text else None
+
+    def _on_styles_changed(self) -> None:
+        """套用模式的「預計」文字依目標樣式勾選而定,勾選一變就要重算。"""
+        self._recompute_plan_column()
+        self._refresh_run_button()
 
     def _refresh_run_button(self) -> None:
         # 「先套用目前樣式」一個樣式都沒勾等於這批不會改到任何東西,不該讓
@@ -545,6 +612,7 @@ class MuxTab(QWidget):
         self.run_button.setEnabled(False)
         self.modify_tracks_button.setEnabled(False)
         self.cancel_button.setEnabled(True)
+        self.mark_rows_pending()
 
         self._thread = QThread()
         self._worker = MuxWorker(pairs, self.current_meta(), operation,
@@ -557,6 +625,7 @@ class MuxTab(QWidget):
         self._worker.file_progress.connect(self.file_progress.setValue)
         self._worker.file_done.connect(
             lambda name, status: self.log.emit(f"[{status}] {name}"))
+        self._worker.file_done.connect(self._set_row_result)
         self._worker.message.connect(self.log.emit)
         self._worker.finished.connect(self._on_finished)
         self._thread.start()

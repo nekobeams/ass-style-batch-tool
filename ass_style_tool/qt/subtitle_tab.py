@@ -20,7 +20,7 @@ from ..profile import Profile
 from ..scale_engine import ScaleError, read_as_ass_text, scale_text
 from ..style_scan import summarize
 from .batch_worker import BatchWorker, ScaleWorker
-from .gui_helpers import apply_plan_text, preview_rows, scale_plan_text
+from .gui_helpers import RESULT_ICONS, apply_plan_text, preview_rows, scale_plan_text
 from .layout_helpers import (action_row, group, main_splitter, page_layout,
                              settings_sidebar)
 from .scale_panel import ScalePanel
@@ -291,6 +291,20 @@ class SubtitleFileTab(QWidget):
         self._auto_scanned = True
         self._on_scan()
 
+    # ---------- 「預計 / 結果」欄的狀態轉換 ----------
+    def mark_rows_pending(self) -> None:
+        """開始執行時把整欄換成「處理中…」,避免舊預告被誤讀成這次的結果。"""
+        for r in range(self.table.rowCount()):
+            self.table.setItem(r, 4, QTableWidgetItem("處理中…"))
+
+    def _set_row_result(self, name: str, status: str) -> None:
+        text = RESULT_ICONS.get(status, status)
+        for r in range(self.table.rowCount()):
+            item = self.table.item(r, 1)          # 第 1 欄是字幕檔名
+            if item is not None and item.text() == name:
+                self.table.setItem(r, 4, QTableWidgetItem(text))
+                return
+
     def _on_row_double_clicked(self, row: int, _column: int) -> None:
         if self._scan is None or row >= len(self._scan.matches):
             return
@@ -301,8 +315,16 @@ class SubtitleFileTab(QWidget):
     def _on_mode_changed(self, scale_mode: bool) -> None:
         self.scale_panel.setHidden(not scale_mode)
         self.run_button.setText("開始縮放" if scale_mode else "開始套用樣式")
-        self._update_dry_run_enabled()
-        self._update_run_enabled()
+        # 套用/縮放兩種模式的「預計」文字算法不同(_plans() 依模式分支),
+        # 切模式當下必須重算整欄,不然畫面會留著前一個模式算出來的預告,
+        # 被誤讀成「這個模式會這樣改」。populate_preview() 已經把
+        # _update_run_enabled()/_update_dry_run_enabled() 包在裡面,尚未
+        # 掃描過(self._scan is None)時才需要另外呼叫。
+        if self._scan is not None:
+            self.populate_preview(self._scan)
+        else:
+            self._update_dry_run_enabled()
+            self._update_run_enabled()
 
     def _update_dry_run_enabled(self) -> None:
         self.dry_run_button.setEnabled(
@@ -357,6 +379,7 @@ class SubtitleFileTab(QWidget):
         self.run_button.setEnabled(False)
         self.dry_run_button.setEnabled(False)
         self.cancel_button.setEnabled(True)
+        self.mark_rows_pending()
 
         self._thread = QThread()
         if self.scale_mode_radio.isChecked():
@@ -368,6 +391,7 @@ class SubtitleFileTab(QWidget):
         self._worker.progress.connect(self._on_progress)
         self._worker.file_done.connect(
             lambda name, status: self.log.emit(f"[{status}] {name}"))
+        self._worker.file_done.connect(self._set_row_result)
         self._worker.message.connect(self.log.emit)
         self._worker.finished.connect(self._on_finished)
         self._thread.start()

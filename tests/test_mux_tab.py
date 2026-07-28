@@ -649,3 +649,113 @@ def test_on_scan_done_all_unmatched_yields_empty_styles_without_raising(
     tab._on_scan_done(pairs)               # 不應拋例外
     assert tab.table.rowCount() == 2
     assert tab.style_picker.list.count() == 0
+
+
+# ---------- Task 10: 「預計 / 結果」欄 ----------
+
+def test_plan_column_header_label(qapp, monkeypatch):
+    tab = _tab(monkeypatch)
+    assert tab.table.horizontalHeaderItem(5).text() == "預計 / 結果"
+
+
+def test_direct_mode_plan_shows_no_modification_marker(qapp, monkeypatch):
+    from ass_style_tool.style_scan import FileStyles
+    tab = _tab(monkeypatch)
+    assert tab.direct_mode_radio.isChecked() is True
+    tab._file_styles = {
+        Path("a [01].ass"): FileStyles(Path("a [01].ass"), {"Default": 48.0},
+                                       (1920, 1080))}
+    tab.populate(PAIRS)
+    assert tab.table.item(0, 5).text() == "直接封裝,不修改字幕"
+
+
+def test_apply_mode_plan_shows_predicted_size(qapp, monkeypatch):
+    from ass_style_tool.style_scan import FileStyles
+    tab = _tab(monkeypatch)
+    tab.apply_mode_radio.setChecked(True)
+    tab._file_styles = {
+        Path("a [01].ass"): FileStyles(Path("a [01].ass"), {"Default": 48.0},
+                                       (1920, 1080))}
+    tab.populate(PAIRS)
+    tab.style_picker.set_available(["Default"])
+    tab.style_picker.set_selected(["Default"])
+    text = tab.table.item(0, 5).text()
+    assert "Default 48 →" in text
+
+
+def test_switching_preprocess_mode_recomputes_plan_column(qapp, monkeypatch):
+    """跟字幕檔分頁同一個 Task 6 review 缺陷:封裝分頁有三種前處理模式,
+    切換時如果不重算,畫面會留著前一個模式的預告文字。"""
+    from ass_style_tool.style_scan import FileStyles
+    tab = _tab(monkeypatch)
+    tab._file_styles = {
+        Path("a [01].ass"): FileStyles(Path("a [01].ass"), {"Default": 48.0},
+                                       (1920, 1080))}
+    tab.populate(PAIRS)
+    tab.apply_mode_radio.setChecked(True)
+    tab.style_picker.set_available(["Default"])
+    tab.style_picker.set_selected(["Default"])
+    apply_text = tab.table.item(0, 5).text()
+    assert "Default 48 →" in apply_text
+
+    tab.direct_mode_radio.setChecked(True)
+    direct_text = tab.table.item(0, 5).text()
+    assert direct_text == "直接封裝,不修改字幕"
+    assert direct_text != apply_text
+
+    tab.scale_mode_radio.setChecked(True)
+    scale_text = tab.table.item(0, 5).text()
+    assert "×" in scale_text
+    assert scale_text not in (apply_text, direct_text)
+
+
+def test_style_selection_change_recomputes_plan_column(qapp, monkeypatch):
+    from ass_style_tool.style_scan import FileStyles
+    tab = _tab(monkeypatch)
+    tab.apply_mode_radio.setChecked(True)
+    tab._file_styles = {
+        Path("a [01].ass"): FileStyles(
+            Path("a [01].ass"), {"Default": 48.0, "CHT": 52.0}, (1920, 1080))}
+    tab.populate(PAIRS)
+    tab.style_picker.set_available(["Default", "CHT"])
+    tab.style_picker.set_selected(["Default"])
+    first_text = tab.table.item(0, 5).text()
+    tab.style_picker.set_selected(["CHT"])
+    second_text = tab.table.item(0, 5).text()
+    assert "Default" in first_text
+    assert "CHT" in second_text
+    assert first_text != second_text
+
+
+def test_mark_rows_pending_sets_processing_text(qapp, monkeypatch):
+    tab = _tab(monkeypatch)
+    tab.populate(PAIRS)
+    tab.mark_rows_pending()
+    for r in range(tab.table.rowCount()):
+        assert tab.table.item(r, 5).text() == "處理中…"
+
+
+def test_set_row_result_replaces_cell(qapp, monkeypatch):
+    tab = _tab(monkeypatch)
+    tab.populate(PAIRS)
+    tab.mark_rows_pending()
+    tab._set_row_result("a [01].mkv", "ok")
+    assert "✓" in tab.table.item(0, 5).text()
+
+
+def test_rescan_restores_plan_column(qapp, monkeypatch):
+    from ass_style_tool.style_scan import FileStyles
+    tab = _tab(monkeypatch)
+    tab._file_styles = {
+        Path("a [01].ass"): FileStyles(Path("a [01].ass"), {"Default": 48.0},
+                                       (1920, 1080))}
+    tab.apply_mode_radio.setChecked(True)
+    tab.style_picker.set_available(["Default"])
+    tab.style_picker.set_selected(["Default"])
+    tab.populate(PAIRS)
+    tab.mark_rows_pending()
+    tab._set_row_result("a [01].mkv", "error")
+    assert tab.table.item(0, 5).text() != ""
+    tab.populate(PAIRS)      # 重新配對 == 重新掃描的等效路徑
+    text = tab.table.item(0, 5).text()
+    assert "Default 48 →" in text

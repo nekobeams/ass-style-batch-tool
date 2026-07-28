@@ -435,3 +435,58 @@ def test_scale_mode_scale_error_shows_marker_not_blank(qapp):
     tab._on_scan_finished(_scan_with_default_style())
     text = tab.table.item(0, 4).text()
     assert text == "⚠ 縮放參數有誤"
+
+
+# ---------- Task 10: 「預計 / 結果」的狀態轉換 ----------
+
+def _scan_with_one_file():
+    from pathlib import Path
+    from ass_style_tool.batch_runner import ScanResult
+    from ass_style_tool.episode_match import MatchResult
+    from ass_style_tool.style_scan import FileStyles
+    return ScanResult(
+        matches=[MatchResult(Path("a.ass"), 1, status="no_video")],
+        styles={Path("a.ass"): FileStyles(Path("a.ass"), {"Default": 48.0},
+                                          (1920, 1080))})
+
+
+def test_run_start_marks_rows_in_progress(qapp):
+    tab = _tab()
+    tab._on_scan_finished(_scan_with_one_file())
+    tab.style_picker.set_selected(["Default"])
+    tab.mark_rows_pending()
+    assert tab.table.item(0, 4).text() == "處理中…"
+
+
+def test_file_done_replaces_cell_with_result(qapp):
+    tab = _tab()
+    tab._on_scan_finished(_scan_with_one_file())
+    tab.style_picker.set_selected(["Default"])
+    tab.mark_rows_pending()
+    tab._set_row_result("a.ass", "ok")
+    assert "✓" in tab.table.item(0, 4).text()
+
+
+def test_rescan_restores_plan_text(qapp):
+    tab = _tab()
+    tab._on_scan_finished(_scan_with_one_file())
+    tab.style_picker.set_selected(["Default"])
+    tab.mark_rows_pending()
+    tab._set_row_result("a.ass", "error")
+    tab._on_scan_finished(_scan_with_one_file())      # 重新掃描
+    assert "Default 48 →" in tab.table.item(0, 4).text()
+
+
+def test_switching_mode_recomputes_plan_column(qapp):
+    """Task 6 review 發現、延到 Task 10 修:_on_mode_changed 之前不會重算
+    預計欄,導致切模式後畫面還留著前一個模式的預告文字(例如切到縮放
+    模式後仍顯示套用模式算出來的 Default 48 → 72)。"""
+    tab = _tab()
+    tab._on_scan_finished(_scan_with_default_style())
+    tab.style_picker.set_selected(["Default"])
+    apply_text = tab.table.item(0, 4).text()
+    assert "×" not in apply_text          # 套用模式沒有倍率標記
+    tab.scale_mode_radio.setChecked(True)
+    scale_text = tab.table.item(0, 4).text()
+    assert "×" in scale_text              # 縮放模式要秀出倍率,不能還是套用模式的舊文字
+    assert scale_text != apply_text

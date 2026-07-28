@@ -27,6 +27,7 @@ from ..style_scan import scan_styles
 from ..tools import mkvextract_path, mkvmerge_path
 from ..track_select import TrackKey, all_keys, resolve_tracks
 from .batch_worker import MkvScanWorker, MkvWorker
+from .gui_helpers import RESULT_ICONS
 from .layout_helpers import (action_row, group, main_splitter, page_layout,
                              settings_sidebar)
 from .scale_panel import ScalePanel
@@ -34,7 +35,7 @@ from .scan_progress_dialog import ScanProgressDialog
 from .select_tracks_dialog import SelectTracksDialog
 from .style_picker import StylePicker
 
-_HEADERS = ["MKV", "將套用的軌"]
+_HEADERS = ["MKV", "將套用的軌", "結果"]
 
 
 class MkvTab(QWidget):
@@ -276,8 +277,26 @@ class MkvTab(QWidget):
             name.setCheckState(Qt.CheckState.Checked)
             self.file_table.setItem(row, 0, name)
             self.file_table.setItem(row, 1, QTableWidgetItem(""))
+            # 這個分頁沒有逐檔「預計」(字幕在容器裡,要 mkvextract 才讀得
+            # 到),「結果」欄重新列出時一律回到空白,不留上一輪批次的
+            # 舊結果被誤讀成這次的。
+            self.file_table.setItem(row, 2, QTableWidgetItem(""))
         self._refresh_track_column()
         self._refresh_run_button()
+
+    # ---------- 「結果」欄 ----------
+    def mark_rows_pending(self) -> None:
+        """開始處理時把整欄換成「處理中…」,避免舊結果被誤讀成這次的。"""
+        for r in range(self.file_table.rowCount()):
+            self.file_table.setItem(r, 2, QTableWidgetItem("處理中…"))
+
+    def _set_row_result(self, name: str, status: str) -> None:
+        text = RESULT_ICONS.get(status, status)
+        for r in range(self.file_table.rowCount()):
+            item = self.file_table.item(r, 0)     # 第 0 欄是 MKV 檔名
+            if item is not None and item.text() == name:
+                self.file_table.setItem(r, 2, QTableWidgetItem(text))
+                return
 
     def checked_files(self) -> List[Path]:
         return [path for row, path in enumerate(self._files)
@@ -563,6 +582,7 @@ class MkvTab(QWidget):
         self.run_button.setEnabled(False)
         self.modify_tracks_button.setEnabled(False)
         self.cancel_button.setEnabled(True)
+        self.mark_rows_pending()
 
         self._thread = QThread()
         self._worker = MkvWorker(jobs, operation, self._tools, output_dir)
@@ -572,6 +592,7 @@ class MkvTab(QWidget):
         self._worker.file_progress.connect(self.file_progress.setValue)
         self._worker.file_done.connect(
             lambda name, status: self.log.emit(f"[{status}] {name}"))
+        self._worker.file_done.connect(self._set_row_result)
         self._worker.message.connect(self.log.emit)
         self._worker.finished.connect(self._on_finished)
         self._thread.start()

@@ -739,3 +739,41 @@ def test_save_and_restore_settings_roundtrip_single_style_does_not_degrade(
     tab_b = _tab(monkeypatch)
     tab_b.restore_settings(settings)
     assert tab_b.style_picker.selected() == ["CHT"]
+
+
+# ---------- Task 10: 「結果」欄(MKV 分頁沒有逐檔預告,只有結果) ----------
+
+def test_result_column_header_label(qapp, monkeypatch):
+    tab = _tab(monkeypatch)
+    assert tab.file_table.horizontalHeaderItem(2).text() == "結果"
+
+
+def test_result_column_blank_after_populate(qapp, monkeypatch):
+    tab = _tab(monkeypatch)
+    tab.populate(FILES)
+    assert [tab.file_table.item(r, 2).text() for r in range(3)] == ["", "", ""]
+
+
+def test_mark_rows_pending_sets_processing_text(qapp, monkeypatch):
+    tab = _tab(monkeypatch)
+    tab.populate(FILES)
+    tab.mark_rows_pending()
+    assert all(tab.file_table.item(r, 2).text() == "處理中…" for r in range(3))
+
+
+def test_set_row_result_replaces_cell(qapp, monkeypatch):
+    tab = _tab(monkeypatch)
+    tab.populate(FILES)
+    tab.mark_rows_pending()
+    tab._set_row_result("e1.mkv", "ok")
+    assert "✓" in tab.file_table.item(0, 2).text()
+
+
+def test_rescan_restores_blank_result_column(qapp, monkeypatch):
+    tab = _tab(monkeypatch)
+    tab.populate(FILES)
+    tab.mark_rows_pending()
+    tab._set_row_result("e1.mkv", "error")
+    assert tab.file_table.item(0, 2).text() != ""
+    tab.populate(FILES)      # 重新列出 == 重新掃描的等效路徑
+    assert tab.file_table.item(0, 2).text() == ""

@@ -17,6 +17,11 @@ STATUS_LABELS = {
     "no_episode": "無法判斷集數",
 }
 
+# 「預計 / 結果」欄在批次執行完成後顯示的狀態圖示;三個分頁(字幕檔/封裝/
+# MKV)的 worker.file_done 狀態值(ok|skipped|error)是同一組,共用同一份
+# 對照表,避免各分頁各自維護一份容易日後漂移不一致。
+RESULT_ICONS = {"ok": "✓ 已套用", "skipped": "⊘ 略過", "error": "✗ 失敗"}
+
 
 @dataclass
 class PreviewRow:
