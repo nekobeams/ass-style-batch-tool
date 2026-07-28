@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import tempfile
+from dataclasses import replace
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Set, Tuple
 
@@ -19,9 +20,10 @@ from PySide6.QtWidgets import (QAbstractItemView, QButtonGroup, QFileDialog,
                                QWidget)
 
 from ..mkv_batch import MkvTools, track_key
-from ..mkv_io import SubtitleTrack, extract_track
+from ..mkv_io import SubtitleTrack, extract_template_subtitle, extract_track
 from ..profile import Profile
 from ..scale_engine import ScaleError
+from ..style_scan import scan_styles
 from ..tools import mkvextract_path, mkvmerge_path
 from ..track_select import TrackKey, all_keys, resolve_tracks
 from .batch_worker import MkvScanWorker, MkvWorker
@@ -30,6 +32,7 @@ from .layout_helpers import (action_row, group, main_splitter, page_layout,
 from .scale_panel import ScalePanel
 from .scan_progress_dialog import ScanProgressDialog
 from .select_tracks_dialog import SelectTracksDialog
+from .style_picker import StylePicker
 
 _HEADERS = ["MKV", "將套用的軌"]
 
@@ -51,6 +54,7 @@ class MkvTab(QWidget):
         self._scan_worker = None
         self._scan_dialog: Optional[ScanProgressDialog] = None
         self._scanned_folder: Optional[str] = None
+        self._auto_scanned = False
         self._closing = False
         self._preview_dir = Path(tempfile.mkdtemp(prefix="ass_mkv_preview_"))
         self.setAcceptDrops(True)
@@ -99,8 +103,7 @@ class MkvTab(QWidget):
         self.scale_panel = ScalePanel()
         self.scale_panel.setHidden(True)
         mode_box.addWidget(self.scale_panel)
-        self.scale_mode_radio.toggled.connect(
-            lambda on: self.scale_panel.setHidden(not on))
+        self.scale_mode_radio.toggled.connect(self._on_mode_changed)
 
         self._mode_group = QButtonGroup(self)
         self._mode_group.addButton(self.apply_mode_radio)
@@ -114,6 +117,24 @@ class MkvTab(QWidget):
         self.preview_button = QPushButton("送進預覽")
         self.preview_button.clicked.connect(self._on_send_preview)
         track_box.addWidget(self.preview_button)
+
+        # ----- 側欄:目標樣式 -----
+        # group() 的第二參數收的是 QLayout(它會對其呼叫 setContentsMargins /
+        # setSpacing),所以 picker 要先包一層 layout,不可直接傳 widget。
+        # 字幕在檔案內,樣式名要按需從第一個影片抽一條字幕軌讀出來(見
+        # read_template_styles()),不像另外兩個分頁掃資料夾時就能順便讀到。
+        self.style_picker = StylePicker()
+        self.style_picker.changed.connect(self._refresh_run_button)
+        style_box = QVBoxLayout()
+        style_box.addWidget(self.style_picker)
+        self.read_styles_button = QPushButton("讀取樣式名稱")
+        self.read_styles_button.clicked.connect(self.read_template_styles)
+        style_box.addWidget(self.read_styles_button)
+        self.style_group = group("目標樣式", style_box)
+        # 「縮放字級」模式的執行路徑走 scale_panel.get_options(),完全不讀
+        # style_picker——秀出來只會讓使用者以為勾選有作用,卻在執行時被
+        # 靜默忽略。跟封裝分頁(mux_tab.py)的作法一致,整組隨模式隱藏。
+        self.style_group.setHidden(not self.apply_mode_radio.isChecked())
 
         # ----- 側欄:輸出 -----
         out_box = QVBoxLayout()
@@ -139,6 +160,7 @@ class MkvTab(QWidget):
             self.file_table,
             settings_sidebar(group("操作模式", mode_box),
                              group("字幕軌", track_box),
+                             self.style_group,
                              group("輸出", out_box)))
         root.addWidget(self.splitter, 1)
 
@@ -166,7 +188,8 @@ class MkvTab(QWidget):
 
         if not self.tools_available:
             for b in (self.scan_button, self.modify_tracks_button,
-                      self.preview_button, self.run_button):
+                      self.preview_button, self.run_button,
+                      self.read_styles_button):
                 b.setEnabled(False)
 
     # ---------- 拖放 / 檔案選擇 ----------
@@ -209,6 +232,24 @@ class MkvTab(QWidget):
             self.outdir_edit.setText(path)
             self.outdir_radio.setChecked(True)
 
+    def auto_scan_once(self) -> None:
+        """分頁第一次被顯示時自動掃描一次(主視窗切分頁時呼叫)。"""
+        if self._auto_scanned:
+            return
+        folder = self.folder_edit.text().strip()
+        if not folder or not Path(folder).is_dir():
+            return
+        if self._thread is not None or self._scan_thread is not None:
+            return
+        self._auto_scanned = True
+        self._on_scan()
+
+    # ---------- 模式切換 ----------
+    def _on_mode_changed(self, scale_mode: bool) -> None:
+        self.scale_panel.setHidden(not scale_mode)
+        self.style_group.setHidden(scale_mode)
+        self._refresh_run_button()
+
     # ---------- 列檔(同步,不跑外部程序) ----------
     def _on_scan(self) -> None:
         if self._thread is not None:
@@ -236,14 +277,35 @@ class MkvTab(QWidget):
             self.file_table.setItem(row, 0, name)
             self.file_table.setItem(row, 1, QTableWidgetItem(""))
         self._refresh_track_column()
-        if self._thread is None:
-            self.run_button.setEnabled(bool(self._files)
-                                       and self.tools_available)
+        self._refresh_run_button()
 
     def checked_files(self) -> List[Path]:
         return [path for row, path in enumerate(self._files)
                 if self.file_table.item(row, 0).checkState()
                 == Qt.CheckState.Checked]
+
+    def current_files(self) -> List[Path]:
+        """目前列出的影片路徑清單(不論勾選狀態)。
+
+        給 read_template_styles() 取「第一個影片」當範本用;範本檔跟批次
+        要不要套用某一檔無關,所以不像 checked_files() 只看有勾的。
+        """
+        return list(self._files)
+
+    def _refresh_run_button(self) -> None:
+        """依目前狀態(檔案、工具、模式、是否忙碌)重新計算執行鈕可不可按。
+
+        「套用樣式」模式下沒勾任何目標樣式等於這批不會改到任何東西,不該
+        讓使用者按下去;「縮放字級」模式不吃這個勾選(scale_panel 已經自
+        己給齊所有需要的參數),維持原本只看有沒有檔案的邏輯。跟字幕檔/
+        封裝分頁(subtitle_tab.py / mux_tab.py)是同一套語意。
+        """
+        if self._thread is not None:
+            return
+        gated_by_styles = (self.apply_mode_radio.isChecked()
+                           and not self.style_picker.selected())
+        self.run_button.setEnabled(
+            bool(self._files) and self.tools_available and not gated_by_styles)
 
     # ---------- 規則 ----------
     def _apply_keys(self, keys: Optional[Set[TrackKey]]) -> None:
@@ -418,6 +480,37 @@ class MkvTab(QWidget):
             return
         self.preview_requested.emit(temp, path)
 
+    # ---------- 範本檔樣式讀取 ----------
+    def read_template_styles(self) -> None:
+        """從第一個影片抽一條文字字幕軌,讀出樣式名稱當範本。
+
+        不逐檔抽取:一季全抽很慢,而使用者的情境是全季樣式名一致,
+        一個範本檔就夠。與「修改既有軌道」對話框同一種心智模型。
+        """
+        files = self.current_files()
+        if not files:
+            self.log.emit("請先掃描資料夾")
+            return
+        mkvmerge, mkvextract = mkvmerge_path(), mkvextract_path()
+        if mkvmerge is None or mkvextract is None:
+            self.log.emit("找不到 MKVToolNix,無法讀取樣式名稱")
+            return
+        template = extract_template_subtitle(files[0], mkvmerge, mkvextract)
+        if template is None:
+            self.log.emit("這批影片沒有文字字幕軌(可能是 PGS/VobSub 圖形字幕)")
+            return
+        result = scan_styles(template)
+        if result.error is not None:
+            self.log.emit(f"範本字幕解析失敗:{result.error}")
+            return
+        self.style_picker.set_available(sorted(result.styles))
+        self.log.emit(f"從 {files[0].name} 讀到 {len(result.styles)} 個樣式")
+
+    def effective_profile(self) -> Profile:
+        """把側欄勾選的樣式名蓋進目前的 profile(與其他兩個分頁的作法相同)。"""
+        return replace(self._get_profile(),
+                       target_style_names=self.style_picker.selected())
+
     # ---------- 執行 ----------
     def _output_dir(self) -> Optional[Path]:
         if self.replace_radio.isChecked():
@@ -451,7 +544,7 @@ class MkvTab(QWidget):
                 return
         else:
             try:
-                operation = self._get_profile()
+                operation = self.effective_profile()
             except ValueError as exc:
                 self.log.emit(f"欄位錯誤: {exc}")
                 return
@@ -496,7 +589,10 @@ class MkvTab(QWidget):
         self._thread = None
         self._worker = None
         self.scan_button.setEnabled(True)
-        self.run_button.setEnabled(True)
+        # 不能直接把按鈕強制打開:跑批次期間使用者可能已經改動側欄勾選
+        # (例如把唯一選的樣式取消勾),_refresh_run_button() 才會重新檢查
+        # 目前狀態是否還滿足可執行的條件。
+        self._refresh_run_button()
         self.modify_tracks_button.setEnabled(self.tools_available)
         self.cancel_button.setEnabled(False)
 
@@ -526,6 +622,7 @@ class MkvTab(QWidget):
             "replace" if self.replace_radio.isChecked() else "outdir")
         settings.setValue("mkv/outdir", self.outdir_edit.text())
         settings.setValue("mkv/splitter", self.splitter.saveState())
+        settings.setValue("mkv/styles", self.style_picker.selected())
 
     def restore_settings(self, settings: QSettings) -> None:
         self.folder_edit.setText(settings.value("mkv/folder", ""))
@@ -540,3 +637,7 @@ class MkvTab(QWidget):
         # 傳進 restoreState() 一樣會炸——手改/遷移壞掉的設定值必須擋在這裡。
         if isinstance(state, QByteArray):
             self.splitter.restoreState(state)
+        saved_styles = settings.value("mkv/styles", [])
+        if isinstance(saved_styles, str):     # QSettings 單元素清單會退化成字串
+            saved_styles = [saved_styles]
+        self.style_picker.set_selected(list(saved_styles or []))

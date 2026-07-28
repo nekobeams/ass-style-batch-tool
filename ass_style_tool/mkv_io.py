@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, List, Optional
@@ -172,6 +173,23 @@ def extract_track(
     except (OSError, subprocess.TimeoutExpired):
         return False
     return result.returncode == 0
+
+
+def extract_template_subtitle(
+    mkv_path: Path, mkvmerge: Path, mkvextract: Path
+) -> Optional[Path]:
+    """抽出影片中第一條 ASS/SSA 字幕軌到暫存檔,失敗或沒有文字軌回傳 None。
+
+    只抽一條、只抽一個檔案——這是給「讀取樣式名稱」用的範本,不是批次處理。
+    整季逐檔抽取太慢,而使用者的情境是全季樣式名一致。
+    """
+    tracks = list_ass_tracks(mkv_path, mkvmerge)
+    if not tracks:
+        return None
+    out_path = Path(tempfile.gettempdir()) / f"{mkv_path.stem}.template.ass"
+    if not extract_track(mkv_path, tracks[0].track_id, out_path, mkvextract):
+        return None
+    return out_path
 
 
 def remux(

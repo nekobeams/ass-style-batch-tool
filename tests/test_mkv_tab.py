@@ -269,6 +269,10 @@ def test_run_button_enabled_after_populate(qapp, monkeypatch):
     tab = _tab(monkeypatch)
     assert tab.run_button.isEnabled() is False
     tab.populate(FILES)
+    # Task 9:「開始處理」在套用樣式模式下還要求側欄至少勾選一個目標樣式
+    # (不然按下去也找不到要改哪個 Style),跟字幕檔/封裝分頁同一套語意。
+    tab.style_picker.set_available(["Default"])
+    tab.style_picker.set_selected(["Default"])
     assert tab.run_button.isEnabled() is True
 
 
@@ -459,6 +463,11 @@ def test_dialog_cancel_actually_aborts_track_scan(qapp, monkeypatch, tmp_path):
             thread.wait(3000)
 
 
+def test_read_styles_button_disabled_when_tools_missing(qapp, monkeypatch):
+    tab = _tab(monkeypatch, available=False)
+    assert tab.read_styles_button.isEnabled() is False
+
+
 def test_shutdown_closes_orphaned_scan_dialog(qapp, monkeypatch):
     """掃描中途關閉整個分頁時,shutdown() 要把模態的 ScanProgressDialog
     真的關掉——打包版是 console=False,主視窗關閉後 quitOnLastWindowClosed
@@ -476,3 +485,208 @@ def test_shutdown_closes_orphaned_scan_dialog(qapp, monkeypatch):
     assert tab._scan_dialog is None
     assert tab._scan_thread is None
     assert tab._scan_worker is None
+
+
+# ---------- 範本檔樣式讀取 ----------
+
+def test_read_template_styles_fills_picker(qapp, monkeypatch, tmp_path):
+    from ass_style_tool.style_scan import FileStyles
+    tab = _tab(monkeypatch)
+    tab.populate(FILES)
+    monkeypatch.setattr(
+        "ass_style_tool.qt.mkv_tab.extract_template_subtitle",
+        lambda mkv, mkvmerge, mkvextract: tmp_path / "t.ass")
+    monkeypatch.setattr(
+        "ass_style_tool.qt.mkv_tab.scan_styles",
+        lambda path: FileStyles(path, {"Default": 48.0, "CHT": 52.0}))
+    tab.read_template_styles()
+    from PySide6.QtCore import Qt
+    names = [tab.style_picker.list.item(i).data(Qt.ItemDataRole.UserRole)
+             for i in range(tab.style_picker.list.count())]
+    assert sorted(names) == ["CHT", "Default"]
+
+
+def test_read_template_styles_reports_no_text_track(qapp, monkeypatch):
+    tab = _tab(monkeypatch)
+    tab.populate(FILES)
+    monkeypatch.setattr(
+        "ass_style_tool.qt.mkv_tab.extract_template_subtitle",
+        lambda mkv, mkvmerge, mkvextract: None)
+    messages = []
+    tab.log.connect(messages.append)
+    tab.read_template_styles()
+    assert any("沒有文字字幕軌" in m for m in messages)
+
+
+def test_read_template_styles_uses_the_first_file(qapp, monkeypatch, tmp_path):
+    """範本只抽第一個檔案,不是逐檔抽——這正是這個分頁跟其他兩個分頁最大
+    的不同(其他分頁讀外部 .ass 是毫秒級,這裡抽字幕軌要跑 mkvextract,
+    整季抽一輪太慢)。"""
+    from ass_style_tool.style_scan import FileStyles
+    tab = _tab(monkeypatch)
+    tab.populate(FILES)
+    seen = []
+
+    def fake_extract(mkv, mkvmerge, mkvextract):
+        seen.append(mkv)
+        return tmp_path / "t.ass"
+
+    monkeypatch.setattr(
+        "ass_style_tool.qt.mkv_tab.extract_template_subtitle", fake_extract)
+    monkeypatch.setattr(
+        "ass_style_tool.qt.mkv_tab.scan_styles",
+        lambda path: FileStyles(path, {"Default": 48.0}))
+    tab.read_template_styles()
+    assert seen == [FILES[0]]
+
+
+def test_read_template_styles_requires_a_scanned_folder(qapp, monkeypatch):
+    tab = _tab(monkeypatch)
+    messages = []
+    tab.log.connect(messages.append)
+    tab.read_template_styles()
+    assert any("請先掃描資料夾" in m for m in messages)
+
+
+def test_read_template_styles_reports_tools_missing(qapp, monkeypatch):
+    tab = _tab(monkeypatch, available=False)
+    tab.populate(FILES)
+    messages = []
+    tab.log.connect(messages.append)
+    tab.read_template_styles()
+    assert any("找不到 MKVToolNix" in m for m in messages)
+
+
+def test_read_template_styles_reports_parse_error(qapp, monkeypatch, tmp_path):
+    from ass_style_tool.style_scan import FileStyles
+    tab = _tab(monkeypatch)
+    tab.populate(FILES)
+    monkeypatch.setattr(
+        "ass_style_tool.qt.mkv_tab.extract_template_subtitle",
+        lambda mkv, mkvmerge, mkvextract: tmp_path / "t.ass")
+    monkeypatch.setattr(
+        "ass_style_tool.qt.mkv_tab.scan_styles",
+        lambda path: FileStyles(path, error="壞檔"))
+    messages = []
+    tab.log.connect(messages.append)
+    tab.read_template_styles()
+    assert any("壞檔" in m for m in messages)
+
+
+def test_current_files_returns_the_listed_videos(qapp, monkeypatch):
+    tab = _tab(monkeypatch)
+    tab.populate(FILES)
+    assert tab.current_files() == FILES
+
+
+# ---------- effective_profile ----------
+
+def test_effective_profile_uses_picker_selection(qapp, monkeypatch):
+    tab = _tab(monkeypatch)
+    tab.style_picker.set_available(["CHT"])
+    tab.style_picker.set_selected(["CHT"])
+    assert tab.effective_profile().target_style_names == ["CHT"]
+
+
+# ---------- 目標樣式:可見度與執行鈕依模式而定(防重複出現的缺陷) ----------
+#
+# 這個坑在字幕檔分頁跟封裝分頁都各自出現過一次:控件或啟用閘門沒有依
+# 操作模式設置,導致「縮放字級」模式下依然顯示/要求一個它根本不會讀
+# 的目標樣式勾選(縮放走 scale_panel.get_options(),完全不看
+# style_picker)。這裡照封裝分頁(mux_tab.py)最終採用的作法——不只是
+# 執行鈕的啟用條件要看模式,樣式清單本身在縮放模式下要整組隱藏,不然
+# 使用者會誤以為勾選有作用。
+
+def test_style_group_visible_in_apply_mode_by_default(qapp, monkeypatch):
+    tab = _tab(monkeypatch)
+    assert tab.apply_mode_radio.isChecked() is True
+    assert tab.style_group.isHidden() is False
+
+
+def test_style_group_hidden_in_scale_mode(qapp, monkeypatch):
+    tab = _tab(monkeypatch)
+    tab.scale_mode_radio.setChecked(True)
+    assert tab.style_group.isHidden() is True
+
+
+def test_style_group_shown_again_after_switching_back_to_apply_mode(qapp, monkeypatch):
+    tab = _tab(monkeypatch)
+    tab.scale_mode_radio.setChecked(True)
+    assert tab.style_group.isHidden() is True
+    tab.apply_mode_radio.setChecked(True)
+    assert tab.style_group.isHidden() is False
+
+
+def test_run_button_disabled_in_apply_mode_without_styles(qapp, monkeypatch):
+    tab = _tab(monkeypatch)
+    tab.populate(FILES)
+    assert tab.run_button.isEnabled() is False
+
+
+def test_run_button_enabled_in_apply_mode_with_styles(qapp, monkeypatch):
+    tab = _tab(monkeypatch)
+    tab.populate(FILES)
+    tab.style_picker.set_available(["CHT"])
+    tab.style_picker.set_selected(["CHT"])
+    assert tab.run_button.isEnabled() is True
+
+
+def test_run_button_enabled_in_scale_mode_without_styles(qapp, monkeypatch):
+    """縮放模式不吃側欄的目標樣式勾選,只看有沒有檔案可跑。"""
+    tab = _tab(monkeypatch)
+    tab.populate(FILES)
+    tab.scale_mode_radio.setChecked(True)
+    assert tab.run_button.isEnabled() is True
+
+
+def test_run_button_rechecks_styles_after_switching_back_to_apply_mode(qapp, monkeypatch):
+    tab = _tab(monkeypatch)
+    tab.populate(FILES)
+    tab.scale_mode_radio.setChecked(True)
+    assert tab.run_button.isEnabled() is True
+    tab.apply_mode_radio.setChecked(True)
+    assert tab.run_button.isEnabled() is False   # 套用模式下還沒勾任何樣式
+
+
+def test_run_button_reacts_to_style_picker_changed_signal(qapp, monkeypatch):
+    """style_picker 勾選變動要即時反映到執行鈕,不必等下一次 populate。"""
+    tab = _tab(monkeypatch)
+    tab.populate(FILES)
+    tab.style_picker.set_available(["CHT", "Default"])
+    assert tab.run_button.isEnabled() is False
+    tab.style_picker.set_selected(["CHT"])
+    assert tab.run_button.isEnabled() is True
+    tab.style_picker.set_selected([])
+    assert tab.run_button.isEnabled() is False
+
+
+# ---------- 設定持久化:目標樣式 ----------
+
+def test_save_and_restore_settings_roundtrip_includes_styles(qapp, monkeypatch, tmp_path):
+    from PySide6.QtCore import QSettings
+    settings = QSettings(str(tmp_path / "t.ini"), QSettings.Format.IniFormat)
+
+    tab_a = _tab(monkeypatch)
+    tab_a.style_picker.set_available(["CHT", "Default"])
+    tab_a.style_picker.set_selected(["CHT", "Default"])
+    tab_a.save_settings(settings)
+
+    tab_b = _tab(monkeypatch)
+    tab_b.restore_settings(settings)
+    assert sorted(tab_b.style_picker.selected()) == ["CHT", "Default"]
+
+
+def test_save_and_restore_settings_roundtrip_single_style_does_not_degrade(
+        qapp, monkeypatch, tmp_path):
+    """QSettings 存單元素清單時容易退化成裸字串,還原時要補救回清單。"""
+    from PySide6.QtCore import QSettings
+    settings = QSettings(str(tmp_path / "t.ini"), QSettings.Format.IniFormat)
+
+    tab_a = _tab(monkeypatch)
+    tab_a.style_picker.set_available(["CHT"])
+    tab_a.style_picker.set_selected(["CHT"])
+    tab_a.save_settings(settings)
+
+    tab_b = _tab(monkeypatch)
+    tab_b.restore_settings(settings)
+    assert tab_b.style_picker.selected() == ["CHT"]
