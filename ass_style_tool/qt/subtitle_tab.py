@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+from dataclasses import replace
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -17,13 +18,15 @@ from PySide6.QtWidgets import (QAbstractItemView, QButtonGroup, QFileDialog,
 from ..batch_runner import scan_folder
 from ..profile import Profile
 from ..scale_engine import ScaleError, read_as_ass_text, scale_text
+from ..style_scan import summarize
 from .batch_worker import BatchWorker, ScaleWorker
-from .gui_helpers import preview_rows
+from .gui_helpers import apply_plan_text, preview_rows, scale_plan_text
 from .layout_helpers import (action_row, group, main_splitter, page_layout,
                              settings_sidebar)
 from .scale_panel import ScalePanel
+from .style_picker import StylePicker
 
-_HEADERS = ["集數", "字幕檔", "影片檔", "狀態"]
+_HEADERS = ["集數", "字幕檔", "影片檔", "狀態", "預計 / 結果"]
 
 
 class SubtitleFileTab(QWidget):
@@ -39,6 +42,7 @@ class SubtitleFileTab(QWidget):
         self._scan_thread: Optional[QThread] = None
         self._scan_worker = None
         self._scanned_folder: Optional[str] = None
+        self._auto_scanned = False
         self.setAcceptDrops(True)
 
         root = page_layout(self)
@@ -99,9 +103,18 @@ class SubtitleFileTab(QWidget):
         self._output_group.addButton(self.inplace_radio)
         self._output_group.addButton(self.outdir_radio)
 
+        # ----- 設定側欄:目標樣式 -----
+        # group() 的第二參數收的是 QLayout(它會對其呼叫 setContentsMargins /
+        # setSpacing),所以 picker 要先包一層 layout,不可直接傳 widget。
+        self.style_picker = StylePicker()
+        self.style_picker.changed.connect(self._on_styles_changed)
+        style_box = QVBoxLayout()
+        style_box.addWidget(self.style_picker)
+
         self.splitter = main_splitter(
             self.table,
             settings_sidebar(group("操作模式", mode_box),
+                             group("目標樣式", style_box),
                              group("輸出", out_box)))
         root.addWidget(self.splitter, 1)
 
@@ -192,6 +205,13 @@ class SubtitleFileTab(QWidget):
         self._scan = scan
         for w in scan.warnings:
             self.log.emit(f"警告: {w}")
+        summary = summarize(list(getattr(scan, "styles", {}).values()))
+        self.style_picker.set_available(summary.names)
+        if summary.inconsistent:
+            self.log.emit(
+                f"注意:有 {len(summary.inconsistent)} 個檔案的樣式組合與其他檔不同")
+        for path in summary.unreadable:
+            self.log.emit(f"警告:無法解析樣式 {path.name}")
         count = self.populate_preview(scan)
         self.log.emit(f"掃描完成:共 {count} 個字幕檔")
         self.scan_button.setEnabled(True)
@@ -202,16 +222,66 @@ class SubtitleFileTab(QWidget):
         self._scan_worker = None
 
     def populate_preview(self, scan) -> int:
-        rows = preview_rows(scan)
+        rows = preview_rows(scan, self._plans())
         self.table.setRowCount(len(rows))
         for r, row in enumerate(rows):
             for c, text in enumerate(
                     (row.episode, row.sub_name, row.video_name,
-                     row.status_label)):
+                     row.status_label, row.plan)):
                 self.table.setItem(r, c, QTableWidgetItem(text))
-        self.run_button.setEnabled(len(rows) > 0)
+        self._update_run_enabled()
         self._update_dry_run_enabled()
         return len(rows)
+
+    def _plans(self) -> dict:
+        """每個字幕檔的「預計」欄文字。掃描結果尚未有樣式資訊時回傳空的。"""
+        if self._scan is None:
+            return {}
+        styles = getattr(self._scan, "styles", {})
+        if self.scale_mode_radio.isChecked():
+            try:
+                options = self.scale_panel.get_options()
+            except ScaleError:
+                # 縮放參數還沒填完整(例如倍率欄位空著):「預計」欄先留空,
+                # 不能讓半成品輸入把整個預覽表格炸掉。
+                return {}
+            return {path: scale_plan_text(fs, options)
+                    for path, fs in styles.items()}
+        profile = self.effective_profile()
+        names = self.style_picker.selected()
+        return {path: apply_plan_text(fs, profile, names)
+                for path, fs in styles.items()}
+
+    def effective_profile(self) -> Profile:
+        """把側欄勾選的樣式名蓋進目前的 profile。
+
+        profile 描述「改成什麼樣子」,勾選描述「這批要改哪個」,兩者
+        分開存放(勾選存 QSettings),執行時才合起來。
+        """
+        return replace(self._get_profile(),
+                       target_style_names=self.style_picker.selected())
+
+    def _on_styles_changed(self) -> None:
+        if self._scan is not None:
+            self.populate_preview(self._scan)
+
+    def _update_run_enabled(self) -> None:
+        has_rows = self.table.rowCount() > 0
+        has_styles = bool(self.style_picker.selected())
+        busy = self._thread is not None
+        self.run_button.setEnabled(has_rows and has_styles and not busy)
+
+    def auto_scan_once(self) -> None:
+        """分頁第一次被顯示時自動掃描一次(主視窗切分頁時呼叫)。"""
+        if self._auto_scanned:
+            return
+        folder = self.folder_edit.text().strip()
+        if not folder or not Path(folder).is_dir():
+            return
+        if self._thread is not None or self._scan_thread is not None:
+            return
+        self._auto_scanned = True
+        self._on_scan()
 
     def _on_row_double_clicked(self, row: int, _column: int) -> None:
         if self._scan is None or row >= len(self._scan.matches):
@@ -265,7 +335,7 @@ class SubtitleFileTab(QWidget):
                 return
         else:
             try:
-                payload = self._get_profile()
+                payload = self.effective_profile()
             except ValueError as exc:
                 self.log.emit(f"欄位錯誤: {exc}")
                 return
@@ -330,6 +400,7 @@ class SubtitleFileTab(QWidget):
             "outdir" if self.outdir_radio.isChecked() else "inplace")
         settings.setValue("subtitle/outdir", self.outdir_edit.text())
         settings.setValue("subtitle/splitter", self.splitter.saveState())
+        settings.setValue("subtitle/styles", self.style_picker.selected())
 
     def restore_settings(self, settings: QSettings) -> None:
         self.folder_edit.setText(settings.value("subtitle/folder", ""))
@@ -344,6 +415,10 @@ class SubtitleFileTab(QWidget):
         # 傳進 restoreState() 一樣會炸——手改/遷移壞掉的設定值必須擋在這裡。
         if isinstance(state, QByteArray):
             self.splitter.restoreState(state)
+        saved_styles = settings.value("subtitle/styles", [])
+        if isinstance(saved_styles, str):     # QSettings 單元素清單會退化成字串
+            saved_styles = [saved_styles]
+        self.style_picker.set_selected(list(saved_styles or []))
 
     # ---------- 開啟輸出資料夾 ----------
     def _open_output(self) -> None:

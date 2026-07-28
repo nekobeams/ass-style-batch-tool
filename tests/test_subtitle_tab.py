@@ -16,6 +16,12 @@ def _scan():
     ], warnings=[])
 
 
+def _tab():
+    from ass_style_tool.profile_fields import DEFAULT_VALUES, profile_from_values
+    from ass_style_tool.qt.subtitle_tab import SubtitleFileTab
+    return SubtitleFileTab(lambda: profile_from_values(DEFAULT_VALUES))
+
+
 def test_populate_preview_fills_table(qapp):
     from ass_style_tool.qt.subtitle_tab import SubtitleFileTab
     tab = SubtitleFileTab(lambda: profile_from_values(DEFAULT_VALUES))
@@ -30,6 +36,11 @@ def test_run_button_disabled_until_scan(qapp):
     from ass_style_tool.qt.subtitle_tab import SubtitleFileTab
     tab = SubtitleFileTab(lambda: profile_from_values(DEFAULT_VALUES))
     assert tab.run_button.isEnabled() is False
+    # Task 6:「開始套用樣式」現在還要求側欄至少勾選一個目標樣式
+    # (不然按下去也找不到要改哪個 Style)。populate_preview 才會重新
+    # 判斷按鈕是否可按,所以要選在呼叫它之前。
+    tab.style_picker.set_available(["Default"])
+    tab.style_picker.set_selected(["Default"])
     tab.populate_preview(_scan())
     assert tab.run_button.isEnabled() is True
 
@@ -273,3 +284,84 @@ def test_restore_settings_without_saved_splitter_is_safe(qapp, tmp_path):
     tab = SubtitleFileTab(lambda: profile_from_values(DEFAULT_VALUES))
     tab.restore_settings(settings)      # 不可拋例外
     assert tab.splitter.count() == 2
+
+
+# ---------- 目標樣式清單與預計欄 ----------
+
+def test_scan_fills_style_picker(qapp, tmp_path):
+    from pathlib import Path
+    from ass_style_tool.batch_runner import ScanResult
+    from ass_style_tool.episode_match import MatchResult
+    from ass_style_tool.style_scan import FileStyles
+    tab = _tab()
+    scan = ScanResult(
+        matches=[MatchResult(Path("a.ass"), 1, status="no_video")],
+        styles={Path("a.ass"): FileStyles(Path("a.ass"),
+                                          {"Default": 48.0, "CHT": 52.0},
+                                          (1920, 1080))})
+    from PySide6.QtCore import Qt
+    tab._on_scan_finished(scan)
+    names = [tab.style_picker.list.item(i).data(Qt.ItemDataRole.UserRole)
+             for i in range(tab.style_picker.list.count())]
+    assert sorted(names) == ["CHT", "Default"]
+
+
+def test_plan_column_shows_predicted_size(qapp):
+    from pathlib import Path
+    from ass_style_tool.batch_runner import ScanResult
+    from ass_style_tool.episode_match import MatchResult
+    from ass_style_tool.style_scan import FileStyles
+    tab = _tab()
+    scan = ScanResult(
+        matches=[MatchResult(Path("a.ass"), 1, status="no_video")],
+        styles={Path("a.ass"): FileStyles(Path("a.ass"), {"Default": 48.0},
+                                          (1920, 1080))})
+    tab._on_scan_finished(scan)
+    tab.style_picker.set_selected(["Default"])
+    text = tab.table.item(0, 4).text()
+    assert "Default 48 →" in text
+
+
+def test_effective_profile_uses_picker_selection(qapp):
+    tab = _tab()
+    tab.style_picker.set_available(["CHT"])
+    tab.style_picker.set_selected(["CHT"])
+    assert tab.effective_profile().target_style_names == ["CHT"]
+
+
+def test_run_button_disabled_when_nothing_selected(qapp):
+    from pathlib import Path
+    from ass_style_tool.batch_runner import ScanResult
+    from ass_style_tool.episode_match import MatchResult
+    from ass_style_tool.style_scan import FileStyles
+    tab = _tab()
+    scan = ScanResult(
+        matches=[MatchResult(Path("a.ass"), 1, status="no_video")],
+        styles={Path("a.ass"): FileStyles(Path("a.ass"), {"Default": 48.0},
+                                          (1920, 1080))})
+    tab._on_scan_finished(scan)
+    tab.style_picker.set_selected([])
+    assert tab.run_button.isEnabled() is False
+    tab.style_picker.set_selected(["Default"])
+    assert tab.run_button.isEnabled() is True
+
+
+# ---------- auto_scan_once ----------
+
+def test_auto_scan_once_scans_then_stops(qapp, monkeypatch, tmp_path):
+    tab = _tab()
+    calls = []
+    monkeypatch.setattr(tab, "_on_scan", lambda: calls.append(1))
+    tab.folder_edit.setText(str(tmp_path))
+    tab.auto_scan_once()
+    tab.auto_scan_once()
+    assert calls == [1]
+
+
+def test_auto_scan_once_skips_missing_folder(qapp, monkeypatch, tmp_path):
+    tab = _tab()
+    calls = []
+    monkeypatch.setattr(tab, "_on_scan", lambda: calls.append(1))
+    tab.folder_edit.setText(str(tmp_path / "不存在"))
+    tab.auto_scan_once()
+    assert calls == []

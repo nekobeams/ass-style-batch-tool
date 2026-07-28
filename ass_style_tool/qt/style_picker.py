@@ -43,6 +43,10 @@ class StylePicker(QWidget):
     def set_selected(self, names: Sequence[str]) -> None:
         self._selected = list(names)
         self._rebuild()
+        # 呼叫端(還原設定、Task 6 的分頁整合)靠這個訊號驅動「預計」欄與
+        # 執行按鈕的重算,不能只有使用者親手點勾選框才通知——否則程式化
+        # 設定選取後,畫面會停在舊狀態直到使用者手動戳一下才更新。
+        self.changed.emit()
 
     def selected(self) -> List[str]:
         return list(self._selected)
