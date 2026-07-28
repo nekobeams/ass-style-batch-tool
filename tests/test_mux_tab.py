@@ -493,6 +493,12 @@ def test_restore_settings_without_saved_splitter_is_safe(qapp, monkeypatch, tmp_
 
 def test_style_picker_hidden_when_direct_mux(qapp, monkeypatch):
     tab = _tab(monkeypatch)
+    # direct_mode_radio 建構時就已經是勾選狀態,若直接再 setChecked(True)
+    # 是 no-op(Qt 對已勾選的 QRadioButton 再勾一次不會發 toggled),完全
+    # 測不到 handler 的「切回直接封裝」這條路徑。要先切到別的模式,
+    # 再切回來,才是真的走過 _on_preprocess_mode_changed 的切換邏輯。
+    tab.apply_mode_radio.setChecked(True)
+    assert tab.style_group.isHidden() is False
     tab.direct_mode_radio.setChecked(True)
     assert tab.style_group.isHidden() is True
 
@@ -501,6 +507,15 @@ def test_style_picker_shown_when_applying_style(qapp, monkeypatch):
     tab = _tab(monkeypatch)
     tab.apply_mode_radio.setChecked(True)
     assert tab.style_group.isHidden() is False
+
+
+def test_style_picker_hidden_when_scale_mux(qapp, monkeypatch):
+    """先縮放字級模式下 current_operation() 回傳 scale_panel.get_options(),
+    根本不會讀 style_picker——側欄勾了樣式也會在執行時被靜默忽略,所以
+    這個模式下 style_group 必須跟直接封裝一樣被隱藏。"""
+    tab = _tab(monkeypatch)
+    tab.scale_mode_radio.setChecked(True)
+    assert tab.style_group.isHidden() is True
 
 
 def test_effective_profile_uses_picker_selection(qapp, monkeypatch):
@@ -530,3 +545,107 @@ def test_auto_scan_once_skips_when_a_folder_is_missing(qapp, monkeypatch,
     tab.subtitle_edit.setText("")          # 字幕資料夾還沒選
     tab.auto_scan_once()
     assert calls == []
+
+
+def test_auto_scan_once_skips_while_scan_in_flight(qapp, monkeypatch, tmp_path):
+    tab = _tab(monkeypatch)
+    calls = []
+    monkeypatch.setattr(tab, "_on_scan", lambda: calls.append(1))
+    tab.video_edit.setText(str(tmp_path))
+    tab.subtitle_edit.setText(str(tmp_path))
+    tab._scan_thread = object()            # 模擬掃描已在進行中
+    tab.auto_scan_once()
+    assert calls == []
+
+
+def test_auto_scan_once_skips_while_run_in_flight(qapp, monkeypatch, tmp_path):
+    tab = _tab(monkeypatch)
+    calls = []
+    monkeypatch.setattr(tab, "_on_scan", lambda: calls.append(1))
+    tab.video_edit.setText(str(tmp_path))
+    tab.subtitle_edit.setText(str(tmp_path))
+    tab._thread = object()                 # 模擬封裝已在進行中
+    tab.auto_scan_once()
+    assert calls == []
+
+
+# ---------- 執行按鈕:套用模式下沒勾樣式不能執行 ----------
+
+def test_run_button_disabled_in_apply_mode_without_styles(qapp, monkeypatch):
+    tab = _tab(monkeypatch)
+    tab.populate(PAIRS)
+    assert tab.run_button.isEnabled() is True    # 直接封裝:不吃樣式勾選
+    tab.apply_mode_radio.setChecked(True)
+    assert tab.run_button.isEnabled() is False   # 套用模式沒勾任何樣式
+
+
+def test_run_button_enabled_in_apply_mode_with_styles(qapp, monkeypatch):
+    tab = _tab(monkeypatch)
+    tab.populate(PAIRS)
+    tab.apply_mode_radio.setChecked(True)
+    assert tab.run_button.isEnabled() is False
+    tab.style_picker.set_available(["CHT"])
+    tab.style_picker.set_selected(["CHT"])
+    assert tab.run_button.isEnabled() is True
+
+
+def test_run_button_enabled_in_scale_mode_without_styles(qapp, monkeypatch):
+    tab = _tab(monkeypatch)
+    tab.populate(PAIRS)
+    tab.scale_mode_radio.setChecked(True)
+    assert tab.run_button.isEnabled() is True    # 縮放模式不吃樣式勾選
+
+
+def test_run_button_enabled_in_direct_mode_without_styles(qapp, monkeypatch):
+    tab = _tab(monkeypatch)
+    tab.populate(PAIRS)
+    tab.apply_mode_radio.setChecked(True)
+    assert tab.run_button.isEnabled() is False
+    tab.direct_mode_radio.setChecked(True)       # 切回直接封裝
+    assert tab.run_button.isEnabled() is True
+
+
+# ---------- _on_scan_done:未配對到字幕的列不能餵給 scan_styles ----------
+
+def test_on_scan_done_skips_none_subtitle_pairs(qapp, monkeypatch):
+    """`p.subtitle_path is not None` 的過濾如果被拿掉,scan_styles 就會被
+    塞進 None——這裡讓假的 scan_styles 收到 None 直接炸掉,釘住這個過濾
+    條件不能被日後的「簡化」悄悄拿掉。"""
+    import ass_style_tool.qt.mux_tab as mux_tab_mod
+    from ass_style_tool.style_scan import FileStyles
+    tab = _tab(monkeypatch)
+
+    scanned = []
+
+    def fake_scan_styles(path):
+        assert path is not None, "scan_styles 不該收到 None(subtitle_path 未過濾)"
+        scanned.append(path)
+        return FileStyles(path=path, styles={"CHT": 40.0})
+
+    monkeypatch.setattr(mux_tab_mod, "scan_styles", fake_scan_styles)
+    pairs = [
+        MuxPair(Path("a [01].mkv"), Path("a [01].ass"), 1, "matched"),
+        MuxPair(Path("b [02].mkv"), None, 2, "no_subtitle"),
+    ]
+    tab._on_scan_done(pairs)
+    assert scanned == [Path("a [01].ass")]
+
+
+def test_on_scan_done_all_unmatched_yields_empty_styles_without_raising(
+        qapp, monkeypatch):
+    """整批都沒配對到字幕時 scan_styles 完全不該被呼叫,也不能拋例外,
+    樣式清單應該是空的。"""
+    import ass_style_tool.qt.mux_tab as mux_tab_mod
+    tab = _tab(monkeypatch)
+
+    def boom(path):
+        raise AssertionError("全部未配對時不該呼叫 scan_styles")
+
+    monkeypatch.setattr(mux_tab_mod, "scan_styles", boom)
+    pairs = [
+        MuxPair(Path("a [01].mkv"), None, 1, "no_subtitle"),
+        MuxPair(Path("b [02].mkv"), None, 2, "ambiguous"),
+    ]
+    tab._on_scan_done(pairs)               # 不應拋例外
+    assert tab.table.rowCount() == 2
+    assert tab.style_picker.list.count() == 0

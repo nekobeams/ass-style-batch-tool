@@ -125,6 +125,7 @@ class MuxTab(QWidget):
         # group() 的第二參數收的是 QLayout(它會對其呼叫 setContentsMargins /
         # setSpacing),所以 picker 要先包一層 layout,不可直接傳 widget。
         self.style_picker = StylePicker()
+        self.style_picker.changed.connect(self._refresh_run_button)
         style_box = QVBoxLayout()
         style_box.addWidget(self.style_picker)
         self.style_group = group("目標樣式", style_box)
@@ -249,8 +250,12 @@ class MuxTab(QWidget):
     # ---------- 模式切換 ----------
     def _on_preprocess_mode_changed(self, _on: bool = False) -> None:
         self.scale_panel.setHidden(not self.scale_mode_radio.isChecked())
-        # 直接封裝原字幕時不需要指定目標樣式
-        self.style_group.setHidden(self.direct_mode_radio.isChecked())
+        # 只有「先套用目前樣式」才會讀 style_picker:current_operation() 在
+        # 縮放模式回傳 scale_panel.get_options(),根本不會去看勾了哪些樣式
+        # ——秀出來只會讓使用者以為勾選有作用,卻在執行時被靜默忽略。跟字幕
+        # 檔分頁(subtitle_tab.py)的縮放模式是同一套語意,兩邊要維持一致。
+        self.style_group.setHidden(not self.apply_mode_radio.isChecked())
+        self._refresh_run_button()
 
     # ---------- 掃描 ----------
     def _folders_ready(self) -> bool:
@@ -363,9 +368,7 @@ class MuxTab(QWidget):
             self.table.setItem(
                 r, 4, QTableWidgetItem(
                     _STATUS_LABELS.get(pair.status, pair.status)))
-        self.run_button.setEnabled(
-            self.tools_available and any(p.status == "matched" for p in pairs)
-            and self._thread is None)
+        self._refresh_run_button()
         self._refresh_modify_button()
 
     def checked_pairs(self) -> List[MuxPair]:
@@ -393,10 +396,7 @@ class MuxTab(QWidget):
         check.setCheckState(
             Qt.CheckState.Checked if new_pair.status == "matched"
             else Qt.CheckState.Unchecked)
-        self.run_button.setEnabled(
-            self.tools_available
-            and any(p.status == "matched" for p in self._pairs)
-            and self._thread is None)
+        self._refresh_run_button()
         self._refresh_modify_button()
 
     def _on_subtitle_selected(self, row: int) -> None:
@@ -428,6 +428,19 @@ class MuxTab(QWidget):
             return None
         text = self.outdir_edit.text().strip()
         return Path(text) if text else None
+
+    def _refresh_run_button(self) -> None:
+        # 「先套用目前樣式」一個樣式都沒勾等於這批不會改到任何東西,不該讓
+        # 使用者按下去;直接封裝/先縮放字級不吃這個勾選,維持原本只看有沒
+        # 有掃到可封裝的列。跟字幕檔分頁(subtitle_tab.py)的
+        # _update_run_enabled() 是同一套邏輯。
+        gated_by_styles = (self.apply_mode_radio.isChecked()
+                           and not self.style_picker.selected())
+        self.run_button.setEnabled(
+            self.tools_available
+            and any(p.status == "matched" for p in self._pairs)
+            and self._thread is None
+            and not gated_by_styles)
 
     def _refresh_modify_button(self) -> None:
         self.modify_tracks_button.setEnabled(
@@ -565,7 +578,10 @@ class MuxTab(QWidget):
         self._thread = None
         self._worker = None
         self.scan_button.setEnabled(True)
-        self.run_button.setEnabled(True)
+        # 不能直接把按鈕強制打開:跑批次期間使用者可能已經改動側欄勾選
+        # (例如把唯一選的樣式取消勾),_refresh_run_button() 才會重新檢查
+        # 目前狀態是否還滿足可執行的條件。
+        self._refresh_run_button()
         self.cancel_button.setEnabled(False)
         self._refresh_modify_button()
 
