@@ -940,12 +940,11 @@ def test_scan_fills_style_picker(qapp, tmp_path):
         styles={Path("a.ass"): FileStyles(Path("a.ass"),
                                           {"Default": 48.0, "CHT": 52.0},
                                           (1920, 1080))})
+    from PySide6.QtCore import Qt
     tab._on_scan_finished(scan)
-    assert tab.style_picker.selected() or True   # 不強制預選
-    labels = [tab.style_picker.list.item(i).data(
-        __import__("PySide6.QtCore", fromlist=["Qt"]).Qt.ItemDataRole.UserRole)
-        for i in range(tab.style_picker.list.count())]
-    assert sorted(labels) == ["CHT", "Default"]
+    names = [tab.style_picker.list.item(i).data(Qt.ItemDataRole.UserRole)
+             for i in range(tab.style_picker.list.count())]
+    assert sorted(names) == ["CHT", "Default"]
 
 
 def test_plan_column_shows_predicted_size(qapp):
