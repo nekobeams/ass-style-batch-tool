@@ -32,7 +32,7 @@ class ReadoutView(QGroupBox):
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.verticalHeader().setVisible(False)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.table.setMaximumHeight(200)
+        self.table.setMaximumHeight(400)
         self.table.hide()
         self.note = QLabel("")
         for w in (self.mechanism, self.context_sub, self.context_video,

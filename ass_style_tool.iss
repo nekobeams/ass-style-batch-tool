@@ -85,7 +85,12 @@ end;
 
 function IsFfmpegInstalled: Boolean;
 begin
-  Result := IsToolOnPath('ffmpeg.exe');
+  { PATH 之外,也查這個程式自己上一次可能裝過的位置——ffmpeg 沒有官方安裝程式
+    慣用的系統路徑可查(不像 MKVToolNix 有 Program Files\MKVToolNix),原本只查
+    PATH 導致重裝/升級到同一個目錄時,自己上次裝過的 ffmpeg 偵測不到,勾選框
+    每次都要手動取消。 }
+  Result := IsToolOnPath('ffmpeg.exe')
+    or FileExists(ExpandConstant('{app}\tools\ffmpeg.exe'));
 end;
 
 function ComponentsParamGiven: Boolean;
