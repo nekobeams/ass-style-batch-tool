@@ -215,3 +215,29 @@ def test_style_editor_readout_view_renders(qapp):
     labels = [editor.readout_view.table.item(r, 0).text()
               for r in range(editor.readout_view.table.rowCount())]
     assert "字級" in labels
+
+
+# ---------- 目標 Style 欄位已移出樣式編輯器 ----------
+
+def test_editor_has_no_target_style_widget(qapp):
+    from ass_style_tool.qt.style_editor import StyleEditor
+    editor = StyleEditor()
+    assert "target_style_names" not in editor._edits
+
+
+def test_get_values_still_supplies_target_style_names(qapp):
+    """profile_from_values 仍要求這個鍵,移除輸入框不能連鍵一起拿掉。"""
+    from ass_style_tool.profile_fields import profile_from_values
+    from ass_style_tool.qt.style_editor import StyleEditor
+    editor = StyleEditor()
+    values = editor.get_values()
+    assert values["target_style_names"]
+    assert profile_from_values(values).target_style_names
+
+
+def test_loading_profile_keeps_its_target_names(qapp):
+    from ass_style_tool.qt.style_editor import StyleEditor
+    editor = StyleEditor()
+    editor.set_values({**editor.get_values(),
+                       "target_style_names": "CHT, CHS"})
+    assert editor.get_values()["target_style_names"] == "CHT, CHS"

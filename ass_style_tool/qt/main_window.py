@@ -100,6 +100,9 @@ class MainWindow(QMainWindow):
         QApplication.instance().styleHints().colorSchemeChanged.connect(
             self._on_system_scheme_changed)
 
+        self.tabs.currentChanged.connect(self._on_tab_changed)
+        self._on_tab_changed(self.tabs.currentIndex())
+
     # ---------- 主題 ----------
     def current_mode(self) -> str:
         return self._theme_mode
@@ -153,6 +156,17 @@ class MainWindow(QMainWindow):
         if video_path is None:
             self.append_log("該列未配對到影片,預覽僅載入字幕行清單;"
                             "可在預覽分頁手動開啟影片")
+
+    def _on_tab_changed(self, index: int) -> None:
+        """分頁第一次被顯示時才掃描它的資料夾。
+
+        開啟時三個分頁全掃,等於為使用者沒要看的分頁白跑 ffprobe 子行程
+        (一季 24 集約 1-5 秒),所以改成用到才掃。
+        """
+        widget = self.tabs.widget(index)
+        auto_scan = getattr(widget, "auto_scan_once", None)
+        if callable(auto_scan):
+            auto_scan()
 
     # ---------- log ----------
     def append_log(self, text: str) -> None:

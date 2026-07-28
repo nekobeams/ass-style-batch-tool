@@ -23,7 +23,6 @@ from .readout_view import ReadoutView
 # 欄位分組(標籤, 欄位鍵)
 _TEXT_FIELDS = [
     ("設定檔名稱", "profile_name"),
-    ("目標 Style(逗號分隔)", "target_style_names"),
     ("字型名稱", "fontname"),
     ("字體大小", "fontsize"),
     ("外框寬度", "outline"),
@@ -81,6 +80,10 @@ class StyleEditor(QWidget):
         super().__init__()
         self._edits: Dict[str, QLineEdit] = {}
         self._checks: Dict[str, QCheckBox] = {}
+        # 目標 Style 已移到各工作分頁的側欄(它回答的是「這批要改哪個」,
+        # 與本編輯器描述的「改成什麼樣子」不同性質)。這裡仍保留其值,
+        # 因為 profile_from_values() 要求這個鍵,且存檔要原樣寫回。
+        self._target_style_names = str(DEFAULT_VALUES["target_style_names"])
 
         inner = QWidget()
         inner_layout = QVBoxLayout(inner)
@@ -170,6 +173,8 @@ class StyleEditor(QWidget):
 
     # ---------- 取/設值 ----------
     def set_values(self, values: dict) -> None:
+        if "target_style_names" in values:
+            self._target_style_names = str(values["target_style_names"])
         for key, edit in self._edits.items():
             if key in values:
                 edit.setText(str(values[key]))
@@ -184,6 +189,7 @@ class StyleEditor(QWidget):
             values[key] = edit.text()
         for key, check in self._checks.items():
             values[key] = check.isChecked()
+        values["target_style_names"] = self._target_style_names
         return values
 
     def current_profile(self) -> Profile:

@@ -164,3 +164,35 @@ def test_theme_button_lives_in_the_tab_bar_corner(qapp, monkeypatch, tmp_path):
         assert window.tabs.cornerWidget(Qt.TopRightCorner) is window.theme_button
     finally:
         window.deleteLater()
+
+
+# ---------- 切分頁自動掃描 ----------
+
+def test_tab_change_triggers_auto_scan_once(qapp, monkeypatch, tmp_path):
+    """用 _window() 建構(暫存 ini),避免動到使用者真正的 QSettings——
+    與本檔其他測試一致的作法,brief 原本用的裸 MainWindow() 會寫到
+    使用者登錄檔/系統設定檔。"""
+    window = _window(monkeypatch, tmp_path)
+    try:
+        calls = []
+        monkeypatch.setattr(window.subtitle_tab, "auto_scan_once",
+                            lambda: calls.append("subtitle"))
+        # MkvTab 尚未有 auto_scan_once(Task 8 才加),raising=False 讓
+        # monkeypatch 直接把它掛到這個實例上,驗證 _on_tab_changed 的
+        # getattr 判斷式能吃到後續補上的方法。
+        monkeypatch.setattr(window.mkv_tab, "auto_scan_once",
+                            lambda: calls.append("mkv"), raising=False)
+        window.tabs.setCurrentIndex(1)     # MKV
+        window.tabs.setCurrentIndex(0)     # 字幕檔
+        assert calls == ["mkv", "subtitle"]
+    finally:
+        window.deleteLater()
+
+
+def test_tab_change_ignores_tabs_without_auto_scan(qapp, monkeypatch, tmp_path):
+    """「樣式與預覽」分頁沒有 auto_scan_once,切過去不可炸。"""
+    window = _window(monkeypatch, tmp_path)
+    try:
+        window.tabs.setCurrentIndex(window.tabs.count() - 1)
+    finally:
+        window.deleteLater()
