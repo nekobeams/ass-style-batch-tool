@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import dataclasses
+from dataclasses import replace
 from pathlib import Path
 from typing import Callable, List, Optional
 
@@ -18,6 +19,7 @@ from ..mkv_batch import MkvTools
 from ..mkv_mux import MuxMeta, MuxPair
 from ..profile import Profile
 from ..scale_engine import ScaleError
+from ..style_scan import scan_styles, summarize
 from ..tools import mkvextract_path, mkvmerge_path
 from ..track_edit import TrackEdit
 from .batch_worker import MuxScanWorker, MuxWorker, TrackScanWorker
@@ -26,6 +28,7 @@ from .layout_helpers import (action_row, group, main_splitter, page_layout,
 from .modify_tracks_dialog import ModifyTracksDialog
 from .scale_panel import ScalePanel
 from .scan_progress_dialog import ScanProgressDialog
+from .style_picker import StylePicker
 
 _HEADERS = ["封裝", "影片", "字幕", "集數", "狀態"]
 _STATUS_LABELS = {"matched": "已配對", "no_subtitle": "無對應字幕",
@@ -54,6 +57,7 @@ class MuxTab(QWidget):
         self._track_scan_worker = None
         self._track_scan_dialog: Optional[ScanProgressDialog] = None
         self._closing = False
+        self._auto_scanned = False
         self.setAcceptDrops(True)
 
         mkvmerge = mkvmerge_path()
@@ -109,13 +113,22 @@ class MuxTab(QWidget):
         self.scale_panel = ScalePanel()
         self.scale_panel.setHidden(True)
         pre_box.addWidget(self.scale_panel)
-        self.scale_mode_radio.toggled.connect(
-            lambda on: self.scale_panel.setHidden(not on))
+        self.scale_mode_radio.toggled.connect(self._on_preprocess_mode_changed)
+        self.apply_mode_radio.toggled.connect(self._on_preprocess_mode_changed)
 
         self._preprocess_group = QButtonGroup(self)
         for radio in (self.direct_mode_radio, self.apply_mode_radio,
                       self.scale_mode_radio):
             self._preprocess_group.addButton(radio)
+
+        # ----- 側欄:目標樣式 -----
+        # group() 的第二參數收的是 QLayout(它會對其呼叫 setContentsMargins /
+        # setSpacing),所以 picker 要先包一層 layout,不可直接傳 widget。
+        self.style_picker = StylePicker()
+        style_box = QVBoxLayout()
+        style_box.addWidget(self.style_picker)
+        self.style_group = group("目標樣式", style_box)
+        self.style_group.setHidden(True)
 
         # ----- 側欄:新字幕軌 -----
         meta_box = QVBoxLayout()
@@ -169,6 +182,7 @@ class MuxTab(QWidget):
         self.splitter = main_splitter(
             self.table,
             settings_sidebar(group("封裝前處理", pre_box),
+                             self.style_group,
                              group("新字幕軌", meta_box),
                              group("既有軌道", old_box),
                              group("輸出", out_box)))
@@ -232,7 +246,31 @@ class MuxTab(QWidget):
             self.outdir_edit.setText(path)
             self.outdir_radio.setChecked(True)
 
+    # ---------- 模式切換 ----------
+    def _on_preprocess_mode_changed(self, _on: bool = False) -> None:
+        self.scale_panel.setHidden(not self.scale_mode_radio.isChecked())
+        # 直接封裝原字幕時不需要指定目標樣式
+        self.style_group.setHidden(self.direct_mode_radio.isChecked())
+
     # ---------- 掃描 ----------
+    def _folders_ready(self) -> bool:
+        """兩個資料夾都選好且真的存在才值得自動掃描。"""
+        video = self.video_edit.text().strip()
+        subtitle = self.subtitle_edit.text().strip()
+        return bool(video and subtitle
+                    and Path(video).is_dir() and Path(subtitle).is_dir())
+
+    def auto_scan_once(self) -> None:
+        """分頁第一次被顯示時自動掃描一次(主視窗切分頁時呼叫)。"""
+        if self._auto_scanned:
+            return
+        if not self._folders_ready():
+            return
+        if self._thread is not None or self._scan_thread is not None:
+            return
+        self._auto_scanned = True
+        self._on_scan()
+
     def _auto_scan(self) -> None:
         if not self.tools_available:
             return
@@ -284,6 +322,10 @@ class MuxTab(QWidget):
         if s and Path(s).is_dir():
             subs, _ = find_files(Path(s))
             self._available_subtitles = sorted(subs)
+        results = [scan_styles(p.subtitle_path) for p in pairs
+                  if p.subtitle_path is not None]
+        summary = summarize(results)
+        self.style_picker.set_available(summary.names)
         self.populate(pairs)
         matched = sum(1 for p in pairs if p.status == "matched")
         self.log.emit(f"配對完成:{len(pairs)} 部影片,{matched} 部有對應字幕")
@@ -373,8 +415,13 @@ class MuxTab(QWidget):
         if self.scale_mode_radio.isChecked():
             return self.scale_panel.get_options()
         if self.apply_mode_radio.isChecked():
-            return self._get_profile()
+            return self.effective_profile()
         return None
+
+    def effective_profile(self) -> Profile:
+        """把側欄勾選的樣式名蓋進目前的 profile(與字幕檔分頁的作法相同)。"""
+        return replace(self._get_profile(),
+                       target_style_names=self.style_picker.selected())
 
     def _output_dir(self) -> Optional[Path]:
         if self.replace_radio.isChecked():
@@ -547,6 +594,7 @@ class MuxTab(QWidget):
             "replace" if self.replace_radio.isChecked() else "outdir")
         settings.setValue("mux/outdir", self.outdir_edit.text())
         settings.setValue("mux/splitter", self.splitter.saveState())
+        settings.setValue("mux/styles", self.style_picker.selected())
 
     def restore_settings(self, settings: QSettings) -> None:
         self.video_edit.setText(settings.value("mux/video_folder", ""))
@@ -562,3 +610,7 @@ class MuxTab(QWidget):
         # 傳進 restoreState() 一樣會炸——手改/遷移壞掉的設定值必須擋在這裡。
         if isinstance(state, QByteArray):
             self.splitter.restoreState(state)
+        saved_styles = settings.value("mux/styles", [])
+        if isinstance(saved_styles, str):     # QSettings 單元素清單會退化成字串
+            saved_styles = [saved_styles]
+        self.style_picker.set_selected(list(saved_styles or []))

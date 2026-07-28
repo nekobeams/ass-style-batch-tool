@@ -487,3 +487,46 @@ def test_restore_settings_without_saved_splitter_is_safe(qapp, monkeypatch, tmp_
     tab = _tab(monkeypatch)
     tab.restore_settings(settings)      # 不可拋例外
     assert tab.splitter.count() == 2
+
+
+# ---------- 目標樣式清單 ----------
+
+def test_style_picker_hidden_when_direct_mux(qapp, monkeypatch):
+    tab = _tab(monkeypatch)
+    tab.direct_mode_radio.setChecked(True)
+    assert tab.style_group.isHidden() is True
+
+
+def test_style_picker_shown_when_applying_style(qapp, monkeypatch):
+    tab = _tab(monkeypatch)
+    tab.apply_mode_radio.setChecked(True)
+    assert tab.style_group.isHidden() is False
+
+
+def test_effective_profile_uses_picker_selection(qapp, monkeypatch):
+    tab = _tab(monkeypatch)
+    tab.style_picker.set_available(["CHT"])
+    tab.style_picker.set_selected(["CHT"])
+    assert tab.effective_profile().target_style_names == ["CHT"]
+
+
+def test_auto_scan_once_only_scans_one_time(qapp, monkeypatch, tmp_path):
+    tab = _tab(monkeypatch)
+    calls = []
+    monkeypatch.setattr(tab, "_on_scan", lambda: calls.append(1))
+    tab.video_edit.setText(str(tmp_path))
+    tab.subtitle_edit.setText(str(tmp_path))
+    tab.auto_scan_once()
+    tab.auto_scan_once()
+    assert calls == [1]
+
+
+def test_auto_scan_once_skips_when_a_folder_is_missing(qapp, monkeypatch,
+                                                       tmp_path):
+    tab = _tab(monkeypatch)
+    calls = []
+    monkeypatch.setattr(tab, "_on_scan", lambda: calls.append(1))
+    tab.video_edit.setText(str(tmp_path))
+    tab.subtitle_edit.setText("")          # 字幕資料夾還沒選
+    tab.auto_scan_once()
+    assert calls == []
