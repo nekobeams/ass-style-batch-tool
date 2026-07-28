@@ -16,15 +16,24 @@ from ..scale_engine import ScaleOptions, scale_file
 
 
 class ScanWorker(QObject):
-    finished = Signal(object)  # 攜帶 ScanResult
+    progress = Signal(int, int)        # 已完成, 總數
+    finished = Signal(object)          # 攜帶 ScanResult
 
     def __init__(self, folder: Path) -> None:
         super().__init__()
         self._folder = folder
+        self._cancelled = False
+
+    def cancel(self) -> None:
+        self._cancelled = True
 
     def run(self) -> None:
         from ..batch_runner import scan_folder
-        self.finished.emit(scan_folder(self._folder))
+        self.finished.emit(scan_folder(
+            self._folder,
+            progress=lambda done, total: self.progress.emit(done, total),
+            should_cancel=lambda: self._cancelled,
+        ))
 
 
 class BatchWorker(QObject):
