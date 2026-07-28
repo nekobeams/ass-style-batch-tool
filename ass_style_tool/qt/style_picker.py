@@ -55,17 +55,22 @@ class StylePicker(QWidget):
             if name not in names:
                 names.append(name)
 
+        # 阻擋 itemChanged:填清單時若不擋,勾選狀態的變動會被當成使用者
+        # 操作處理,連帶把 _selected 在重建過程中弄壞。用 try/finally 確保
+        # 就算填清單途中拋例外,訊號也一定會恢復,不會永久卡住。
         self.list.blockSignals(True)
-        self.list.clear()
-        for name in names:
-            found = name in self._available
-            item = QListWidgetItem(name if found else f"{name} {_NOT_FOUND}")
-            item.setData(Qt.ItemDataRole.UserRole, name)
-            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-            item.setCheckState(Qt.CheckState.Checked if name in self._selected
-                               else Qt.CheckState.Unchecked)
-            self.list.addItem(item)
-        self.list.blockSignals(False)
+        try:
+            self.list.clear()
+            for name in names:
+                found = name in self._available
+                item = QListWidgetItem(name if found else f"{name} {_NOT_FOUND}")
+                item.setData(Qt.ItemDataRole.UserRole, name)
+                item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                item.setCheckState(Qt.CheckState.Checked if name in self._selected
+                                   else Qt.CheckState.Unchecked)
+                self.list.addItem(item)
+        finally:
+            self.list.blockSignals(False)
         self._update_hint()
 
     def _on_item_changed(self, _item: QListWidgetItem) -> None:
