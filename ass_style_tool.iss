@@ -29,17 +29,24 @@ Name: "custom"; Description: "自訂安裝"; Flags: iscustom
 
 [Components]
 Name: "core"; Description: "主程式(必要)"; Types: full custom; Flags: fixed
+; disablenouninstallwarning:偵測到系統/舊安裝已有這些工具時我們會自動取消勾選,
+; 若不加這個旗標,Inno 會為「取消勾選一個先前裝過的元件」再彈一次
+; 「Components Exist ... Deselecting these components will not uninstall them」,
+; 等於為我們自己的貼心行為多逼使用者按一次確定。
 #if DirExists("installer_payload\ffmpeg")
-Name: "ffmpeg"; Description: "ffmpeg(影片解析度偵測用)"; Types: full custom
+Name: "ffmpeg"; Description: "ffprobe(影片解析度偵測用)"; Types: full custom; Flags: disablenouninstallwarning
 #endif
 #if DirExists("installer_payload\mkvtoolnix")
-Name: "mkvtoolnix"; Description: "MKVToolNix(MKV 字幕封裝/處理用)"; Types: full custom
+Name: "mkvtoolnix"; Description: "MKVToolNix(MKV 字幕封裝/處理用)"; Types: full custom; Flags: disablenouninstallwarning
 #endif
 
 [Files]
 Source: "dist\ass_style_tool\*"; DestDir: "{app}"; Components: core; Flags: recursesubdirs ignoreversion
 #if DirExists("installer_payload\ffmpeg")
-Source: "installer_payload\ffmpeg\*.exe"; DestDir: "{app}\tools"; Components: ffmpeg; Flags: ignoreversion
+; 只裝 ffprobe.exe。程式全域只用 ffprobe 偵測影片解析度,從未呼叫 ffmpeg.exe
+; (tools.py 也只提供 ffprobe_path),原本的 *.exe 會把 144 MB 的 ffmpeg.exe
+; 一併裝進使用者硬碟卻永遠不會被執行。
+Source: "installer_payload\ffmpeg\ffprobe.exe"; DestDir: "{app}\tools"; Components: ffmpeg; Flags: ignoreversion
 Source: "installer_payload\ffmpeg\LICENSE*"; DestDir: "{app}\licenses\ffmpeg"; Components: ffmpeg; Flags: ignoreversion skipifsourcedoesntexist
 Source: "installer_payload\ffmpeg\COPYING*"; DestDir: "{app}\licenses\ffmpeg"; Components: ffmpeg; Flags: ignoreversion skipifsourcedoesntexist
 #endif
@@ -89,8 +96,8 @@ begin
     慣用的系統路徑可查(不像 MKVToolNix 有 Program Files\MKVToolNix),原本只查
     PATH 導致重裝/升級到同一個目錄時,自己上次裝過的 ffmpeg 偵測不到,勾選框
     每次都要手動取消。 }
-  Result := IsToolOnPath('ffmpeg.exe')
-    or FileExists(ExpandConstant('{app}\tools\ffmpeg.exe'));
+  Result := IsToolOnPath('ffprobe.exe')
+    or FileExists(ExpandConstant('{app}\tools\ffprobe.exe'));
 end;
 
 function ComponentsParamGiven: Boolean;
@@ -129,7 +136,7 @@ begin
     ComponentsDetectionDone := True;
     if not ComponentsParamGiven then
     begin
-      UncheckComponentIfDetected('ffmpeg(影片解析度偵測用)', IsFfmpegInstalled);
+      UncheckComponentIfDetected('ffprobe(影片解析度偵測用)', IsFfmpegInstalled);
       UncheckComponentIfDetected('MKVToolNix(MKV 字幕封裝/處理用)', IsMkvToolNixInstalled);
     end;
   end;

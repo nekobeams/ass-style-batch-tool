@@ -14,6 +14,7 @@ from ..languages import LANGUAGES
 from ..mkv_io import MediaTrack
 from ..track_edit import TrackEdit
 from ..track_info import build_track_info_rows
+from .layout_helpers import install_dialog_geometry
 
 _TYPE_LABELS = {"video": "影片", "audio": "音訊", "subtitles": "字幕"}
 _TRISTATE = [("不變", None), ("是", True), ("否", False)]
@@ -105,6 +106,10 @@ class ModifyTracksDialog(QDialog):
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         root.addWidget(buttons)
+
+        # 七欄(保留/類型/編碼/語言/軌名/預設/強制)加下半驗證表,
+        # 預設要比 select_tracks 寬才不會一開啟就每欄都被壓扁。
+        install_dialog_geometry(self, "modify_tracks", (1000, 660))
 
     def _center(self, w: QWidget) -> QWidget:
         wrap = QWidget()

@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QDialog,
 
 from ..mkv_batch import track_key
 from ..mkv_io import SubtitleTrack
+from .layout_helpers import install_dialog_geometry
 from ..track_select import (TrackKey, build_select_info_rows,
                             uncovered_track_count)
 
@@ -92,6 +93,8 @@ class SelectTracksDialog(QDialog):
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         root.addWidget(buttons)
+
+        install_dialog_geometry(self, "select_tracks", (860, 620))
 
     def _center(self, w: QWidget) -> QWidget:
         wrap = QWidget()

@@ -12,11 +12,11 @@
 """
 from __future__ import annotations
 
-from typing import Sequence
+from typing import Sequence, Tuple
 
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (QGroupBox, QHBoxLayout, QLayout, QSplitter,
-                               QVBoxLayout, QWidget)
+from PySide6.QtCore import QByteArray, QSettings, Qt
+from PySide6.QtWidgets import (QDialog, QGroupBox, QHBoxLayout, QLayout,
+                               QSplitter, QVBoxLayout, QWidget)
 
 MARGIN = 12              # 分頁最外層外距
 SPACING = 10             # 主要區塊之間
@@ -79,3 +79,29 @@ def action_row(secondary: Sequence[QWidget],
     for button in primary:
         row.addWidget(button)
     return row
+
+
+def install_dialog_geometry(dialog: QDialog, key: str,
+                            default_size: Tuple[int, int]) -> None:
+    """給對話框一個合理的初始尺寸,並記住使用者調整後的大小。
+
+    QDialog 不指定尺寸時,Qt 只會依 layout 的最小 sizeHint 收到最小,
+    表格類對話框因此開起來窄到看不見內容,每次都要使用者自己拉大。
+    這裡先套用預設尺寸,若有存過幾何資料就改用存的,並在關閉時存回。
+
+    型別檢查不能省:PySide6 在 QSettings 值型別不符時不會回傳預設值,
+    而是把原始值原樣丟回來,直接餵給 restoreGeometry() 會炸(與
+    splitter restoreState() 同一個坑)。
+    """
+    settings = QSettings("ass-style-tool", "ass-style-tool")
+    saved = settings.value(f"dialog/{key}")
+    restored = False
+    if isinstance(saved, QByteArray):
+        restored = dialog.restoreGeometry(saved)
+    if not restored:
+        dialog.resize(*default_size)
+
+    def _save(_result: int = 0) -> None:
+        settings.setValue(f"dialog/{key}", dialog.saveGeometry())
+
+    dialog.finished.connect(_save)
