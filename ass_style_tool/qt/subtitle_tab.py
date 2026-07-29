@@ -117,11 +117,20 @@ class SubtitleFileTab(QWidget):
         self.style_picker.changed.connect(self._on_styles_changed)
         style_box = QVBoxLayout()
         style_box.addWidget(self.style_picker)
+        self.style_group = group("目標樣式", style_box)
+        # 縮放模式的執行路徑走 scale_panel.get_options(),完全不讀
+        # style_picker(_plans() 的縮放分支也不看它)——秀出來只會讓使用者
+        # 以為勾選有作用,卻在執行時被靜默忽略,還會讓 StylePicker 在
+        # 「掃描成功、什麼都沒勾」時顯示的提示「請勾選要套用的目標樣式」
+        # 在縮放模式下對使用者下了一個沒有效果的指令(最終審查 Finding
+        # 3)。跟封裝/MKV 分頁(mux_tab.py / mkv_tab.py)一致,整組隨模式
+        # 隱藏。
+        self.style_group.setHidden(self.scale_mode_radio.isChecked())
 
         self.splitter = main_splitter(
             self.table,
             settings_sidebar(group("操作模式", mode_box),
-                             group("目標樣式", style_box),
+                             self.style_group,
                              group("輸出", out_box)))
         root.addWidget(self.splitter, 1)
 
@@ -356,6 +365,7 @@ class SubtitleFileTab(QWidget):
     # ---------- 模式切換 / 試算預覽 ----------
     def _on_mode_changed(self, scale_mode: bool) -> None:
         self.scale_panel.setHidden(not scale_mode)
+        self.style_group.setHidden(scale_mode)
         self.run_button.setText("開始縮放" if scale_mode else "開始套用樣式")
         # 套用/縮放兩種模式的「預計」文字算法不同(_plans() 依模式分支),
         # 切模式當下必須重算整欄,不然畫面會留著前一個模式算出來的預告,

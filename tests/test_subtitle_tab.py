@@ -388,6 +388,24 @@ def test_run_button_enabled_in_scale_mode_without_style_selection(qapp):
     assert tab.run_button.isEnabled() is True
 
 
+def test_style_group_hidden_in_scale_mode(qapp):
+    """Finding 3(最終審查 Batch A2):縮放模式下 style_picker 完全不被讀
+    (_plans() 的縮放分支不看它),秀出來只會讓使用者以為勾選有作用,
+    還會讓 StylePicker 在『掃描成功、什麼都沒勾』時顯示的提示
+    「請勾選要套用的目標樣式」對使用者下一個沒有效果的指令。mkv_tab.py
+    / mux_tab.py 都把整組『目標樣式』隨模式隱藏,subtitle_tab.py 要
+    跟它們一致。"""
+    tab = _tab()
+    assert tab.apply_mode_radio.isChecked() is True
+    assert tab.style_group.isHidden() is False
+
+    tab.scale_mode_radio.setChecked(True)
+    assert tab.style_group.isHidden() is True
+
+    tab.apply_mode_radio.setChecked(True)
+    assert tab.style_group.isHidden() is False
+
+
 def test_run_button_disabled_in_apply_mode_without_style_selection(qapp):
     tab = _tab()
     tab._on_scan_finished(_scan_with_default_style())
