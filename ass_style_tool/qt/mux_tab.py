@@ -107,6 +107,11 @@ class MuxTab(QWidget):
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
         self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
+        # 「預計 / 結果」欄的文字長度變化很大,沒有 resize 政策時會被裁到
+        # 剩幾個字。跟著內容自動撐寬,不吃已經是 Stretch 的欄 1/欄 2 名額
+        # (Minor bullet)。
+        self.table.horizontalHeader().setSectionResizeMode(
+            5, QHeaderView.ResizeToContents)
 
         # ----- 側欄:封裝前處理 -----
         pre_box = QVBoxLayout()
@@ -131,7 +136,13 @@ class MuxTab(QWidget):
         # ----- 側欄:目標樣式 -----
         # group() 的第二參數收的是 QLayout(它會對其呼叫 setContentsMargins /
         # setSpacing),所以 picker 要先包一層 layout,不可直接傳 widget。
-        self.style_picker = StylePicker()
+        # not_found_hint:封裝分頁的「找不到」不是「這些檔案會被略過」
+        # (StylePicker 的預設措辭,對字幕檔/MKV 分頁是對的)——process_mux
+        # 對找不到目標樣式的字幕是原樣封裝、不套用樣式,MKV 依然會被寫入
+        # /覆蓋,不是真的整個跳過(最終審查 Finding C2,與 _plan_text_for()
+        # 下面傳給 apply_plan_text() 的 not_found_suffix 講的是同一件事)。
+        self.style_picker = StylePicker(
+            not_found_hint="這些檔案會原樣封裝,不套用樣式")
         self.style_picker.changed.connect(self._on_styles_changed)
         style_box = QVBoxLayout()
         style_box.addWidget(self.style_picker)
@@ -278,6 +289,10 @@ class MuxTab(QWidget):
     def auto_scan_once(self) -> None:
         """分頁第一次被顯示時自動掃描一次(主視窗切分頁時呼叫)。"""
         if self._auto_scanned:
+            return
+        # Minor bullet:_auto_scan() 本來就會擋「工具不存在」,這裡漏掉了
+        # 同一個檢查——沒裝 MKVToolNix 時第一次切進這個分頁仍會嘗試掃描。
+        if not self.tools_available:
             return
         if not self._folders_ready():
             return
@@ -465,8 +480,33 @@ class MuxTab(QWidget):
                 # _plans() 已經踩過,這裡不能留空白讓人誤讀成「還沒算過」。
                 return "⚠ 縮放參數有誤"
             return scale_plan_text(file_styles, options)
-        return apply_plan_text(file_styles, self.effective_profile(),
-                               self.style_picker.selected())
+        try:
+            profile = self.effective_profile()
+        except ValueError:
+            # C1(最終審查 Finding,跟字幕檔分頁同一個成因):
+            # effective_profile() → _get_profile() → profile_from_values()
+            # 在編輯器欄位目前是壞的時候會拋 ValueError。這裡是
+            # populate()/_recompute_plan_column()/set_row_subtitle() 三個
+            # call site共用的唯一計算點,擋在這裡一次擋掉全部三個,不能讓
+            # 例外往上竄出觸發它們所在的 Qt slot(例如 _on_scan_done()
+            # 裡,populate() 之後才跑的 log.emit() 跟 matched 統計就會被
+            # 中斷,雖然這裡 scan_button 剛好已經在 populate() 之前重新
+            # 啟用,不像字幕檔分頁那麼致命,但收尾動作被腰斬的風險是一樣
+            # 的類別)。
+            return "⚠ 樣式設定有誤"
+        # C2(最終審查 Finding):目標樣式在這個檔案裡找不到時,
+        # process_mux 不是跳過整個流程,而是原樣封裝、不套用樣式
+        # (mkv_mux.process_mux 對應行為,report.status 仍是 "ok")——跟
+        # 字幕檔分頁「找不到 = 這個檔會被跳過」不是同一件事,
+        # not_found_suffix 要把這裡真正會發生的事講清楚。
+        # convert_all_if_srt=False:mkv_batch.transform_track_file 呼叫
+        # apply_profile() 時沒有帶 apply_to_all_styles=True,跟
+        # batch_runner.process_file 不是同一套行為,I3 的「非 ASS 來源轉檔
+        # 後套用到全部樣式」規則不適用於封裝分頁。
+        return apply_plan_text(file_styles, profile,
+                               self.style_picker.selected(),
+                               convert_all_if_srt=False,
+                               not_found_suffix=",將原樣封裝")
 
     def _recompute_plan_column(self) -> None:
         """切換前處理模式、或目標樣式勾選改變時重算整欄。

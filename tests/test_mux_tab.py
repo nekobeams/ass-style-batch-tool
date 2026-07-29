@@ -843,6 +843,134 @@ def test_cancelled_run_reconciles_remaining_rows(qapp, monkeypatch):
     assert tab.table.item(2, 5).text() != "處理中…"
 
 
+# ---------- C1:編輯器欄位壞掉時,「預計」欄的重算不能讓分頁卡死 ----------
+
+def test_plan_column_resize_mode_does_not_elide_text(qapp, monkeypatch):
+    """Minor bullet:「預計 / 結果」欄要有 resize 政策,不然長文字會被
+    裁到剩幾個字。"""
+    from PySide6.QtWidgets import QHeaderView
+    tab = _tab(monkeypatch)
+    assert (tab.table.horizontalHeader().sectionResizeMode(5)
+           == QHeaderView.ResizeToContents)
+
+
+def test_plan_text_for_marks_error_when_profile_is_invalid(qapp, monkeypatch):
+    """C1(最終審查 Finding):_plan_text_for() 呼叫 effective_profile()
+    完全沒接住 profile_from_values() 可能拋出的 ValueError(編輯器欄位
+    壞掉,例如字型名稱被清空)。用一個保證拋例外的假 get_profile 模擬,
+    確認 populate() 不會讓例外逃出去,而是秀出明確標記。"""
+    from ass_style_tool.style_scan import FileStyles
+
+    def boom():
+        raise ValueError("字型名稱不可為空")
+
+    monkeypatch.setattr("ass_style_tool.qt.mux_tab.mkvmerge_path",
+                        lambda: Path("x.exe"))
+    monkeypatch.setattr("ass_style_tool.qt.mux_tab.mkvextract_path",
+                        lambda: Path("x.exe"))
+    from ass_style_tool.qt.mux_tab import MuxTab
+    tab = MuxTab(boom)
+    tab.apply_mode_radio.setChecked(True)
+    tab._file_styles = {
+        Path("a [01].ass"): FileStyles(Path("a [01].ass"), {"Default": 48.0},
+                                       (1920, 1080))}
+    tab.style_picker.set_selected(["Default"])
+    tab.populate(PAIRS)      # 不應拋例外
+    assert tab.table.item(0, 5).text() == "⚠ 樣式設定有誤"
+
+
+def test_scan_done_completes_bookkeeping_when_profile_is_invalid(qapp, monkeypatch):
+    """C1 的真正後果:populate() 若讓 ValueError 逃出 _on_scan_done(),
+    PySide6 印出 traceback 並吞掉例外,但 slot 在拋出點提前中斷——這裡
+    直接驅動 _on_scan_done()(_plan_text_for() 的真正呼叫路徑之一),
+    確認 log.emit() 等收尾動作真的都跑完。"""
+    def boom():
+        raise ValueError("alignment 必須是 1-9")
+
+    monkeypatch.setattr("ass_style_tool.qt.mux_tab.mkvmerge_path",
+                        lambda: Path("x.exe"))
+    monkeypatch.setattr("ass_style_tool.qt.mux_tab.mkvextract_path",
+                        lambda: Path("x.exe"))
+    from ass_style_tool.qt.mux_tab import MuxTab
+    tab = MuxTab(boom)
+    tab.apply_mode_radio.setChecked(True)
+    tab.style_picker.set_selected(["Default"])
+    messages = []
+    tab.log.connect(messages.append)
+
+    tab._on_scan_done(PAIRS)
+
+    assert any("配對完成" in m for m in messages)
+    assert tab.scan_button.isEnabled() is True
+
+
+# ---------- C2:封裝分頁的「找不到」不是「略過」,是「原樣封裝」 ----------
+
+def test_apply_mode_plan_not_found_reads_as_muxed_unstyled_not_skip(
+        qapp, monkeypatch):
+    """process_mux 對找不到目標樣式的字幕是原樣封裝、不套用樣式
+    (report.status 仍是 "ok"),不是整個流程被跳過——「預計」欄的文字
+    不能讓人讀成「這個檔不會被動」,否則使用者以為安全,實際上輸出
+    MKV(尤其是『取代原影片』模式)會被覆蓋。"""
+    from ass_style_tool.style_scan import FileStyles
+    tab = _tab(monkeypatch)
+    tab.apply_mode_radio.setChecked(True)
+    tab._file_styles = {
+        Path("a [01].ass"): FileStyles(Path("a [01].ass"), {"CHS": 48.0},
+                                       (1920, 1080))}   # 檔案裡沒有 Default
+    tab.populate(PAIRS)
+    tab.style_picker.set_available(["CHS"])
+    tab.style_picker.set_selected(["Default"])
+    text = tab.table.item(0, 5).text()
+    assert "找不到" in text
+    assert "略過" not in text          # 不能讀成「略過」
+    assert "原樣封裝" in text          # 要講清楚實際會發生的事
+
+
+def test_style_picker_not_found_hint_reflects_mux_semantics(qapp, monkeypatch):
+    """StylePicker 預設的『這些檔案會被略過』對封裝分頁不準——這裡確認
+    mux_tab.py 建構 StylePicker 時真的換了措辭(C2)。"""
+    tab = _tab(monkeypatch)
+    tab.style_picker.set_available(["CHS"])
+    tab.style_picker.set_selected(["Default"])   # Default 不在掃描結果裡
+    assert "略過" not in tab.style_picker.hint.text()
+    assert "原樣封裝" in tab.style_picker.hint.text()
+
+
+# ---------- I3 邊界:mux_tab 的 apply_plan_text 呼叫不套用「.srt 全部樣式」規則 ----------
+
+def test_apply_mode_plan_srt_source_does_not_claim_convert_all(qapp, monkeypatch):
+    """封裝分頁透過 mkv_mux.process_mux -> transform_track_file 執行,
+    那條路徑沒有 apply_to_all_styles=True——即使字幕來源是 .srt,「預計」
+    欄也不能宣稱『轉檔後套用到全部樣式』,那是字幕檔分頁
+    (batch_runner.process_file)才有的行為(Finding I3 的範圍不含這裡)。"""
+    from ass_style_tool.style_scan import FileStyles
+    tab = _tab(monkeypatch)
+    tab.apply_mode_radio.setChecked(True)
+    srt_path = Path("a [01].srt")
+    tab._file_styles = {
+        srt_path: FileStyles(srt_path, {"CHS": 48.0}, (1920, 1080))}
+    pairs = [MuxPair(Path("a [01].mkv"), srt_path, 1, "matched")]
+    tab.populate(pairs)
+    tab.style_picker.set_available(["CHS"])
+    tab.style_picker.set_selected(["Default"])
+    text = tab.table.item(0, 5).text()
+    assert "全部樣式" not in text
+    assert "找不到" in text
+
+
+# ---------- Minor bullet:auto_scan_once 漏掉 tools_available 檢查 ----------
+
+def test_auto_scan_once_skips_when_tools_missing(qapp, monkeypatch, tmp_path):
+    tab = _tab(monkeypatch, available=False)
+    calls = []
+    monkeypatch.setattr(tab, "_on_scan", lambda: calls.append(1))
+    tab.video_edit.setText(str(tmp_path))
+    tab.subtitle_edit.setText(str(tmp_path))
+    tab.auto_scan_once()
+    assert calls == []
+
+
 def test_rescan_restores_plan_column(qapp, monkeypatch):
     from ass_style_tool.style_scan import FileStyles
     tab = _tab(monkeypatch)

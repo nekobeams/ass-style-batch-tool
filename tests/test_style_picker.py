@@ -84,6 +84,60 @@ def test_toggling_unrelated_item_does_not_drop_not_found_selection(qapp):
     assert set(picker.selected()) == {"Default", "CHT"}
 
 
+# ---------- I11:掃描成功但還沒勾任何樣式時,提示不能是空白 ----------
+
+def test_hint_prompts_selection_when_available_but_nothing_selected(qapp):
+    """I11(最終審查 Finding):_available 非空(掃描到樣式)、_selected 空
+    (使用者還沒勾)是首次掃描完成後的正常狀態(不再有自由文字輸入的
+    預設值)——執行鈕這時是關閉的,提示卻是空白,完全看不出為什麼按不
+    下去。"""
+    picker = StylePicker()
+    picker.set_available(["Default", "CHT"])
+    assert picker.selected() == []
+    assert picker.hint.text() == "請勾選要套用的目標樣式"
+
+
+def test_hint_is_blank_once_something_is_selected(qapp):
+    picker = StylePicker()
+    picker.set_available(["Default"])
+    picker.set_selected(["Default"])
+    assert picker.hint.text() == ""
+
+
+def test_hint_is_scan_prompt_before_any_scan(qapp):
+    picker = StylePicker()
+    assert picker.hint.text() == "尚未掃描到樣式"
+
+
+def test_missing_selection_hint_takes_priority_over_nothing_selected_hint(qapp):
+    """已選但找不到的樣式名存在時,警告訊息優先於『請勾選』提示——
+    _selected 非空,不該顯示成『還沒勾任何東西』。"""
+    picker = StylePicker()
+    picker.set_available(["Default"])
+    picker.set_selected(["CHT"])          # CHT 不在掃描結果裡
+    assert "請勾選要套用的目標樣式" not in picker.hint.text()
+    assert "不在這批檔案中" in picker.hint.text()
+
+
+# ---------- C2:not_found_hint 可由呼叫端客製化(mux_tab 的「找不到」不是「略過」) ----------
+
+def test_not_found_hint_customizable():
+    picker = StylePicker(not_found_hint="這些檔案會原樣封裝,不套用樣式")
+    picker.set_available(["Default"])
+    picker.set_selected(["CHT"])
+    assert "略過" not in picker.hint.text()
+    assert "這些檔案會原樣封裝,不套用樣式" in picker.hint.text()
+
+
+def test_not_found_hint_defaults_to_skip_wording():
+    """預設措辭維持原文字不變——字幕檔/MKV 分頁沒有換過這個參數,
+    既有行為不能被本次修改動到。"""
+    picker = StylePicker()
+    picker.set_available(["Default"])
+    picker.set_selected(["CHT"])
+    assert "這些檔案會被略過" in picker.hint.text()
+
+
 def test_rebuild_orders_found_names_before_not_found_names(qapp):
     """_rebuild 的文件承諾:掃描到的名稱在前,已選但未掃到的名稱接在後面。"""
     from PySide6.QtCore import Qt

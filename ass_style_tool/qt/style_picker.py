@@ -19,10 +19,20 @@ _NOT_FOUND = "(未在檔案中找到)"
 class StylePicker(QWidget):
     changed = Signal()
 
-    def __init__(self, parent=None) -> None:
+    def __init__(self, parent=None, *,
+                 not_found_hint: str = "這些檔案會被略過") -> None:
+        """not_found_hint:已選但這批檔案裡找不到的樣式名,提示文字要接在
+        後面說明「這是什麼後果」。預設「這些檔案會被略過」符合字幕檔
+        分頁(batch_runner.process_file 找不到目標 Style 就跳過整檔)與
+        MKV 分頁(process_mkv 所有勾選軌皆未修改就整檔跳過重封裝)的實際
+        行為;封裝分頁(mux_tab.py)的「找不到」其實是原樣封裝、不套用
+        樣式而非整個跳過(mkv_mux.process_mux),建構時要傳入能反映這點
+        的文字,不能沿用預設措辭(最終審查 Finding C2)。
+        """
         super().__init__(parent)
         self._available: List[str] = []
         self._selected: List[str] = []
+        self._not_found_hint = not_found_hint
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -91,6 +101,16 @@ class StylePicker(QWidget):
             self.hint.setText("尚未掃描到樣式")
             return
         missing = [n for n in self._selected if n not in self._available]
-        self.hint.setText(
-            f"⚠ {'、'.join(missing)} 不在這批檔案中,這些檔案會被略過"
-            if missing else "")
+        if missing:
+            self.hint.setText(
+                f"⚠ {'、'.join(missing)} 不在這批檔案中,{self._not_found_hint}")
+            return
+        if not self._selected:
+            # I11(最終審查 Finding):掃描成功、樣式清單非空,但使用者還
+            # 沒勾任何一個——這是首次掃描完成後的正常狀態(不再有自由
+            # 文字輸入的預設值)。執行鈕這時是關閉的(見各分頁的
+            # _update_run_enabled/_refresh_run_button),提示卻是空白,
+            # 使用者完全看不出為什麼按不下去。
+            self.hint.setText("請勾選要套用的目標樣式")
+            return
+        self.hint.setText("")
