@@ -164,6 +164,70 @@ def test_scale_plan_text_marks_missing_base_style():
     assert "找不到基準樣式" in text
 
 
+def test_scale_plan_text_marks_zero_base_size_instead_of_blank():
+    """Minor bullet:target_size 模式下基準樣式大小是 0 時,舊行為是走進
+    `elif options.target_size is not None and base:` 的 else 分支回傳
+    空字串——跟本函式其他早退路徑(⚠/⊘)不一致,也讓「還沒算過」跟
+    「算過但沒東西可縮放」分不出來。"""
+    fs = FileStyles(Path("a.ass"), {"Default": 0.0}, (1920, 1080))
+    text = scale_plan_text(fs, ScaleOptions(target_size=60, base_style="Default"))
+    assert text == "⚠ 基準樣式大小為 0,無法縮放"
+
+
+# ---------- I3:.srt 來源的預計欄要反映 batch_runner 的 is_ass_family 分支 ----------
+
+def test_apply_plan_text_srt_source_shows_convert_all_marker():
+    """batch_runner.process_file 對 .srt 來源會用
+    apply_to_all_styles=True(忽略 target_style_names,轉檔後套用到全部
+    樣式)。apply_plan_text 預設(convert_all_if_srt=True,字幕檔分頁的
+    實際呼叫方式)必須反映這點,不能沿用「找不到 X」的措辭——那句話暗示
+    這個檔案不會被處理,但實際上它會被轉成 .ass 且全部樣式都被改。"""
+    fs = FileStyles(Path("a.srt"), {"Default": 48.0}, (1920, 1080))
+    text = apply_plan_text(fs, _profile(), ["CHT"])   # CHT 不在檔案裡
+    assert "找不到" not in text
+    assert "全部樣式" in text
+
+
+def test_apply_plan_text_ass_source_unaffected_by_srt_branch():
+    """.ass/.ssa 來源不受這個新分支影響,行為不變。"""
+    fs = FileStyles(Path("a.ass"), {"Default": 48.0}, (1920, 1080))
+    text = apply_plan_text(fs, _profile(fontsize="72"), ["Default"])
+    assert text == "Default 48 → 72"
+
+
+def test_apply_plan_text_srt_source_with_convert_all_disabled():
+    """封裝分頁(mux_tab.py)透過 mkv_mux.process_mux ->
+    mkv_batch.transform_track_file 執行,那條路徑沒有
+    apply_to_all_styles=True——呼叫端傳 convert_all_if_srt=False 時,.srt
+    來源要走跟 .ass 完全一樣的邏輯(找得到就換算,找不到就『找不到』),
+    不能被 I3 的規則誤套用到一個實際不會發生的行為上。"""
+    fs = FileStyles(Path("a.srt"), {"CHS": 48.0}, (1920, 1080))
+    text = apply_plan_text(fs, _profile(), ["Default"],
+                           convert_all_if_srt=False)
+    assert "全部樣式" not in text
+    assert "找不到" in text and "Default" in text
+
+
+# ---------- C2:封裝分頁的「找不到」不是「略過」,是「原樣封裝」 ----------
+
+def test_apply_plan_text_not_found_suffix_customizable():
+    """mux_tab.py 呼叫時要能把『找不到』的後果講清楚——process_mux 對
+    找不到目標樣式的字幕是原樣封裝、不套用樣式,report.status 仍是
+    "ok",不是整個流程被跳過(字幕檔分頁的「找不到」才是真的跳過)。"""
+    fs = FileStyles(Path("a.ass"), {"CHS": 48.0}, (1920, 1080))
+    text = apply_plan_text(fs, _profile(), ["Default"],
+                           not_found_suffix=",將原樣封裝")
+    assert text == "⊘ 找不到 Default,將原樣封裝"
+
+
+def test_apply_plan_text_not_found_suffix_defaults_to_blank():
+    """預設(字幕檔分頁的呼叫方式)不附加任何後綴,維持既有文字——
+    batch_runner.process_file 的「找不到」確實等於「這個檔會被跳過」。"""
+    fs = FileStyles(Path("a.ass"), {"CHS": 48.0}, (1920, 1080))
+    text = apply_plan_text(fs, _profile(), ["Default"])
+    assert text == "⊘ 找不到 Default"
+
+
 def test_preview_rows_carries_plan_text():
     from ass_style_tool.batch_runner import ScanResult
     from ass_style_tool.episode_match import MatchResult

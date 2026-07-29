@@ -97,11 +97,31 @@ def dialogue_lines(subs) -> List[DialogueLine]:
 
 
 def apply_plan_text(file_styles: Optional[FileStyles], profile: Profile,
-                    target_names: Sequence[str]) -> str:
+                    target_names: Sequence[str], *,
+                    convert_all_if_srt: bool = True,
+                    not_found_suffix: str = "") -> str:
     """「預計」欄文字:目標樣式在這個檔案會從幾號變成幾號。
 
     字級之外的欄位(外框/陰影/邊距)也會被改,但表格一欄塞不下,
     字級是最能一眼看出縮放對不對的代表值。
+
+    convert_all_if_srt:呼叫端實際執行路徑對非 ASS/SSA 來源(判斷規則
+    須與 batch_runner.process_file 的 is_ass_family 完全一致)是否會
+    apply_to_all_styles=True——忽略 target_names,轉檔後套用到全部樣式。
+    字幕檔分頁(subtitle_tab.py)透過 batch_runner.process_file 執行,
+    確實會這樣做,預設值符合它的行為;封裝分頁(mux_tab.py)透過
+    mkv_mux.process_mux → mkv_batch.transform_track_file 執行,那條路徑
+    呼叫 apply_profile() 時並未帶 apply_to_all_styles=True,呼叫端必須
+    明確傳入 False,否則預告文字會宣稱一個實際不會發生的「全部套用」
+    (最終審查 Finding I3 的範圍不含封裝分頁,原因就在這裡)。
+
+    not_found_suffix:目標樣式在檔案裡都找不到時,附加在
+    「⊘ 找不到 X」後面的補充說明。字幕檔分頁的「找不到」確實等於
+    「這個檔會被跳過」(對應 batch_runner.process_file 的行為),預設
+    空字串維持原文字;封裝分頁的「找不到」實際上是「原樣封裝、不套用
+    樣式」而不是整個流程被跳過(對應 mkv_mux.process_mux 的行為,見
+    Finding C2),呼叫端要傳入能反映這點的文字,不然預告會誤導使用者
+    以為「這個檔不會被動」,但輸出的 MKV 其實會被寫入/覆蓋。
     """
     if file_styles is None:
         return ""
@@ -109,6 +129,9 @@ def apply_plan_text(file_styles: Optional[FileStyles], profile: Profile,
         return "⚠ 無法讀取"
     if not target_names:
         return "⊘ 未選樣式"
+    is_ass_family = file_styles.path.suffix.lower() in {".ass", ".ssa"}
+    if not is_ass_family and convert_all_if_srt:
+        return "⚠ 非 ASS/SSA 來源,轉檔後將套用到全部樣式"
     applied = compute_applied_values(profile, *file_styles.play_res)
     parts = [
         f"{name} {fmt_num(file_styles.styles[name])} "
@@ -116,7 +139,7 @@ def apply_plan_text(file_styles: Optional[FileStyles], profile: Profile,
         for name in target_names if name in file_styles.styles
     ]
     if not parts:
-        return f"⊘ 找不到 {'、'.join(target_names)}"
+        return f"⊘ 找不到 {'、'.join(target_names)}{not_found_suffix}"
     return "、".join(parts)
 
 
@@ -132,7 +155,13 @@ def scale_plan_text(file_styles: Optional[FileStyles],
         return f"⊘ 找不到基準樣式 {options.base_style}"
     if options.factor is not None:
         factor = options.factor
-    elif options.target_size is not None and base:
+    elif options.target_size is not None:
+        if not base:
+            # 基準樣式大小是 0(合法值,只是沒意義):target_size / base 會
+            # ZeroDivisionError,而且「0 → 任何值」的縮放係數本來就無法
+            # 定義。跟本函式其他早退路徑一樣,不能留空白讓人誤讀成
+            # 「還沒算過」(小修:Minor bullet)。
+            return "⚠ 基準樣式大小為 0,無法縮放"
         factor = options.target_size / base
     else:
         return ""
