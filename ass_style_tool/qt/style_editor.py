@@ -3,8 +3,9 @@ from __future__ import annotations
 
 import os
 import shutil
+from dataclasses import replace
 from pathlib import Path
-from typing import Dict
+from typing import Callable, Dict, List, Optional
 
 from PySide6.QtCore import QSettings, Signal
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QFileDialog, QFormLayout,
@@ -75,8 +76,24 @@ def _qcolor_to_ass(color: QColor, alpha_ass: str) -> str:
 
 class StyleEditor(QWidget):
     values_changed = Signal()
+    # I4(最終審查 Finding):載入 profile 後,把它的 target_style_names
+    # 交給「目前作用中工作分頁」的 StylePicker 當新選取——不然「載入
+    # profile」只改得動這個編輯器的欄位,對任何分頁的勾選毫無效果,
+    # profile 裡存的目標樣式名字形同沒被讀到。由 MainWindow(唯一同時
+    # 拿得到 StyleEditor 與三個分頁的地方)接線。
+    profile_loaded = Signal(list)
 
-    def __init__(self) -> None:
+    def __init__(self,
+                 get_target_style_names:
+                     Optional[Callable[[], Optional[List[str]]]] = None
+                 ) -> None:
+        """get_target_style_names:另存 profile 時用來覆蓋
+        target_style_names 的來源,由 MainWindow 注入,回傳「目前作用中
+        工作分頁」的 StylePicker 選取清單。回傳 None 表示現在判斷不出
+        是哪個分頁的勾選(例如程式剛啟動、還沒有任何分頁被切換過)——
+        這時落回 self._target_style_names 這份隱藏值,不能用空清單
+        覆蓋掉它(I4)。
+        """
         super().__init__()
         self._edits: Dict[str, QLineEdit] = {}
         self._checks: Dict[str, QCheckBox] = {}
@@ -84,6 +101,7 @@ class StyleEditor(QWidget):
         # 與本編輯器描述的「改成什麼樣子」不同性質)。這裡仍保留其值,
         # 因為 profile_from_values() 要求這個鍵,且存檔要原樣寫回。
         self._target_style_names = str(DEFAULT_VALUES["target_style_names"])
+        self._get_target_style_names = get_target_style_names
 
         inner = QWidget()
         inner_layout = QVBoxLayout(inner)
@@ -226,7 +244,15 @@ class StyleEditor(QWidget):
                 self.profile_combo.addItem(p.name, str(p))
 
     def load_profile_from(self, path) -> None:
-        self.set_values(values_from_profile(load_profile(Path(path))))
+        profile = load_profile(Path(path))
+        self.set_values(values_from_profile(profile))
+        # I4:把載入到的 target_style_names 交給目前作用中的工作分頁當新
+        # 選取。這是使用者主動載入這個 profile 造成的取代,不是掃描結果
+        # 篩掉了什麼——跟 StylePicker 自己「勾選不因掃描而被靜默丟掉」的
+        # 不變式是兩件事,接手的一端(MainWindow)用 set_selected() 走的
+        # 也是同一條「保留未掃到的名字、只多標記」的路徑,不會違反那個
+        # 不變式。
+        self.profile_loaded.emit(list(profile.target_style_names))
 
     def _on_load_selected(self) -> None:
         path = self.profile_combo.currentData()
@@ -237,9 +263,27 @@ class StyleEditor(QWidget):
         except Exception as exc:  # noqa: BLE001
             QMessageBox.critical(self, "載入失敗", str(exc))
 
+    def _profile_to_save(self) -> Profile:
+        """存檔要寫入的 profile。
+
+        I4:target_style_names 要用「目前作用中工作分頁」的 StylePicker
+        勾選覆蓋,而不是 self._target_style_names 這份隱藏值——那份值只
+        有存/讀 JSON 時會被摸到,從未跟任何分頁的勾選同步過,原本的
+        「另存」會把它原封不動寫進檔案,結果是使用者在分頁裡實際勾選、
+        實際拿去跑的樣式,和存出來的檔案內容對不上。effective_profile()
+        執行時的邏輯是「分頁勾選蓋過 profile 裡的值」,存檔必須對稱,
+        才不會讓 profile 檔案靜默失真(這正是本分支要防的那類問題)。
+        """
+        profile = self.current_profile()
+        if self._get_target_style_names is not None:
+            names = self._get_target_style_names()
+            if names is not None:
+                profile = replace(profile, target_style_names=list(names))
+        return profile
+
     def _on_save_as(self) -> None:
         try:
-            profile = self.current_profile()
+            profile = self._profile_to_save()
         except ValueError as exc:
             QMessageBox.critical(self, "欄位錯誤", str(exc))
             return

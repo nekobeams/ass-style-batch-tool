@@ -1,6 +1,8 @@
 """v2 Qt 主視窗外殼:分頁籤、主題切換、log、QSettings 持久化。"""
 from __future__ import annotations
 
+from typing import List, Optional
+
 from PySide6.QtCore import QSettings, Qt
 from PySide6.QtGui import QAction, QActionGroup
 from PySide6.QtWidgets import (QApplication, QLabel, QMainWindow, QMenu,
@@ -23,6 +25,17 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("Subtitle Style Batch Tool")
         self.settings = QSettings("ass-style-tool", "ass-style-tool")
+        # I4(最終審查 Finding):StyleEditor 本身不認識任何分頁(存/讀
+        # profile 的邏輯全部封在它自己裡面),只有這裡——同時組裝
+        # StyleEditor 與三個工作分頁的地方——同時拿得到兩邊,所以「存檔
+        # 該用哪個分頁的勾選」「載入後該把名字塞回哪個分頁」這兩個問題
+        # 只能在這裡回答。追蹤的是「最後一個工作分頁」而不是「目前分頁」:
+        # 「另存」/「載入」按鈕長在「樣式與預覽」分頁上,使用者的實際流程
+        # 通常是先在字幕檔/封裝/MKV 分頁勾好樣式,再切到「樣式與預覽」
+        # 按下按鈕,這時 tabs.currentWidget() 已經是沒有 style_picker 的
+        # 分頁了,若不記住最後一個工作分頁,存檔時完全抓不到使用者剛才
+        # 勾了什麼。
+        self._last_work_tab = None
 
         central = QWidget()
         self.setCentralWidget(central)
@@ -60,7 +73,10 @@ class MainWindow(QMainWindow):
         # 分頁籤
         self.tabs = QTabWidget()
         self.tabs.setCornerWidget(self.theme_button, Qt.TopRightCorner)
-        self.style_editor = StyleEditor()
+        self.style_editor = StyleEditor(
+            get_target_style_names=self._active_tab_selected_styles)
+        self.style_editor.profile_loaded.connect(
+            self._apply_target_style_names_to_active_tab)
         self.subtitle_tab = SubtitleFileTab(self.style_editor.current_profile)
         self.subtitle_tab.log.connect(self.append_log)
 
@@ -164,9 +180,37 @@ class MainWindow(QMainWindow):
         (一季 24 集約 1-5 秒),所以改成用到才掃。
         """
         widget = self.tabs.widget(index)
+        # I4:記住「最後一個工作分頁」,供 StyleEditor 存/讀 profile 時
+        # 對應 target_style_names(見 __init__ 對 _last_work_tab 的說明)。
+        # 「樣式與預覽」分頁(self._preview_split,一個 QSplitter)沒有
+        # style_picker,切過去不會覆蓋這個記憶。
+        if hasattr(widget, "style_picker"):
+            self._last_work_tab = widget
         auto_scan = getattr(widget, "auto_scan_once", None)
         if callable(auto_scan):
             auto_scan()
+
+    # ---------- I4:profile 存/讀與分頁的 target_style_names 對應 ----------
+    def _active_tab_selected_styles(self) -> Optional[List[str]]:
+        """存檔要用的 target_style_names 來源(注入給 StyleEditor)。
+
+        回傳 None 代表現在判斷不出「哪個分頁的勾選才是使用者要存的」
+        (例如程式剛啟動、_on_tab_changed 還沒被觸發過一次)——StyleEditor
+        收到 None 時會落回它自己那份隱藏值,不會被空清單覆蓋掉。
+        """
+        tab = self._last_work_tab
+        return tab.style_picker.selected() if tab is not None else None
+
+    def _apply_target_style_names_to_active_tab(self, names: list) -> None:
+        """StyleEditor 載入 profile 後(profile_loaded 訊號),把它的
+        target_style_names 餵給最後一個作用中的工作分頁,讓那個分頁的
+        勾選跟著換過去——不然「載入 profile」對任何分頁的畫面都毫無
+        效果,使用者只會看到編輯器欄位變了,分頁裡的勾選(以及依它算出
+        的「預計」欄、執行按鈕的啟用狀態)完全沒反應。
+        """
+        tab = self._last_work_tab
+        if tab is not None:
+            tab.style_picker.set_selected(list(names))
 
     # ---------- log ----------
     def append_log(self, text: str) -> None:

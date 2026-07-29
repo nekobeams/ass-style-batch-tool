@@ -241,3 +241,94 @@ def test_loading_profile_keeps_its_target_names(qapp):
     editor.set_values({**editor.get_values(),
                        "target_style_names": "CHT, CHS"})
     assert editor.get_values()["target_style_names"] == "CHT, CHS"
+
+
+# ---------- I4:target_style_names 的存/讀要接得到分頁的 StylePicker ----------
+#
+# StyleEditor 本身不認識任何分頁——存/讀 profile 的按鈕、_target_style_names
+# 隱藏值,全部封在這個檔案裡,MainWindow(main_window.py)才是唯一同時拿
+# 得到 StyleEditor 與三個工作分頁的地方。這裡只測 StyleEditor 這一側的
+# 契約(建構子注入的 get_target_style_names callback、profile_loaded
+# 訊號);main_window.py 那一側的接線由 test_main_window.py 覆蓋。
+
+def test_profile_to_save_uses_injected_target_style_names(qapp):
+    """存檔時,注入的 get_target_style_names() 回傳非 None 就要覆蓋
+    target_style_names——這模擬「使用者剛在某個分頁的側欄勾好樣式」的
+    情境,原本(修這個 finding 之前)這個值完全沒有管道傳進存檔流程。"""
+    from ass_style_tool.qt.style_editor import StyleEditor
+    editor = StyleEditor(get_target_style_names=lambda: ["CHT", "CHS"])
+    editor.set_values(DEFAULT_VALUES)
+    profile = editor._profile_to_save()
+    assert profile.target_style_names == ["CHT", "CHS"]
+
+
+def test_profile_to_save_falls_back_to_hidden_value_when_callback_returns_none(
+        qapp):
+    """callback 回傳 None(判斷不出是哪個分頁的勾選,例如程式剛啟動)時,
+    不能用空清單覆蓋掉隱藏值——那樣存出來的檔案會比修 bug 之前更糟
+    (原本至少還留著上次載入/預設的值)。"""
+    from ass_style_tool.qt.style_editor import StyleEditor
+    editor = StyleEditor(get_target_style_names=lambda: None)
+    editor.set_values(DEFAULT_VALUES)
+    profile = editor._profile_to_save()
+    assert profile.target_style_names == [DEFAULT_VALUES["target_style_names"]]
+
+
+def test_profile_to_save_without_callback_behaves_like_before(qapp):
+    """沒有注入 callback(例如直接建構 StyleEditor() 不帶參數,舊行為)
+    時,存檔邏輯要跟修這個 finding 之前完全一樣。"""
+    from ass_style_tool.qt.style_editor import StyleEditor
+    editor = StyleEditor()
+    editor.set_values(DEFAULT_VALUES)
+    profile = editor._profile_to_save()
+    assert profile == editor.current_profile()
+
+
+def test_profile_to_save_raises_on_invalid_fields_before_consulting_callback(
+        qapp):
+    """欄位驗證(profile_from_values)要先跑,壞欄位不能被 override 邏輯
+    蓋過去變成看起來像是存檔成功。"""
+    from ass_style_tool.qt.style_editor import StyleEditor
+    editor = StyleEditor(get_target_style_names=lambda: ["CHT"])
+    editor.set_values({**DEFAULT_VALUES, "fontsize": "big"})
+    import pytest
+    with pytest.raises(ValueError):
+        editor._profile_to_save()
+
+
+def test_load_profile_from_emits_its_target_style_names(qapp, tmp_path):
+    """載入 profile 後要把它的 target_style_names 廣播出去(profile_loaded
+    訊號)——原本這個值只會落進編輯器自己的隱藏欄位,對任何分頁的
+    StylePicker 毫無影響。"""
+    from ass_style_tool.profile import save_profile
+    from ass_style_tool.profile_fields import profile_from_values
+    from ass_style_tool.qt.style_editor import StyleEditor
+    editor = StyleEditor()
+    profile = profile_from_values(
+        {**DEFAULT_VALUES, "target_style_names": "CHT, CHS"})
+    path = tmp_path / "p.json"
+    save_profile(profile, path)
+
+    seen = []
+    editor.profile_loaded.connect(lambda names: seen.append(names))
+    editor.load_profile_from(path)
+
+    assert seen == [["CHT", "CHS"]]
+    # 編輯器自己的欄位(隱藏值)也要照舊更新,訊號是額外的,不是取代。
+    assert editor.get_values()["target_style_names"] == "CHT, CHS"
+
+
+def test_load_profile_from_does_not_emit_when_file_is_corrupt(qapp, tmp_path):
+    """壞檔案讀取失敗時不該廣播出一個假的/空的 target_style_names——
+    load_profile() 在 set_values()/emit 之前就會拋例外,呼叫端
+    (_on_load_selected/restore_settings)原本就吞掉這個例外,行為不變。"""
+    from ass_style_tool.qt.style_editor import StyleEditor
+    bad = tmp_path / "corrupt.json"
+    bad.write_text("not valid json", encoding="utf-8")
+    editor = StyleEditor()
+    seen = []
+    editor.profile_loaded.connect(lambda names: seen.append(names))
+    import pytest
+    with pytest.raises(Exception):
+        editor.load_profile_from(bad)
+    assert seen == []

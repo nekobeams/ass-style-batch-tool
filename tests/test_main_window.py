@@ -196,3 +196,95 @@ def test_tab_change_ignores_tabs_without_auto_scan(qapp, monkeypatch, tmp_path):
         window.tabs.setCurrentIndex(window.tabs.count() - 1)
     finally:
         window.deleteLater()
+
+
+# ---------- I4:StyleEditor 存/讀 profile 要接得到分頁的 StylePicker ----------
+#
+# 這裡是唯一同時拿得到 StyleEditor 與三個工作分頁的地方(組裝點),
+# 所以 I4 的接線只能在這裡測——StyleEditor 自己那一側的契約
+# (get_target_style_names / profile_loaded)由 test_style_editor.py 覆蓋。
+
+def test_save_uses_target_tab_selection_even_after_switching_to_style_tab(
+        qapp, monkeypatch, tmp_path):
+    """真實使用者流程:先在字幕檔分頁的側欄勾好樣式,再切到「樣式與
+    預覽」分頁按下「另存」——這時 tabs.currentWidget() 已經是沒有
+    style_picker 的分頁了。_last_work_tab 要記住『字幕檔』分頁,而不是
+    『目前分頁』,不然存檔時完全抓不到使用者剛才勾了什麼(這正是 I4
+    描述的第二個方向:存檔寫進去的是過期的隱藏值)。"""
+    window = _window(monkeypatch, tmp_path)
+    try:
+        window.subtitle_tab.style_picker.set_available(["CHT", "Default"])
+        window.subtitle_tab.style_picker.set_selected(["CHT"])
+        assert window._last_work_tab is window.subtitle_tab
+
+        window.tabs.setCurrentWidget(window._preview_split)   # 切到樣式與預覽
+        assert window._last_work_tab is window.subtitle_tab   # 記憶不被覆蓋
+
+        profile = window.style_editor._profile_to_save()
+        assert profile.target_style_names == ["CHT"]
+    finally:
+        window.deleteLater()
+
+
+def test_save_falls_back_to_hidden_value_before_any_work_tab_was_active(
+        qapp, monkeypatch, tmp_path):
+    """程式剛啟動、_on_tab_changed 從未被『使用者切換』觸發過(初始分頁
+    是字幕檔,_last_work_tab 已經指向它)以外的情境——直接把
+    _last_work_tab 清成 None,模擬『判斷不出是哪個分頁』,存檔不該用
+    空清單覆蓋掉隱藏值。"""
+    window = _window(monkeypatch, tmp_path)
+    try:
+        window._last_work_tab = None
+        profile = window.style_editor._profile_to_save()
+        from ass_style_tool.profile_fields import DEFAULT_VALUES
+        assert profile.target_style_names == [DEFAULT_VALUES["target_style_names"]]
+    finally:
+        window.deleteLater()
+
+
+def test_loading_profile_feeds_names_into_the_active_tab_picker(
+        qapp, monkeypatch, tmp_path):
+    """載入一個帶有 target_style_names 的 profile,要把那些名字塞進
+    『最後作用中』分頁的 StylePicker 選取——不然「載入 profile」對任何
+    分頁的畫面都毫無效果(I4 描述的第一個方向)。"""
+    from ass_style_tool.profile import save_profile
+    from ass_style_tool.profile_fields import DEFAULT_VALUES, profile_from_values
+
+    window = _window(monkeypatch, tmp_path)
+    try:
+        window.tabs.setCurrentWidget(window.mux_tab)
+        assert window._last_work_tab is window.mux_tab
+
+        profile_path = tmp_path / "loaded.json"
+        save_profile(profile_from_values(
+            {**DEFAULT_VALUES, "target_style_names": "CHT, CHS"}), profile_path)
+
+        window.style_editor.load_profile_from(profile_path)
+
+        assert window.mux_tab.style_picker.selected() == ["CHT", "CHS"]
+    finally:
+        window.deleteLater()
+
+
+def test_loading_profile_does_not_touch_a_different_tabs_picker(
+        qapp, monkeypatch, tmp_path):
+    """載入 profile 只能影響『最後作用中』的那個分頁,不能悄悄改到使用者
+    根本沒在看的另一個分頁的勾選。"""
+    from ass_style_tool.profile import save_profile
+    from ass_style_tool.profile_fields import DEFAULT_VALUES, profile_from_values
+
+    window = _window(monkeypatch, tmp_path)
+    try:
+        window.mkv_tab.style_picker.set_available(["Default"])
+        window.mkv_tab.style_picker.set_selected(["Default"])
+        window.tabs.setCurrentWidget(window.mux_tab)
+
+        profile_path = tmp_path / "loaded.json"
+        save_profile(profile_from_values(
+            {**DEFAULT_VALUES, "target_style_names": "CHT"}), profile_path)
+        window.style_editor.load_profile_from(profile_path)
+
+        assert window.mux_tab.style_picker.selected() == ["CHT"]
+        assert window.mkv_tab.style_picker.selected() == ["Default"]   # 沒被動到
+    finally:
+        window.deleteLater()
