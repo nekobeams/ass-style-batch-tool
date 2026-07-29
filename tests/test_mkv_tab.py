@@ -525,6 +525,25 @@ def test_read_template_styles_reports_no_text_track(qapp, monkeypatch):
     assert not any("失敗" in m for m in messages)
 
 
+def test_read_template_styles_no_text_track_message_names_the_first_file_only(
+        qapp, monkeypatch):
+    """Minor bullet:read_template_styles() 只抽 files[0] 當範本,不逐檔
+    確認——訊息原本講『這批影片沒有文字字幕軌』,會讓人誤以為整批都被
+    檢查過,其實後面的檔案根本沒被碰過。這裡釘住訊息要點名第一個檔案,
+    且明講其餘影片未被檢查,不能誇大成整批的結論。"""
+    tab = _tab(monkeypatch)
+    tab.populate(FILES)
+    monkeypatch.setattr(
+        "ass_style_tool.qt.mkv_tab.extract_template_subtitle",
+        lambda mkv, mkvmerge, mkvextract, out_dir:
+            TemplateExtraction(path=None, error="no_track"))
+    messages = []
+    tab.log.connect(messages.append)
+    tab.read_template_styles()
+    assert any(FILES[0].name in m and "其餘影片未逐一確認" in m
+              for m in messages)
+
+
 def test_read_template_styles_reports_extraction_failure(qapp, monkeypatch):
     """軌道存在,但 mkvextract 抽取失敗(壞檔/磁碟空間/權限…)——訊息要
     講「抽取失敗」,不能說成「沒有文字字幕軌」,否則使用者會被導去檢查
@@ -746,6 +765,16 @@ def test_save_and_restore_settings_roundtrip_single_style_does_not_degrade(
 def test_result_column_header_label(qapp, monkeypatch):
     tab = _tab(monkeypatch)
     assert tab.file_table.horizontalHeaderItem(2).text() == "結果"
+
+
+def test_result_column_resize_mode_does_not_elide_text(qapp, monkeypatch):
+    """Minor bullet:「結果」欄跟另外兩個分頁的「預計 / 結果」欄一樣,
+    要有 resize 政策,不然長文字(例如「✗ 失敗」以外還有訊息時)會被
+    裁到剩幾個字。"""
+    from PySide6.QtWidgets import QHeaderView
+    tab = _tab(monkeypatch)
+    assert (tab.file_table.horizontalHeader().sectionResizeMode(2)
+           == QHeaderView.ResizeToContents)
 
 
 def test_result_column_blank_after_populate(qapp, monkeypatch):

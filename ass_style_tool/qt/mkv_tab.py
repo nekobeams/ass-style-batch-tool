@@ -93,6 +93,10 @@ class MkvTab(QWidget):
         self.file_table.verticalHeader().setVisible(False)
         self.file_table.horizontalHeader().setSectionResizeMode(
             0, QHeaderView.Stretch)
+        # 「結果」欄跟另外兩個分頁的「預計 / 結果」欄是同一組 RESULT_ICONS
+        # 文字,一樣沒有 resize 政策時會被裁到剩幾個字(Minor bullet)。
+        self.file_table.horizontalHeader().setSectionResizeMode(
+            2, QHeaderView.ResizeToContents)
 
         # ----- 側欄:操作模式 -----
         mode_box = QVBoxLayout()
@@ -545,7 +549,14 @@ class MkvTab(QWidget):
                 self.log.emit(f"抽取 {files[0].name} 的字幕軌失敗,"
                               "無法讀取樣式名稱(檔案可能損壞或磁碟空間不足)")
             else:
-                self.log.emit("這批影片沒有文字字幕軌(可能是 PGS/VobSub 圖形字幕)")
+                # Minor bullet:只抽了 files[0] 當範本(見本函式開頭的
+                # docstring),訊息卻原本講「這批影片」,會讓人誤以為整批
+                # 都檢查過了、全部都沒有文字字幕軌——其實後面的檔案根本
+                # 沒被碰過。改成點名第一個檔案,不擴大成整批的結論。
+                self.log.emit(
+                    f"{files[0].name} 沒有文字字幕軌,無法讀取樣式名稱"
+                    "(可能是 PGS/VobSub 圖形字幕;只檢查了第一個影片,"
+                    "其餘影片未逐一確認)")
             return
         result = scan_styles(extraction.path)
         if result.error is not None:
