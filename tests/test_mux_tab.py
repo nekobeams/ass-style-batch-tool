@@ -773,6 +773,11 @@ def test_run_to_completion_reconciles_job_rows_and_preserves_others(
     from ass_style_tool.qt.batch_worker import MuxWorker
 
     tab = _tab(monkeypatch)
+    # Finding 4(最終審查 Batch A3)之後,「結果」欄的「ok」標籤依
+    # direct_mode_radio(分頁預設勾選)而定;這個測試關心的是 Task 10
+    # Finding 1 的列狀態追蹤,不是標籤內容本身,切到套用模式讓「✓ 已
+    # 套用」這個既有斷言維持原本的意義。
+    tab.apply_mode_radio.setChecked(True)
     tab.populate(PAIRS)
     before_row1 = tab.table.item(1, 5).text()
 
@@ -814,11 +819,18 @@ def test_result_cell_distinguishes_unstyled_mux_from_styled(qapp, monkeypatch):
     往外送給 log。舊的「結果」欄一律套用 RESULT_ICONS["ok"](「✓ 已
     套用」),讀起來像『有套用樣式』,但這個 case 底下字幕其實完全沒被
     改動——驅動真正的 MuxWorker(注入假 process_fn 回傳這個訊息),
-    確認結果欄的文字跟『真的套用了樣式』的那一列不一樣。"""
+    確認結果欄的文字跟『真的套用了樣式』的那一列不一樣。
+
+    這個訊息只在套用模式底下才會出現(direct 模式從不嘗試套用任何
+    樣式,連「找不到」都不會發生),Finding 4 之後「結果」欄的標籤也會
+    依 direct_mode_radio 而變——這裡切到套用模式,讓這個測試繼續測它
+    本來要測的東西(message-based 的「找不到目標 Style」偵測),不被
+    Batch A3 新加的 direct-mode 標籤蓋過去。"""
     from ass_style_tool.mkv_batch import MkvFileReport
     from ass_style_tool.qt.batch_worker import MuxWorker
 
     tab = _tab(monkeypatch)
+    tab.apply_mode_radio.setChecked(True)
     matched_only = [
         MuxPair(Path("a [01].mkv"), Path("a [01].ass"), 1, "matched"),
         MuxPair(Path("b [02].mkv"), Path("b [02].ass"), 2, "matched"),
@@ -853,6 +865,45 @@ def test_result_cell_distinguishes_unstyled_mux_from_styled(qapp, monkeypatch):
     assert unstyled_text != "✓ 已套用"
 
 
+def test_direct_mode_run_result_does_not_claim_styled(qapp, monkeypatch):
+    """Finding 4(最終審查 Batch A3):direct_mode_radio 是這個分頁「封裝
+    前處理」預設勾選的模式,current_operation() 在這個模式下一律回傳
+    None,process_mux 完全不會嘗試套用任何樣式——上一批修復只處理了
+    套用模式底下『目標樣式找不到』的例外情況(靠 worker 訊息辨識),
+    但 direct 模式從頭到尾不會走到套用邏輯,自然也不會產生那則訊息,
+    「結果」欄因此一路落回泛用的 RESULT_ICONS["ok"](「✓ 已套用」),
+    對每一個成功的直接封裝檔案都是錯誤的宣稱。這裡確認分頁本身預設
+    就在 direct 模式,驅動真正的 MuxWorker(direct 模式的 operation 是
+    None),確認結果欄不再讀起來像『套用了樣式』。"""
+    from ass_style_tool.mkv_batch import MkvFileReport
+    from ass_style_tool.qt.batch_worker import MuxWorker
+
+    tab = _tab(monkeypatch)
+    assert tab.direct_mode_radio.isChecked() is True   # 分頁預設模式
+    assert tab.current_operation() is None
+
+    matched_only = [
+        MuxPair(Path("a [01].mkv"), Path("a [01].ass"), 1, "matched"),
+    ]
+    tab.populate(matched_only)
+    pairs = tab.checked_pairs()
+
+    def fake_process(pair, meta, operation, tools, out_path=None,
+                     progress_cb=None, edits=None):
+        return MkvFileReport(pair.video_path, "ok")
+
+    tab.mark_rows_pending()
+    worker = MuxWorker(pairs, tab.current_meta(), tab.current_operation(),
+                       tab._tools, output_dir=None, process_fn=fake_process)
+    worker.file_done.connect(tab._set_row_result)
+    worker.finished.connect(tab._on_finished)
+    worker.run()
+
+    result_text = tab.table.item(0, 5).text()
+    assert result_text != "✓ 已套用"
+    assert "✓" in result_text          # 仍然是「成功」,只是不宣稱套用了樣式
+
+
 def test_cancelled_run_reconciles_remaining_rows(qapp, monkeypatch):
     """Task 10 review Finding 2:取消封裝時 MuxWorker.run() 一偵測到取消
     旗標就直接 break,還沒輪到的影片不會發出 file_done。這裡驅動真正的
@@ -862,6 +913,9 @@ def test_cancelled_run_reconciles_remaining_rows(qapp, monkeypatch):
     from ass_style_tool.qt.batch_worker import MuxWorker
 
     tab = _tab(monkeypatch)
+    # 這個測試關心的是列狀態追蹤(Task 10 Finding 2),不是 Finding 4 的
+    # direct-mode 標籤;切到套用模式讓既有的「✓ 已套用」斷言維持原意。
+    tab.apply_mode_radio.setChecked(True)
     matched_only = [
         MuxPair(Path("a [01].mkv"), Path("a [01].ass"), 1, "matched"),
         MuxPair(Path("b [02].mkv"), Path("b [02].ass"), 2, "matched"),

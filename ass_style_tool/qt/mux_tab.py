@@ -46,9 +46,19 @@ _DIRECT_MODE_PLAN_TEXT = "直接封裝,不修改字幕"
 # transform_track_file()(mkv_batch.py)早就算出來、也已經經由
 # MuxWorker.message 訊號原封不動送給 log 用了(見 mkv_mux.process_mux
 # 對 report.messages 的處理)——這裡借用同一段文字辨識這個特定結果,
-# 而不是另外發明一條新的訊號路徑。
+# 而不是另外發明一條新的訊號路徑。這條路徑只在「套用模式」(apply_
+# mode_radio)成立:direct 模式下 process_mux 從不嘗試套用任何樣式,
+# 根本不會產生這則訊息。
 _UNSTYLED_MESSAGE = "找不到目標 Style,未修改"
 _RESULT_UNSTYLED_TEXT = "✓ 已封裝(未套用樣式,找不到目標 Style)"
+# Finding 4(最終審查 Batch A3):direct_mode_radio 是這個分頁「封裝前
+# 處理」預設勾選的模式,current_operation() 在這個模式下一律回傳
+# None,process_mux 完全不會嘗試套用任何樣式——跟上面 _UNSTYLED_MESSAGE
+# 那條「套用模式但目標樣式沒找到」的路徑是兩回事,worker 也不會為這個
+# case 送出任何特殊訊息可供辨識(沒有嘗試就沒有「找不到」這回事)。
+# 但這件事分頁自己在派工前就已經確定知道(哪個 radio 被勾),不必、也
+# 不該等 worker 訊息才判斷——用這個模式本身當真正的訊號。
+_RESULT_DIRECT_TEXT = "✓ 已封裝(原字幕直接封,未套用樣式)"
 # 常見字幕語言清單移到 ..languages(與 modify_tracks_dialog 的軌道語言欄
 # 共用,避免同一份清單在兩處各自維護)。_LANGUAGES 這個名字繼續保留、
 # re-export,既有呼叫端與測試都是這樣引用的。
@@ -571,10 +581,21 @@ class MuxTab(QWidget):
         # 任何東西時才會出現,report.status 仍是 "ok"),清成 None 避免
         # 誤套到下一個檔案的 message 上。
         self._last_ok_name = name if status == "ok" else None
+        if status == "ok" and self.direct_mode_radio.isChecked():
+            # Finding 4(最終審查 Batch A3):direct 模式從不套用樣式,
+            # 這個判斷分頁自己就確定知道,不必等 worker 訊息(那條路徑
+            # 只在套用模式底下才會被觸發,見 _RESULT_DIRECT_TEXT 上面的
+            # 說明)。
+            #
+            # 已知、接受的缺口:縮放模式若縮放係數算出來剛好等於不縮放
+            # (no-op scale),結果欄目前仍沿用泛用的 RESULT_ICONS["ok"]
+            # ——要準確判斷需要進一步檢視 report 內容,這批不處理。
+            text = _RESULT_DIRECT_TEXT
+        else:
+            text = RESULT_ICONS.get(status, status)
         # 用檔名比對回表格列:這只有在資料夾掃描不遞迴(不會有兩個影片檔
         # 同名)的前提下才安全——future 若改成遞迴掃描,這裡的比對邏輯
         # 也要一併換成完整路徑,否則同名檔案的結果會被誤套到錯的列。
-        text = RESULT_ICONS.get(status, status)
         for r in range(self.table.rowCount()):
             item = self.table.item(r, 1)          # 第 1 欄是影片檔名
             if item is not None and item.text() == name:
