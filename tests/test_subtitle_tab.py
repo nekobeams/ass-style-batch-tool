@@ -571,6 +571,62 @@ def test_cancelled_run_reconciles_remaining_rows(qapp, monkeypatch):
     assert tab.table.item(2, 4).text() != "處理中…"
 
 
+# ---------- C1:編輯器欄位壞掉時,「預計」欄的重算不能讓分頁卡死 ----------
+
+def test_plan_column_resize_mode_does_not_elide_text(qapp):
+    """Minor bullet:「預計 / 結果」欄要有 resize 政策,不然長文字會被
+    裁到剩幾個字。"""
+    from PySide6.QtWidgets import QHeaderView
+    tab = _tab()
+    assert (tab.table.horizontalHeader().sectionResizeMode(4)
+           == QHeaderView.ResizeToContents)
+
+
+def test_plans_marks_error_when_profile_is_invalid_instead_of_raising(qapp):
+    """C1(最終審查 Finding):_get_profile()(這裡是 style_editor 的
+    current_profile,經 profile_from_values() 驗證)在編輯器欄位是壞的
+    時候會拋 ValueError——effective_profile() 直接把它往上傳,而 _plans()
+    完全沒接住。這裡直接把 get_profile 換成一個保證拋例外的假函式,模擬
+    「字型名稱被清空」之類的欄位錯誤,確認 _plans() 不會讓例外逃出去,
+    而是每一列都秀出明確標記。"""
+    from ass_style_tool.qt.subtitle_tab import SubtitleFileTab
+
+    def boom():
+        raise ValueError("字型名稱不可為空")
+
+    tab = SubtitleFileTab(boom)
+    tab._on_scan_finished(_scan_with_default_style())
+    tab.style_picker.set_selected(["Default"])
+    text = tab.table.item(0, 4).text()
+    assert text == "⚠ 樣式設定有誤"
+
+
+def test_scan_finished_completes_bookkeeping_when_profile_is_invalid(qapp):
+    """C1 的真正後果:populate_preview() 若讓 ValueError 逃出
+    _on_scan_finished(),PySide6 會印出 traceback 並吞掉例外,但 slot
+    在拋出點提前中斷——scan_button 重新啟用、_scan_thread/_scan_worker
+    清空等收尾動作永遠不會執行,分頁從此卡死(scan_button 永遠是關的、
+    auto_scan_once 永遠拒絕)。這裡直接驅動 _on_scan_finished()(不是
+    _plans()),確認收尾動作真的都跑完了。"""
+    from unittest.mock import Mock
+    from ass_style_tool.qt.subtitle_tab import SubtitleFileTab
+
+    def boom():
+        raise ValueError("alignment 必須是 1-9")
+
+    tab = SubtitleFileTab(boom)
+    tab.style_picker.set_selected(["Default"])
+    tab._scan_thread = Mock()            # 模擬掃描執行緒仍在跑
+    tab._scan_worker = Mock()
+    tab.scan_button.setEnabled(False)
+
+    tab._on_scan_finished(_scan_with_default_style())
+
+    assert tab.scan_button.isEnabled() is True
+    assert tab._scan_thread is None
+    assert tab._scan_worker is None
+
+
 def test_switching_mode_recomputes_plan_column(qapp):
     """Task 6 review 發現、延到 Task 10 修:_on_mode_changed 之前不會重算
     預計欄,導致切模式後畫面還留著前一個模式的預告文字(例如切到縮放

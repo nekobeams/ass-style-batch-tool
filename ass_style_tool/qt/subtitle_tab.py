@@ -66,6 +66,12 @@ class SubtitleFileTab(QWidget):
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.horizontalHeader().setSectionResizeMode(
             1, QHeaderView.Stretch)
+        # 「預計 / 結果」欄的文字長度變化很大(例如
+        # 「Default 48 → 72、Sign 30 → 45」),沒有 resize 政策時會被裁到
+        # 剩幾個字。跟著內容自動撐寬,不吃字幕檔欄(欄 1)已經佔走的
+        # Stretch 名額(Minor bullet)。
+        self.table.horizontalHeader().setSectionResizeMode(
+            4, QHeaderView.ResizeToContents)
         self.table.cellDoubleClicked.connect(self._on_row_double_clicked)
 
         # ----- 設定側欄:操作模式 -----
@@ -251,7 +257,20 @@ class SubtitleFileTab(QWidget):
                 return {path: "⚠ 縮放參數有誤" for path in styles}
             return {path: scale_plan_text(fs, options)
                     for path, fs in styles.items()}
-        profile = self.effective_profile()
+        try:
+            profile = self.effective_profile()
+        except ValueError:
+            # C1(最終審查 Finding):effective_profile() → _get_profile()
+            # → profile_from_values() 在編輯器欄位目前是壞的時候(例如
+            # 字型名稱清空、字體大小改成非數字、對齊超出 1-9——編輯器
+            # 欄位沒有即時驗證,打一個鍵就能踩到)會拋 ValueError。這個
+            # 例外絕不能往上竄出呼叫這裡的 Qt slot(_on_scan_finished 等):
+            # PySide6 會印出 traceback 但吞掉例外,slot 提前中斷,
+            # scan_button 重新啟用、_scan_thread/_scan_worker 清空等收尾
+            # 動作永遠不會執行,分頁就此靜默卡死一整個 session。跟縮放
+            # 參數有誤走同一套處理方式:每一列都秀出明確標記,不讓
+            # 半成品輸入把整個預覽表格炸掉。
+            return {path: "⚠ 樣式設定有誤" for path in styles}
         names = self.style_picker.selected()
         return {path: apply_plan_text(fs, profile, names)
                 for path, fs in styles.items()}
