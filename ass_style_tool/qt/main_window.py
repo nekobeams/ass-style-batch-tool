@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (QApplication, QLabel, QMainWindow, QMenu,
                                QPlainTextEdit, QPushButton, QSplitter,
                                QTabWidget, QVBoxLayout, QWidget)
 
+from ..profile_fields import DEFAULT_VALUES
 from .theme import (THEME_MODES, apply_theme, apply_titlebar_theme,
                     resolve_theme, system_is_dark)
 from .mkv_tab import MkvTab
@@ -207,10 +208,32 @@ class MainWindow(QMainWindow):
         勾選跟著換過去——不然「載入 profile」對任何分頁的畫面都毫無
         效果,使用者只會看到編輯器欄位變了,分頁裡的勾選(以及依它算出
         的「預計」欄、執行按鈕的啟用狀態)完全沒反應。
+
+        Finding 2(最終審查 Batch A2):這是使用者主動載入 profile 造成的
+        取代,整批覆蓋本身沒問題,但兩件事需要補上可見性:
+
+        1. 本批修復之前存出的每一個 profile,target_style_names 都是
+           DEFAULT_VALUES 那個從未被使用者實際勾選過的隱藏值佔位字串
+           (Finding 1 的成因)——不是真正的使用者選擇。載入這個特定值
+           時,若仍然覆蓋掉分頁目前的勾選,使用者會在毫無提示的情況下
+           失去自己實際選好的樣式,換成一個從未代表任何選擇的字串,
+           執行按鈕之後可能被一個掃描結果裡根本不存在的樣式卡住,還
+           不知道發生了什麼——維持分頁現狀比套用它更安全,直接跳過。
+        2. 除此之外的真正覆蓋,一律留一行 log,講清楚勾選從什麼換成
+           什麼——不然這個覆蓋是完全無聲的。
         """
         tab = self._last_work_tab
-        if tab is not None:
-            tab.style_picker.set_selected(list(names))
+        if tab is None:
+            return
+        names = list(names)
+        if names == [str(DEFAULT_VALUES["target_style_names"])]:
+            return
+        before = tab.style_picker.selected()
+        if names != before:
+            self.append_log(
+                f"載入 profile:目標樣式勾選由 {before or '(無)'} "
+                f"改為 {names or '(無)'}")
+        tab.style_picker.set_selected(names)
 
     # ---------- log ----------
     def append_log(self, text: str) -> None:

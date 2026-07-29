@@ -242,6 +242,76 @@ def test_save_falls_back_to_hidden_value_before_any_work_tab_was_active(
         window.deleteLater()
 
 
+# ---------- Finding 1(最終審查 Batch A2):空選取不能磚化存/讀 ----------
+
+def test_save_with_nothing_checked_does_not_brick_editor(
+        qapp, monkeypatch, tmp_path):
+    """Finding 1 half 1:使用者在字幕檔分頁先勾了樣式、又全部取消勾選
+    (_active_tab_selected_styles() 這時回傳 []——這是 I11 描述的『掃描
+    成功、還沒勾/勾完又取消』狀態,不是角落案例),接著按下「另存」。
+    舊程式碼只擋 `names is None`,吃不到 []:`replace(profile,
+    target_style_names=[])` 會把空清單原封不動存進去。profile 檔案
+    的『目標 Style 名稱』輸入框已經從編輯器移除,一旦這個空清單經由
+    load/current_profile() 路徑被 profile_from_values() 吃到,就會一路
+    拋 ValueError("目標 Style 名稱不可為空"),而使用者完全沒有 UI 能
+    修回來。這裡驅動一次真正會發生的存檔序列,並實際『使用』存出來的
+    profile(而不是只看欄位),確認不會拋例外。"""
+    from ass_style_tool.profile_fields import profile_from_values, values_from_profile
+
+    window = _window(monkeypatch, tmp_path)
+    try:
+        window.subtitle_tab.style_picker.set_available(["CHT", "Default"])
+        window.subtitle_tab.style_picker.set_selected(["CHT"])
+        assert window._last_work_tab is window.subtitle_tab
+
+        window.subtitle_tab.style_picker.set_selected([])   # 全部取消勾選
+        assert window._active_tab_selected_styles() == []
+
+        profile = window.style_editor._profile_to_save()
+        # 空清單不能原封不動存進去;必須落回編輯器欄位裡原本的隱藏值。
+        assert profile.target_style_names
+
+        # 「使用」這份 profile:轉成欄位字典再解回 Profile,模擬存檔→
+        # 之後任何讀取路徑(重新載入、effective_profile()…)實際會做的
+        # 事——這一步在 Finding 1 修復前會拋 ValueError。
+        profile_from_values(values_from_profile(profile))
+    finally:
+        window.deleteLater()
+
+
+def test_load_profile_with_empty_target_style_names_does_not_wedge(
+        qapp, tmp_path):
+    """Finding 1 half 2:存檔於本批修復之前的 profile(或被手動改壞的
+    檔案)target_style_names 可能是空清單,寫在磁碟上的 profile.json
+    (跟 QSettings 記住的路徑一樣,可能是舊版留下的)。載入這種檔案時,
+    StyleEditor 不能把空清單原樣塞進編輯器欄位——編輯器已經沒有輸入框
+    能讓使用者手動補回這個值,一旦塞入,current_profile() 之後每次
+    呼叫都會拋 ValueError,等於載入這一個檔案就把整個程式永久卡死。"""
+    from ass_style_tool.profile import Profile, TargetStyle, save_profile
+    from ass_style_tool.qt.style_editor import StyleEditor
+
+    bad_style = TargetStyle(
+        fontname="Foo", fontsize=50.0, bold=False, italic=False,
+        primary_colour="&H00FFFFFF", outline_colour="&H00000000",
+        back_colour="&H00000000", outline=2.0, shadow=1.0, alignment=2,
+        margin_l=10, margin_r=10, margin_v=10)
+    bad_profile = Profile(profile_name="bad", target_style_names=[],
+                          base_width=1920, base_height=1080, style=bad_style)
+    path = tmp_path / "bad.json"
+    save_profile(bad_profile, path)
+
+    editor = StyleEditor()
+    try:
+        editor.load_profile_from(path)          # 不應拋例外
+
+        # 載入後,編輯器必須仍處於可用狀態:current_profile() 不拋例外,
+        # 且不是空清單。
+        profile = editor.current_profile()
+        assert profile.target_style_names
+    finally:
+        editor.deleteLater()
+
+
 def test_loading_profile_feeds_names_into_the_active_tab_picker(
         qapp, monkeypatch, tmp_path):
     """載入一個帶有 target_style_names 的 profile,要把那些名字塞進
@@ -286,5 +356,62 @@ def test_loading_profile_does_not_touch_a_different_tabs_picker(
 
         assert window.mux_tab.style_picker.selected() == ["CHT"]
         assert window.mkv_tab.style_picker.selected() == ["Default"]   # 沒被動到
+    finally:
+        window.deleteLater()
+
+
+# ---------- Finding 2(最終審查 Batch A2):載入 profile 覆蓋勾選要可見 ----------
+
+def test_loading_profile_logs_selection_change(qapp, monkeypatch, tmp_path):
+    """Finding 2 half 1:載入 profile 覆蓋掉分頁的目標樣式勾選時,必須
+    留一行 log 講清楚『換成了什麼』——不然使用者只會看到分頁勾選、
+    執行按鈕的啟用狀態莫名其妙變了,完全不知道發生了什麼、為什麼。"""
+    from ass_style_tool.profile import save_profile
+    from ass_style_tool.profile_fields import DEFAULT_VALUES, profile_from_values
+
+    window = _window(monkeypatch, tmp_path)
+    try:
+        window.subtitle_tab.style_picker.set_available(["CHT", "Default"])
+        window.subtitle_tab.style_picker.set_selected(["Default"])
+        assert window._last_work_tab is window.subtitle_tab
+
+        logs = []
+        window.append_log = lambda text: logs.append(text)
+
+        profile_path = tmp_path / "loaded.json"
+        save_profile(profile_from_values(
+            {**DEFAULT_VALUES, "target_style_names": "CHT"}), profile_path)
+        window.style_editor.load_profile_from(profile_path)
+
+        assert window.subtitle_tab.style_picker.selected() == ["CHT"]
+        assert any("CHT" in line for line in logs), logs
+    finally:
+        window.deleteLater()
+
+
+def test_loading_legacy_default_placeholder_does_not_override_selection(
+        qapp, monkeypatch, tmp_path):
+    """Finding 2 half 2:Finding 1 修復前存出的每一個 profile,
+    target_style_names 都是 DEFAULT_VALUES 那個從未被使用者實際勾選過
+    的隱藏值佔位字串,不是真正的使用者選擇。載入這種舊 profile 時如果
+    仍然覆蓋掉分頁目前的勾選,使用者會在毫無提示的情況下失去自己實際
+    選好的樣式——這裡驗證載入這個特定值時,分頁的勾選維持原狀不被
+    覆蓋。"""
+    from ass_style_tool.profile import save_profile
+    from ass_style_tool.profile_fields import DEFAULT_VALUES, profile_from_values
+
+    window = _window(monkeypatch, tmp_path)
+    try:
+        window.subtitle_tab.style_picker.set_available(["CHT", "Default"])
+        window.subtitle_tab.style_picker.set_selected(["CHT"])
+        assert window._last_work_tab is window.subtitle_tab
+
+        profile_path = tmp_path / "legacy.json"
+        # DEFAULT_VALUES["target_style_names"] 就是那個從未真正代表過
+        # 使用者選擇的隱藏值佔位字串("Default")。
+        save_profile(profile_from_values(DEFAULT_VALUES), profile_path)
+        window.style_editor.load_profile_from(profile_path)
+
+        assert window.subtitle_tab.style_picker.selected() == ["CHT"]   # 沒被覆蓋
     finally:
         window.deleteLater()

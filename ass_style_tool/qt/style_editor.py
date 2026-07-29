@@ -245,6 +245,21 @@ class StyleEditor(QWidget):
 
     def load_profile_from(self, path) -> None:
         profile = load_profile(Path(path))
+        if not profile.target_style_names:
+            # Finding 1 half 2(最終審查 Batch A2):本批修復之前寫出的
+            # profile 檔一律帶著 DEFAULT_VALUES 那個從未被使用者實際勾選
+            # 過的隱藏值(見下方 fix 1 的說明),但手改壞的檔案、或未來
+            # 其他管道寫出的檔案仍可能是真正的空清單 []。空清單一旦被
+            # set_values() 轉成空字串塞進編輯器欄位,之後任何呼叫
+            # current_profile()/_profile_to_save() 的地方都會一路撞上
+            # profile_from_values() 的 ValueError("目標 Style 名稱不可
+            # 為空")——而目標 Style 的輸入框已經從編輯器移除,使用者完全
+            # 沒有 UI 能手動補回這個欄位,等於載入這一個檔案就把整個
+            # 程式永久卡死。這裡在載入當下就把空清單換回預設值,確保
+            # profile_from_values() 永遠不會在載入路徑上收到空清單。
+            profile = replace(
+                profile,
+                target_style_names=[str(DEFAULT_VALUES["target_style_names"])])
         self.set_values(values_from_profile(profile))
         # I4:把載入到的 target_style_names 交給目前作用中的工作分頁當新
         # 選取。這是使用者主動載入這個 profile 造成的取代,不是掃描結果
@@ -277,7 +292,17 @@ class StyleEditor(QWidget):
         profile = self.current_profile()
         if self._get_target_style_names is not None:
             names = self._get_target_style_names()
-            if names is not None:
+            # Finding 1 half 1(最終審查 Batch A2):`_active_tab_selected_
+            # styles()` 回傳的是「目前作用中分頁的勾選」,勾選為空(使用
+            # 者掃描完成後還沒勾、或全部取消勾選)時回傳的是 []、不是
+            # None——舊判斷式 `if names is not None:` 吃不到這個狀態,會
+            # 把 [] 原封不動存進 profile。profile_from_values() 對空清單
+            # 一律拋 ValueError,且編輯器已無 UI 能補回這個欄位,一旦存檔
+            # 寫入空清單,任何用到這份 profile 的地方都會一路卡死
+            # (Finding 1)。改成看真值:空清單跟 None 一樣視為「這個分頁
+            # 現在沒有能覆蓋的勾選」,落回 self._target_style_names 這份
+            # 隱藏值,而不是用空清單覆蓋掉它。
+            if names:
                 profile = replace(profile, target_style_names=list(names))
         return profile
 
