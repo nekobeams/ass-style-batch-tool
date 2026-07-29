@@ -91,6 +91,11 @@ class MuxTab(QWidget):
         # file_done 發出之前不會變動,所以 message 訊號抓到「找不到目標
         # Style」字樣時,可以放心地把它套到這個檔名對應的列。
         self._last_ok_name: Optional[str] = None
+        # Finding 1(最終審查 Batch A4):這批工作實際派工時是哪個模式,
+        # 由 _on_run() 在派工當下寫入;_set_row_result() 要讀這個值,而
+        # 不是即時的 direct_mode_radio.isChecked()(見 _set_row_result()
+        # 的說明)。
+        self._run_was_direct: bool = False
         self.setAcceptDrops(True)
 
         mkvmerge = mkvmerge_path()
@@ -581,11 +586,19 @@ class MuxTab(QWidget):
         # 任何東西時才會出現,report.status 仍是 "ok"),清成 None 避免
         # 誤套到下一個檔案的 message 上。
         self._last_ok_name = name if status == "ok" else None
-        if status == "ok" and self.direct_mode_radio.isChecked():
+        if status == "ok" and self._run_was_direct:
             # Finding 4(最終審查 Batch A3):direct 模式從不套用樣式,
             # 這個判斷分頁自己就確定知道,不必等 worker 訊息(那條路徑
             # 只在套用模式底下才會被觸發,見 _RESULT_DIRECT_TEXT 上面的
             # 說明)。
+            #
+            # Finding 1(最終審查 Batch A4):讀的是 _run_was_direct(這批
+            # 工作派工當下 _on_run() 記下的模式),不是即時的
+            # direct_mode_radio.isChecked()——這顆 radio 在批次跑的期間
+            # 並未被停用,使用者中途切換模式時,即時讀取會把這批工作實際
+            # 派工的模式(可能已套用樣式)誤判成另一個模式,產生錯誤的
+            # 結果標記(反過來也一樣:direct 模式派工、中途切成套用模式,
+            # 會誤標成「已套用」)。
             #
             # 已知、接受的缺口:縮放模式若縮放係數算出來剛好等於不縮放
             # (no-op scale),結果欄目前仍沿用泛用的 RESULT_ICONS["ok"]
@@ -751,6 +764,11 @@ class MuxTab(QWidget):
         self.cancel_button.setEnabled(True)
         self.mark_rows_pending()
         self._last_ok_name = None
+        # Finding 1(最終審查 Batch A4):記住這批工作實際派工時是哪個
+        # 模式,而不是等結果送達時才去讀 direct_mode_radio——那顆 radio
+        # 在批次跑的期間並未被停用,使用者中途切換模式不該影響已經派工
+        # 出去的這批結果怎麼標記。
+        self._run_was_direct = operation is None
 
         self._thread = QThread()
         self._worker = MuxWorker(pairs, self.current_meta(), operation,

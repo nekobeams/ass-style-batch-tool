@@ -893,6 +893,12 @@ def test_direct_mode_run_result_does_not_claim_styled(qapp, monkeypatch):
         return MkvFileReport(pair.video_path, "ok")
 
     tab.mark_rows_pending()
+    # Finding 1(最終審查 Batch A4)之後,_set_row_result() 讀的是派工
+    # 當下記下的 _run_was_direct,不是即時的 radio 狀態——這裡繞過
+    # _on_run() 直接組 worker,所以要自己把這個記號設成派工當下(direct
+    # 模式)本該有的值,才能讓 _set_row_result() 收到跟真的跑一次 _on_run()
+    # 相同的輸入。
+    tab._run_was_direct = True
     worker = MuxWorker(pairs, tab.current_meta(), tab.current_operation(),
                        tab._tools, output_dir=None, process_fn=fake_process)
     worker.file_done.connect(tab._set_row_result)
@@ -902,6 +908,58 @@ def test_direct_mode_run_result_does_not_claim_styled(qapp, monkeypatch):
     result_text = tab.table.item(0, 5).text()
     assert result_text != "✓ 已套用"
     assert "✓" in result_text          # 仍然是「成功」,只是不宣稱套用了樣式
+
+
+def test_mid_run_switch_to_direct_keeps_dispatched_apply_result(
+        qapp, monkeypatch):
+    """Finding 1(最終審查 Batch A4):_set_row_result 原本讀的是即時的
+    direct_mode_radio.isChecked(),不是這批工作實際派工當下用的模式——
+    這顆 radio 在批次跑的期間並未被停用(見 _on_finished() 的說明)。
+    這裡在套用模式底下真的呼叫 _on_run() 派工(QThread.start() monkeypatch
+    成不執行,worker.run() 因此不會被觸發,不會碰任何真正的外部工具),
+    確認 _run_was_direct 記住了派工當下的模式;接著在結果送達前把 radio
+    切回「直接封」,模擬使用者中途切換模式,確認一個真的套用過樣式的
+    檔案不會被誤標成「原字幕直接封,未套用樣式」。"""
+    from PySide6.QtCore import QThread
+    tab = _tab(monkeypatch)
+    tab.populate(PAIRS)
+    tab.replace_radio.setChecked(True)   # 免去挑輸出資料夾
+    tab.apply_mode_radio.setChecked(True)
+    tab.style_picker.set_selected(["Default"])
+    monkeypatch.setattr(QThread, "start", lambda self: None)
+
+    tab._on_run()
+    assert tab._run_was_direct is False   # 派工當下是套用模式
+
+    # 使用者在結果送達前把模式切回「直接封」
+    tab.direct_mode_radio.setChecked(True)
+    tab._set_row_result("a [01].mkv", "ok")
+
+    assert tab.table.item(0, 5).text() == "✓ 已套用"
+
+
+def test_mid_run_switch_to_apply_keeps_dispatched_direct_result(
+        qapp, monkeypatch):
+    """Finding 1(最終審查 Batch A4)的另一個方向:direct 模式派工後,
+    使用者在結果送達前切成套用模式——不能讓一個根本沒被套用任何樣式的
+    直接封裝檔案被誤標成「✓ 已套用」(這正是 _RESULT_DIRECT_TEXT 這個
+    分支最初要修的那個 bug,以模式中途切換的方式重現)。"""
+    from PySide6.QtCore import QThread
+    tab = _tab(monkeypatch)
+    tab.populate(PAIRS)
+    assert tab.direct_mode_radio.isChecked() is True   # 分頁預設模式
+    tab.replace_radio.setChecked(True)   # 免去挑輸出資料夾
+    monkeypatch.setattr(QThread, "start", lambda self: None)
+
+    tab._on_run()
+    assert tab._run_was_direct is True   # 派工當下是直接封裝模式
+
+    # 使用者在結果送達前把模式切成「先套用目前樣式」
+    tab.style_picker.set_selected(["Default"])
+    tab.apply_mode_radio.setChecked(True)
+    tab._set_row_result("a [01].mkv", "ok")
+
+    assert tab.table.item(0, 5).text() == "✓ 已封裝(原字幕直接封,未套用樣式)"
 
 
 def test_cancelled_run_reconciles_remaining_rows(qapp, monkeypatch):
