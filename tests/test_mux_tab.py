@@ -806,6 +806,53 @@ def test_run_to_completion_reconciles_job_rows_and_preserves_others(
     assert tab.table.item(1, 5).text() == before_row1
 
 
+def test_result_cell_distinguishes_unstyled_mux_from_styled(qapp, monkeypatch):
+    """Finding 4(最終審查 Batch A2):目標樣式在字幕裡找不到時,
+    process_mux 仍然把字幕原樣封進去(report.status 保持 "ok"),但
+    transform_track_file()(mkv_batch.py)已經在 report.messages 裡留下
+    「找不到目標 Style,未修改」,MuxWorker 原封不動經由 message 訊號
+    往外送給 log。舊的「結果」欄一律套用 RESULT_ICONS["ok"](「✓ 已
+    套用」),讀起來像『有套用樣式』,但這個 case 底下字幕其實完全沒被
+    改動——驅動真正的 MuxWorker(注入假 process_fn 回傳這個訊息),
+    確認結果欄的文字跟『真的套用了樣式』的那一列不一樣。"""
+    from ass_style_tool.mkv_batch import MkvFileReport
+    from ass_style_tool.qt.batch_worker import MuxWorker
+
+    tab = _tab(monkeypatch)
+    matched_only = [
+        MuxPair(Path("a [01].mkv"), Path("a [01].ass"), 1, "matched"),
+        MuxPair(Path("b [02].mkv"), Path("b [02].ass"), 2, "matched"),
+    ]
+    tab.populate(matched_only)
+    pairs = tab.checked_pairs()
+
+    reports = {
+        Path("a [01].mkv"): MkvFileReport(
+            Path("a [01].mkv"), "ok", ["已套用樣式到: Default"]),
+        Path("b [02].mkv"): MkvFileReport(
+            Path("b [02].mkv"), "ok", ["找不到目標 Style,未修改"]),
+    }
+
+    def fake_process(pair, meta, operation, tools, out_path=None,
+                     progress_cb=None, edits=None):
+        return reports[pair.video_path]
+
+    tab.mark_rows_pending()
+    worker = MuxWorker(pairs, tab.current_meta(), None, tab._tools,
+                       output_dir=None, process_fn=fake_process)
+    worker.file_done.connect(tab._set_row_result)
+    worker.message.connect(tab._on_worker_message)
+    worker.finished.connect(tab._on_finished)
+    worker.run()
+
+    styled_text = tab.table.item(0, 5).text()
+    unstyled_text = tab.table.item(1, 5).text()
+    assert styled_text == "✓ 已套用"
+    assert unstyled_text != styled_text
+    assert "✓" in unstyled_text            # 仍然是「成功」,只是沒套用樣式
+    assert unstyled_text != "✓ 已套用"
+
+
 def test_cancelled_run_reconciles_remaining_rows(qapp, monkeypatch):
     """Task 10 review Finding 2:取消封裝時 MuxWorker.run() 一偵測到取消
     旗標就直接 break,還沒輪到的影片不會發出 file_done。這裡驅動真正的

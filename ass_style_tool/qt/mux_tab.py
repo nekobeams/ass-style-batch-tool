@@ -39,6 +39,16 @@ _STATUS_LABELS = {"matched": "已配對", "no_subtitle": "無對應字幕",
 # 但仍要顯示明確文字而不是留白——留白會跟「還沒算過」分不出來,尤其是
 # 從套用/縮放模式切回來的當下,空白很容易被誤讀成「這裡本來就沒東西」。
 _DIRECT_MODE_PLAN_TEXT = "直接封裝,不修改字幕"
+# Finding 4(最終審查 Batch A2):「預計」欄早就會秀出「⊘ 找不到 X,
+# 將原樣封裝」,但批次跑完之後「結果」欄仍套用通用的 RESULT_ICONS["ok"]
+# (「✓ 已套用」)——這句話在目標樣式其實沒找到、字幕原樣封裝的這個
+# case 底下是錯的,讀起來像「有套用樣式」。真正發生了什麼,
+# transform_track_file()(mkv_batch.py)早就算出來、也已經經由
+# MuxWorker.message 訊號原封不動送給 log 用了(見 mkv_mux.process_mux
+# 對 report.messages 的處理)——這裡借用同一段文字辨識這個特定結果,
+# 而不是另外發明一條新的訊號路徑。
+_UNSTYLED_MESSAGE = "找不到目標 Style,未修改"
+_RESULT_UNSTYLED_TEXT = "✓ 已封裝(未套用樣式,找不到目標 Style)"
 # 常見字幕語言清單移到 ..languages(與 modify_tracks_dialog 的軌道語言欄
 # 共用,避免同一份清單在兩處各自維護)。_LANGUAGES 這個名字繼續保留、
 # re-export,既有呼叫端與測試都是這樣引用的。
@@ -65,6 +75,12 @@ class MuxTab(QWidget):
         self._track_scan_dialog: Optional[ScanProgressDialog] = None
         self._closing = False
         self._auto_scanned = False
+        # Finding 4:目前這批工作最後一個回報 "ok" 的檔名;MuxWorker 對
+        # 同一個 pair 一定是先 emit file_done、緊接著才 emit 這個 pair 的
+        # message(見 MuxWorker.run() 的迴圈順序),下一個 pair 的
+        # file_done 發出之前不會變動,所以 message 訊號抓到「找不到目標
+        # Style」字樣時,可以放心地把它套到這個檔名對應的列。
+        self._last_ok_name: Optional[str] = None
         self.setAcceptDrops(True)
 
         mkvmerge = mkvmerge_path()
@@ -549,6 +565,12 @@ class MuxTab(QWidget):
                 self.table.setItem(r, 5, QTableWidgetItem(CANCELLED_TEXT))
 
     def _set_row_result(self, name: str, status: str) -> None:
+        # Finding 4:記住這一檔是不是 "ok",供緊接著抵達的 message 訊號
+        # 判斷要不要把這一列的文字換成「未套用樣式」版本。非 "ok" 的檔案
+        # 不會有「找不到目標 Style」這種訊息(那只在轉換有跑、但沒改動
+        # 任何東西時才會出現,report.status 仍是 "ok"),清成 None 避免
+        # 誤套到下一個檔案的 message 上。
+        self._last_ok_name = name if status == "ok" else None
         # 用檔名比對回表格列:這只有在資料夾掃描不遞迴(不會有兩個影片檔
         # 同名)的前提下才安全——future 若改成遞迴掃描,這裡的比對邏輯
         # 也要一併換成完整路徑,否則同名檔案的結果會被誤套到錯的列。
@@ -557,6 +579,26 @@ class MuxTab(QWidget):
             item = self.table.item(r, 1)          # 第 1 欄是影片檔名
             if item is not None and item.text() == name:
                 self.table.setItem(r, 5, QTableWidgetItem(text))
+                return
+
+    def _on_worker_message(self, msg: str) -> None:
+        """轉發給 log 之外,順便檢查這則訊息是不是「找不到目標 Style」。
+
+        Finding 4:「結果」欄原本一律用 RESULT_ICONS["ok"](「✓ 已套用」)
+        標記成功的檔案,但目標樣式找不到時字幕是原樣封裝、根本沒套用
+        任何樣式,這句話在這個 case 底下是錯的。這則訊息與剛回報過的
+        file_done 是同一個檔案的(見 _last_ok_name 的說明),命中時把
+        那一列的文字換成準確反映實際結果的版本。
+        """
+        self.log.emit(msg)
+        if self._last_ok_name is not None and _UNSTYLED_MESSAGE in msg:
+            self._mark_row_unstyled(self._last_ok_name)
+
+    def _mark_row_unstyled(self, name: str) -> None:
+        for r in range(self.table.rowCount()):
+            item = self.table.item(r, 1)          # 第 1 欄是影片檔名
+            if item is not None and item.text() == name:
+                self.table.setItem(r, 5, QTableWidgetItem(_RESULT_UNSTYLED_TEXT))
                 return
 
     def _output_dir(self) -> Optional[Path]:
@@ -687,6 +729,7 @@ class MuxTab(QWidget):
         self.modify_tracks_button.setEnabled(False)
         self.cancel_button.setEnabled(True)
         self.mark_rows_pending()
+        self._last_ok_name = None
 
         self._thread = QThread()
         self._worker = MuxWorker(pairs, self.current_meta(), operation,
@@ -700,7 +743,7 @@ class MuxTab(QWidget):
         self._worker.file_done.connect(
             lambda name, status: self.log.emit(f"[{status}] {name}"))
         self._worker.file_done.connect(self._set_row_result)
-        self._worker.message.connect(self.log.emit)
+        self._worker.message.connect(self._on_worker_message)
         self._worker.finished.connect(self._on_finished)
         self._thread.start()
 
