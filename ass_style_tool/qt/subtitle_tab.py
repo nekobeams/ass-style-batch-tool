@@ -311,7 +311,10 @@ class SubtitleFileTab(QWidget):
 
     def _update_run_enabled(self) -> None:
         has_rows = self.table.rowCount() > 0
-        busy = self._thread is not None
+        # 重新掃描進行中也算「忙碌」:_scan 隨時可能被 _on_scan_finished
+        # 換成新的內容,這時候開放執行按鈕會讓使用者對著即將作廢的舊
+        # scan 按下開始(Finding 2)。
+        busy = self._thread is not None or self._scan_thread is not None
         if self.scale_mode_radio.isChecked():
             # 縮放模式不吃側欄的目標樣式勾選(ScalePanel.get_options() 已經
             # 自己給齊所有需要的參數),所以按鈕只看有沒有掃到列、有沒有在跑。
@@ -420,7 +423,13 @@ class SubtitleFileTab(QWidget):
 
     # ---------- 執行 ----------
     def _on_run(self) -> None:
-        if self._scan is None:
+        if (self._scan is None or self._thread is not None
+                or self._scan_thread is not None):
+            # 掃描或批次執行緒仍在跑的時候拒絕開始新的一批:_scan 在
+            # rescan 完成前都是「即將被換掉」的舊資料,這裡若照跑,批次會
+            # 對著就快被取代的 scan 動作,等 rescan 落地後 _on_scan_finished
+            # 又會在批次跑到一半時整個重建表格,破壞 mark_rows_pending()
+            # 「表格列與正在跑的工作 1:1 對應」的假設(Finding 2)。
             return
         if self.scale_mode_radio.isChecked():
             try:

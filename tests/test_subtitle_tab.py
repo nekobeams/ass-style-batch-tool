@@ -713,3 +713,24 @@ def test_styles_changed_still_repaints_when_not_running(qapp):
     assert "CHT 52 →" in tab.table.item(0, 4).text()
 
 
+def test_run_button_and_on_run_blocked_during_rescan(qapp):
+    """Finding 2:重新掃描進行中(self._scan_thread is not None)時,
+    self._scan 隨時會被 _on_scan_finished 換掉,執行按鈕不能開放,直接
+    呼叫 _on_run() 也必須是 no-op——不然批次會對著即將作廢的舊 scan 動
+    作,等 rescan 落地後 _on_scan_finished 又會在批次跑到一半時整個重建
+    表格。"""
+    from unittest.mock import Mock
+    tab = _tab()
+    tab._on_scan_finished(_scan_with_default_style())
+    tab.style_picker.set_selected(["Default"])
+    assert tab.run_button.isEnabled() is True
+
+    tab._scan_thread = Mock()          # 模擬重新掃描進行中
+    tab._update_run_enabled()
+    assert tab.run_button.isEnabled() is False
+
+    tab._on_run()
+    assert tab._thread is None                        # 沒有啟動任何批次執行緒
+    assert tab.table.item(0, 4).text() != "處理中…"    # mark_rows_pending 沒被呼叫
+
+
