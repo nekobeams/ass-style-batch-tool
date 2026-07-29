@@ -294,8 +294,20 @@ class SubtitleFileTab(QWidget):
                        target_style_names=self.style_picker.selected())
 
     def _on_styles_changed(self) -> None:
-        if self._scan is not None:
-            self.populate_preview(self._scan)
+        if self._scan is None:
+            return
+        if self._thread is not None:
+            # 批次執行中:表格欄位已經寫進真正的處理結果或「處理中…」
+            # 標記,這時候用「當下」(可能剛被使用者改動)的勾選重算整欄
+            # 會把這些已經定案的內容蓋掉,變成看不出來是不是這次批次寫的
+            # 預測文字,也讓 _reconcile_stuck_rows() 掃不到(它只認
+            # PENDING_TEXT)(Finding 1)。跑批次期間只更新按鈕可用狀態,
+            # 不重畫表格;等批次結束後使用者若還想看新選擇的預告,重新
+            # 掃描或再次改動勾選都會觸發正常的重畫。
+            self._update_run_enabled()
+            self._update_dry_run_enabled()
+            return
+        self.populate_preview(self._scan)
 
     def _update_run_enabled(self) -> None:
         has_rows = self.table.rowCount() > 0

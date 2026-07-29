@@ -658,3 +658,58 @@ def test_switching_mode_recomputes_plan_column(qapp):
     scale_text = tab.table.item(0, 4).text()
     assert "×" in scale_text              # 縮放模式要秀出倍率,不能還是套用模式的舊文字
     assert scale_text != apply_text
+
+
+# ---------- Batch B1 review 修正:掃描生命週期(scan lifecycle)----------
+
+def _scan_two_files_with_styles():
+    from ass_style_tool.style_scan import FileStyles
+    matches = [
+        MatchResult(sub_path=Path("a.ass"), episode=1, status="no_video"),
+        MatchResult(sub_path=Path("b.ass"), episode=2, status="no_video"),
+    ]
+    return ScanResult(
+        matches=matches, warnings=[],
+        styles={m.sub_path: FileStyles(m.sub_path, {"Default": 48.0, "CHT": 52.0},
+                                       (1920, 1080)) for m in matches})
+
+
+def test_styles_changed_during_run_does_not_repaint_table(qapp):
+    """Finding 1:批次執行中(self._thread is not None)表格已經寫進真正
+    的處理結果(row 0)與「處理中…」標記(row 1)。切換側欄樣式勾選觸發
+    的重算,若照舊用『當下』的勾選整欄重畫,會把這些已定案的內容蓋成
+    新選擇算出來的預測文字,使用者看不出來這是不是本次批次真正跑出來
+    的結果,也讓 _reconcile_stuck_rows() 之後掃不到(它只認
+    PENDING_TEXT)。"""
+    from unittest.mock import Mock
+    tab = _tab()
+    scan = _scan_two_files_with_styles()
+    tab._on_scan_finished(scan)
+    tab.style_picker.set_available(["Default", "CHT"])
+    tab.style_picker.set_selected(["Default"])
+    tab.mark_rows_pending()
+    tab._set_row_result("a.ass", "ok")
+    resulted_text = tab.table.item(0, 4).text()
+    assert tab.table.item(1, 4).text() == "處理中…"
+
+    tab._thread = Mock()                      # 模擬批次執行緒仍在跑
+    tab.style_picker.set_selected(["CHT"])    # 執行中途改動勾選
+
+    assert tab.table.item(0, 4).text() == resulted_text
+    assert tab.table.item(1, 4).text() == "處理中…"
+
+
+def test_styles_changed_still_repaints_when_not_running(qapp):
+    """反向確認:沒有批次在跑的時候,改勾選還是要照舊整欄重畫(不能
+    因為 Finding 1 的修法而連正常情境都被擋住)。"""
+    tab = _tab()
+    scan = _scan_two_files_with_styles()
+    tab._on_scan_finished(scan)
+    tab.style_picker.set_available(["Default", "CHT"])
+    tab.style_picker.set_selected(["Default"])
+    assert "Default 48 →" in tab.table.item(0, 4).text()
+
+    tab.style_picker.set_selected(["CHT"])
+    assert "CHT 52 →" in tab.table.item(0, 4).text()
+
+
