@@ -9,7 +9,6 @@ from PySide6.QtWidgets import (QApplication, QLabel, QMainWindow, QMenu,
                                QPlainTextEdit, QPushButton, QSplitter,
                                QTabWidget, QVBoxLayout, QWidget)
 
-from ..profile_fields import DEFAULT_VALUES
 from .theme import (THEME_MODES, apply_theme, apply_titlebar_theme,
                     resolve_theme, system_is_dark)
 from .mkv_tab import MkvTab
@@ -78,6 +77,10 @@ class MainWindow(QMainWindow):
             get_target_style_names=self._active_tab_selected_styles)
         self.style_editor.profile_loaded.connect(
             self._apply_target_style_names_to_active_tab)
+        # Finding 3(最終審查 Batch A3):StyleEditor 存檔時若落回隱藏值,
+        # 會經由這個訊號講清楚存了什麼——接法跟三個工作分頁的 log 訊號
+        # 完全相同。
+        self.style_editor.log.connect(self.append_log)
         self.subtitle_tab = SubtitleFileTab(self.style_editor.current_profile)
         self.subtitle_tab.log.connect(self.append_log)
 
@@ -209,31 +212,28 @@ class MainWindow(QMainWindow):
         效果,使用者只會看到編輯器欄位變了,分頁裡的勾選(以及依它算出
         的「預計」欄、執行按鈕的啟用狀態)完全沒反應。
 
-        Finding 2(最終審查 Batch A2):這是使用者主動載入 profile 造成的
-        取代,整批覆蓋本身沒問題,但兩件事需要補上可見性:
-
-        1. 本批修復之前存出的每一個 profile,target_style_names 都是
-           DEFAULT_VALUES 那個從未被使用者實際勾選過的隱藏值佔位字串
-           (Finding 1 的成因)——不是真正的使用者選擇。載入這個特定值
-           時,若仍然覆蓋掉分頁目前的勾選,使用者會在毫無提示的情況下
-           失去自己實際選好的樣式,換成一個從未代表任何選擇的字串,
-           執行按鈕之後可能被一個掃描結果裡根本不存在的樣式卡住,還
-           不知道發生了什麼——維持分頁現狀比套用它更安全,直接跳過。
-        2. 除此之外的真正覆蓋,一律留一行 log,講清楚勾選從什麼換成
-           什麼——不然這個覆蓋是完全無聲的。
+        Finding 2(最終審查 Batch A3):上一版在這裡比較過 names 是否
+        「剛好等於」DEFAULT_VALUES 那個佔位字串(「Default」),相等就
+        跳過覆蓋,理由是「這看起來像是從未真正設定過的舊值」。但
+        Default 同時也是絕大多數 .ass 檔案裡最常見的真實樣式名稱——
+        使用者完全可能真的勾選、真的存下 Default 當目標樣式,這時存出
+        來的檔案在「值」這個層次上跟「從未真正設定過的舊佔位值」完全
+        無法分辨。比較值來猜測使用者當初的意圖,本身就是這一整條問題
+        鏈的成因(這個分支目前為止兩次修復都是同一種形狀:載入端拿一個
+        值比對去猜測「這個東西是不是無效/沒意義」,而不是問「有沒有
+        真正的訊號可以直接判斷」)。這裡真正可靠的訊號是「使用者剛剛
+        按下了『載入』」——這本身就是使用者主動要求取代的動作,跟
+        QSettings 還原設定時整批覆蓋分頁勾選是同一套先例,一律覆蓋、
+        一律 log 出套用之後的狀態即可,不必也不該去猜測覆蓋前後的值
+        是否「看起來」代表使用者真的選過。
         """
         tab = self._last_work_tab
         if tab is None:
             return
         names = list(names)
-        if names == [str(DEFAULT_VALUES["target_style_names"])]:
-            return
-        before = tab.style_picker.selected()
-        if names != before:
-            self.append_log(
-                f"載入 profile:目標樣式勾選由 {before or '(無)'} "
-                f"改為 {names or '(無)'}")
         tab.style_picker.set_selected(names)
+        label = "、".join(names) if names else "(無)"
+        self.append_log(f"載入 profile:目標樣式已套用為 {label}")
 
     # ---------- log ----------
     def append_log(self, text: str) -> None:

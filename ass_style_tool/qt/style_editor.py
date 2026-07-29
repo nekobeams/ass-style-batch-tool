@@ -16,8 +16,8 @@ from PySide6.QtWidgets import QColorDialog
 from PySide6.QtGui import QColor, QFontDatabase
 
 from ..profile import (Profile, load_profile, parse_ass_color, save_profile)
-from ..profile_fields import (DEFAULT_VALUES, profile_from_values,
-                              values_from_profile)
+from ..profile_fields import (DEFAULT_VALUES, parse_target_style_names,
+                              profile_from_values, values_from_profile)
 from .gui_helpers import font_is_missing
 from .readout_view import ReadoutView
 
@@ -82,6 +82,13 @@ class StyleEditor(QWidget):
     # profile 裡存的目標樣式名字形同沒被讀到。由 MainWindow(唯一同時
     # 拿得到 StyleEditor 與三個分頁的地方)接線。
     profile_loaded = Signal(list)
+    # Finding 3(最終審查 Batch A3):_profile_to_save() 在「目前作用中
+    # 分頁沒有勾選任何樣式」時會落回 self._target_style_names 這份隱藏
+    # 值——這個代換本身是對的(不然會把空清單存進 profile_from_values()
+    # 一定拋錯的檔案),但原本完全無聲,使用者看不出存出來的檔案套用的
+    # 目標樣式跟分頁畫面顯示的不一樣。跟其他分頁的 log 訊號同一套接法,
+    # 由 MainWindow 接到 append_log()。
+    log = Signal(str)
 
     def __init__(self,
                  get_target_style_names:
@@ -89,10 +96,16 @@ class StyleEditor(QWidget):
                  ) -> None:
         """get_target_style_names:另存 profile 時用來覆蓋
         target_style_names 的來源,由 MainWindow 注入,回傳「目前作用中
-        工作分頁」的 StylePicker 選取清單。回傳 None 表示現在判斷不出
-        是哪個分頁的勾選(例如程式剛啟動、還沒有任何分頁被切換過)——
-        這時落回 self._target_style_names 這份隱藏值,不能用空清單
-        覆蓋掉它(I4)。
+        工作分頁」的 StylePicker 選取清單。有兩種情況都會落回
+        self._target_style_names 這份隱藏值,但成因不同(I4 / Finding 3,
+        最終審查 Batch A3):
+        1. 回傳 None:現在判斷不出是哪個分頁的勾選(例如程式剛啟動、
+           還沒有任何分頁被切換過)——這種情況不記錄 log,因為連「目前
+           分頁到底有沒有勾」都無從得知。
+        2. 回傳 []:判斷得出是哪個分頁,但那個分頁的勾選確實是空的
+           (使用者掃描完成後還沒勾、或全部取消勾選)——這種情況會發出
+           log,講清楚實際存了什麼名字、為什麼(見 _profile_to_save()）。
+        兩種情況都不能用空清單覆蓋掉隱藏值。
         """
         super().__init__()
         self._edits: Dict[str, QLineEdit] = {}
@@ -245,18 +258,20 @@ class StyleEditor(QWidget):
 
     def load_profile_from(self, path) -> None:
         profile = load_profile(Path(path))
-        if not profile.target_style_names:
-            # Finding 1 half 2(最終審查 Batch A2):本批修復之前寫出的
-            # profile 檔一律帶著 DEFAULT_VALUES 那個從未被使用者實際勾選
-            # 過的隱藏值(見下方 fix 1 的說明),但手改壞的檔案、或未來
-            # 其他管道寫出的檔案仍可能是真正的空清單 []。空清單一旦被
-            # set_values() 轉成空字串塞進編輯器欄位,之後任何呼叫
-            # current_profile()/_profile_to_save() 的地方都會一路撞上
-            # profile_from_values() 的 ValueError("目標 Style 名稱不可
-            # 為空")——而目標 Style 的輸入框已經從編輯器移除,使用者完全
-            # 沒有 UI 能手動補回這個欄位,等於載入這一個檔案就把整個
-            # 程式永久卡死。這裡在載入當下就把空清單換回預設值,確保
-            # profile_from_values() 永遠不會在載入路徑上收到空清單。
+        # Finding 1(最終審查 Batch A3):先前這裡只檢查
+        # `not profile.target_style_names`(裸的 falsy-list 檢查)——但
+        # 真正會拋錯的驗證邏輯(profile_from_values() 內部,現在抽成
+        # parse_target_style_names())判斷的是「逗號切開、去空白、過濾
+        # 空字串之後還剩不剩東西」,不是「這個 List 是不是空的」。
+        # `[""]`、`[","]`、`["   "]` 這幾種值在裸的真值檢查底下都算
+        # 「非空清單」,騙得過舊檢查,卻仍然通不過 parse_target_style_
+        # names() 的實際驗證——這種檔案不只可能是手改壞的,StylePicker
+        # 的名字直接取自 .ass 檔案的 [V4+ Styles] 區段鍵值(見
+        # style_scan.summarize()),一個 style 名稱是空字串的 .ass
+        # (`Style: ,...`)勾選存檔就會產生 `[""]`,完全是正常操作路徑
+        # 能走到的資料,不是理論案例。用跟 profile_from_values() 完全
+        # 同一個函式判斷有效性,兩處判斷式才不會再度各玩各的漂移開。
+        if not parse_target_style_names(", ".join(profile.target_style_names)):
             profile = replace(
                 profile,
                 target_style_names=[str(DEFAULT_VALUES["target_style_names"])])
@@ -288,22 +303,26 @@ class StyleEditor(QWidget):
         實際拿去跑的樣式,和存出來的檔案內容對不上。effective_profile()
         執行時的邏輯是「分頁勾選蓋過 profile 裡的值」,存檔必須對稱,
         才不會讓 profile 檔案靜默失真(這正是本分支要防的那類問題)。
+
+        落回隱藏值(fallback)有兩種觸發情況,行為一致但可見性不同
+        (Finding 3,最終審查 Batch A3):`names` 是 None(判斷不出是哪個
+        分頁的勾選)時安靜地落回,因為連「有沒有勾」都無從得知;`names`
+        是 []([] 觸發 fallback 這件事本身正是 Finding 1 half 1 修的,
+        本次批次修正描述補齊——目前作用中分頁確實存在、確實沒有勾選任何
+        樣式)時一樣落回,但這裡發出 log,講清楚實際存了什麼、為什麼,
+        不然使用者只會在批次真的跑起來、套用了一個畫面上根本沒勾的樣式
+        之後才發現存出來的檔案跟分頁畫面對不上。
         """
         profile = self.current_profile()
         if self._get_target_style_names is not None:
             names = self._get_target_style_names()
-            # Finding 1 half 1(最終審查 Batch A2):`_active_tab_selected_
-            # styles()` 回傳的是「目前作用中分頁的勾選」,勾選為空(使用
-            # 者掃描完成後還沒勾、或全部取消勾選)時回傳的是 []、不是
-            # None——舊判斷式 `if names is not None:` 吃不到這個狀態,會
-            # 把 [] 原封不動存進 profile。profile_from_values() 對空清單
-            # 一律拋 ValueError,且編輯器已無 UI 能補回這個欄位,一旦存檔
-            # 寫入空清單,任何用到這份 profile 的地方都會一路卡死
-            # (Finding 1)。改成看真值:空清單跟 None 一樣視為「這個分頁
-            # 現在沒有能覆蓋的勾選」,落回 self._target_style_names 這份
-            # 隱藏值,而不是用空清單覆蓋掉它。
             if names:
                 profile = replace(profile, target_style_names=list(names))
+            elif names is not None:
+                label = "、".join(profile.target_style_names)
+                self.log.emit(
+                    f"目前分頁未勾選任何樣式,已依上次載入的設定儲存"
+                    f"目標樣式:{label}")
         return profile
 
     def _on_save_as(self) -> None:

@@ -279,6 +279,25 @@ def test_save_with_nothing_checked_does_not_brick_editor(
         window.deleteLater()
 
 
+def test_save_with_nothing_checked_logs_through_main_window(
+        qapp, monkeypatch, tmp_path):
+    """Finding 3(最終審查 Batch A3):StyleEditor.log 訊號要在 MainWindow
+    接到 append_log(),跟三個工作分頁的 log 訊號同一套接法——不然這裡
+    加的可見性只在 StyleEditor 自己身上看得到,使用者實際會看的 log 區
+    完全收不到。驗證真正的接線(不替換 append_log),直接讀取 log_view
+    這個使用者實際會看到的元件。"""
+    window = _window(monkeypatch, tmp_path)
+    try:
+        window.subtitle_tab.style_picker.set_available(["CHT", "Default"])
+        window.subtitle_tab.style_picker.set_selected([])   # 沒有勾選
+
+        window.style_editor._profile_to_save()
+
+        assert "未勾選任何樣式" in window.log_view.toPlainText()
+    finally:
+        window.deleteLater()
+
+
 def test_load_profile_with_empty_target_style_names_does_not_wedge(
         qapp, tmp_path):
     """Finding 1 half 2:存檔於本批修復之前的 profile(或被手動改壞的
@@ -306,6 +325,67 @@ def test_load_profile_with_empty_target_style_names_does_not_wedge(
 
         # 載入後,編輯器必須仍處於可用狀態:current_profile() 不拋例外,
         # 且不是空清單。
+        profile = editor.current_profile()
+        assert profile.target_style_names
+    finally:
+        editor.deleteLater()
+
+
+def test_load_profile_with_blank_style_name_does_not_wedge(qapp, tmp_path):
+    """Finding 1(最終審查 Batch A3):`[""]` 這種值在裸的 falsy-list
+    檢查底下算「非空清單」,騙得過舊的 `if not profile.target_style_
+    names:` 判斷,卻通不過 profile_from_values() 真正的驗證(逗號切開、
+    去空白、過濾空字串之後還剩不剩東西)——一旦被 set_values() 塞進
+    編輯器欄位,current_profile() 之後每次呼叫都會拋 ValueError,而
+    使用者完全沒有 UI 能修回來。這不是理論案例:StylePicker 的名字
+    直接取自 .ass 檔案 [V4+ Styles] 區段的鍵值(見 style_scan.
+    summarize()),一個 style 名稱是空字串的 .ass(`Style: ,...`)勾選
+    存檔就會產生這個值。這裡驅動真正的 load_profile_from →
+    current_profile() 路徑,確認不會拋例外。"""
+    from ass_style_tool.profile import Profile, TargetStyle, save_profile
+    from ass_style_tool.qt.style_editor import StyleEditor
+
+    bad_style = TargetStyle(
+        fontname="Foo", fontsize=50.0, bold=False, italic=False,
+        primary_colour="&H00FFFFFF", outline_colour="&H00000000",
+        back_colour="&H00000000", outline=2.0, shadow=1.0, alignment=2,
+        margin_l=10, margin_r=10, margin_v=10)
+    bad_profile = Profile(profile_name="bad", target_style_names=[""],
+                          base_width=1920, base_height=1080, style=bad_style)
+    path = tmp_path / "blank.json"
+    save_profile(bad_profile, path)
+
+    editor = StyleEditor()
+    try:
+        editor.load_profile_from(path)          # 不應拋例外
+        profile = editor.current_profile()
+        assert profile.target_style_names
+    finally:
+        editor.deleteLater()
+
+
+def test_load_profile_with_comma_only_style_names_does_not_wedge(
+        qapp, tmp_path):
+    """Finding 1(最終審查 Batch A3):`[",", " "]` 是另一種騙得過
+    falsy-list 檢查、卻通不過真正驗證的值——兩個元素都非空字串,裸的
+    `if not names:` 判斷看不出任何問題,但逗號切開、去空白、過濾之後
+    仍然是空清單。"""
+    from ass_style_tool.profile import Profile, TargetStyle, save_profile
+    from ass_style_tool.qt.style_editor import StyleEditor
+
+    bad_style = TargetStyle(
+        fontname="Foo", fontsize=50.0, bold=False, italic=False,
+        primary_colour="&H00FFFFFF", outline_colour="&H00000000",
+        back_colour="&H00000000", outline=2.0, shadow=1.0, alignment=2,
+        margin_l=10, margin_r=10, margin_v=10)
+    bad_profile = Profile(profile_name="bad", target_style_names=[",", " "],
+                          base_width=1920, base_height=1080, style=bad_style)
+    path = tmp_path / "comma_only.json"
+    save_profile(bad_profile, path)
+
+    editor = StyleEditor()
+    try:
+        editor.load_profile_from(path)          # 不應拋例外
         profile = editor.current_profile()
         assert profile.target_style_names
     finally:
@@ -360,11 +440,11 @@ def test_loading_profile_does_not_touch_a_different_tabs_picker(
         window.deleteLater()
 
 
-# ---------- Finding 2(最終審查 Batch A2):載入 profile 覆蓋勾選要可見 ----------
+# ---------- Finding 2(最終審查 Batch A2/A3):載入 profile 覆蓋勾選要可見 ----------
 
 def test_loading_profile_logs_selection_change(qapp, monkeypatch, tmp_path):
-    """Finding 2 half 1:載入 profile 覆蓋掉分頁的目標樣式勾選時,必須
-    留一行 log 講清楚『換成了什麼』——不然使用者只會看到分頁勾選、
+    """Finding 2 half 1:載入 profile 套用到分頁的目標樣式勾選時,必須
+    留一行 log 講清楚『套用成了什麼』——不然使用者只會看到分頁勾選、
     執行按鈕的啟用狀態莫名其妙變了,完全不知道發生了什麼、為什麼。"""
     from ass_style_tool.profile import save_profile
     from ass_style_tool.profile_fields import DEFAULT_VALUES, profile_from_values
@@ -389,29 +469,72 @@ def test_loading_profile_logs_selection_change(qapp, monkeypatch, tmp_path):
         window.deleteLater()
 
 
-def test_loading_legacy_default_placeholder_does_not_override_selection(
+def test_loading_profile_logs_names_joined_with_dun_not_python_repr(
         qapp, monkeypatch, tmp_path):
-    """Finding 2 half 2:Finding 1 修復前存出的每一個 profile,
-    target_style_names 都是 DEFAULT_VALUES 那個從未被使用者實際勾選過
-    的隱藏值佔位字串,不是真正的使用者選擇。載入這種舊 profile 時如果
-    仍然覆蓋掉分頁目前的勾選,使用者會在毫無提示的情況下失去自己實際
-    選好的樣式——這裡驗證載入這個特定值時,分頁的勾選維持原狀不被
-    覆蓋。"""
+    """Finding 2(最終審查 Batch A3):log 行要用這個程式庫其他地方一致的
+    『、』分隔格式(見 style_picker.py 的 _update_hint()),不是 Python
+    的原始 list repr——後者會印出「['CHT', 'Sign']」這種帶方括號、引號
+    的東西,跟其他所有面向使用者的字串風格不一致。這裡刻意用兩個以上
+    的名字,確保能分辨『、』分隔跟 repr 的差別(單一名字兩者外觀太
+    接近,測不出差異)。"""
     from ass_style_tool.profile import save_profile
     from ass_style_tool.profile_fields import DEFAULT_VALUES, profile_from_values
 
     window = _window(monkeypatch, tmp_path)
     try:
-        window.subtitle_tab.style_picker.set_available(["CHT", "Default"])
-        window.subtitle_tab.style_picker.set_selected(["CHT"])
+        window.subtitle_tab.style_picker.set_available(["CHT", "Sign", "Default"])
+        window.subtitle_tab.style_picker.set_selected(["Default"])
+        assert window._last_work_tab is window.subtitle_tab
+
+        logs = []
+        window.append_log = lambda text: logs.append(text)
+
+        profile_path = tmp_path / "loaded.json"
+        save_profile(profile_from_values(
+            {**DEFAULT_VALUES, "target_style_names": "CHT, Sign"}), profile_path)
+        window.style_editor.load_profile_from(profile_path)
+
+        assert window.subtitle_tab.style_picker.selected() == ["CHT", "Sign"]
+        assert any("CHT、Sign" in line for line in logs), logs
+        assert not any("['CHT'" in line or '"CHT"' in line for line in logs), logs
+    finally:
+        window.deleteLater()
+
+
+def test_loading_profile_with_default_placeholder_still_applies(
+        qapp, monkeypatch, tmp_path):
+    """Finding 2(最終審查 Batch A3):上一版在這裡比較過載入的
+    target_style_names 是否「剛好等於」DEFAULT_VALUES 那個佔位字串
+    ("Default"),相等就跳過覆蓋,理由是「這看起來像是從未真正設定過的
+    舊值」。但 Default 同時也是絕大多數 .ass 檔案裡最常見的真實樣式
+    名稱——使用者完全可能真的勾選、真的存下 Default 當目標樣式,這時
+    這個值在「值」這個層次上跟「從未真正設定過的舊佔位值」完全無法
+    分辨,比較值來猜測意圖正是問題的成因。
+
+    這裡驅動真正會發生的順序(即 Finding 2 描述的失敗序列):使用者
+    選 Default、存檔,之後改選 Sign,再把先前存的 profile 載入回來——
+    載入是使用者主動觸發的取代動作,必須真的把勾選換回 Default,而不是
+    被「看起來像佔位值」的舊heuristic 誤判成不該覆蓋、悄悄維持在 Sign。
+    """
+    from ass_style_tool.profile import save_profile
+    from ass_style_tool.profile_fields import DEFAULT_VALUES, profile_from_values
+
+    window = _window(monkeypatch, tmp_path)
+    try:
+        window.subtitle_tab.style_picker.set_available(["Default", "Sign"])
+        window.subtitle_tab.style_picker.set_selected(["Default"])
         assert window._last_work_tab is window.subtitle_tab
 
         profile_path = tmp_path / "legacy.json"
-        # DEFAULT_VALUES["target_style_names"] 就是那個從未真正代表過
-        # 使用者選擇的隱藏值佔位字串("Default")。
+        # DEFAULT_VALUES["target_style_names"] 剛好就是 "Default"——舊
+        # heuristic 會誤判成佔位值而跳過覆蓋。
         save_profile(profile_from_values(DEFAULT_VALUES), profile_path)
+
+        window.subtitle_tab.style_picker.set_selected(["Sign"])   # 之後改選別的
+
         window.style_editor.load_profile_from(profile_path)
 
-        assert window.subtitle_tab.style_picker.selected() == ["CHT"]   # 沒被覆蓋
+        # 載入必須真的把勾選換回 Default,不能被舊 heuristic 悄悄吃掉。
+        assert window.subtitle_tab.style_picker.selected() == ["Default"]
     finally:
         window.deleteLater()

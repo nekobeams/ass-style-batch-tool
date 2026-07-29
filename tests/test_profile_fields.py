@@ -4,6 +4,7 @@ import pytest
 
 from ass_style_tool.profile import Profile
 from ass_style_tool.profile_fields import (DEFAULT_VALUES, FIELD_KEYS,
+                                           parse_target_style_names,
                                            profile_from_values,
                                            values_from_profile)
 
@@ -92,3 +93,30 @@ def test_roundtrip_values_profile_values():
     back = values_from_profile(p)
     p2 = profile_from_values(back)
     assert p == p2
+
+
+# ---------- parse_target_style_names(最終審查 Batch A3 Finding 1) ----------
+# profile_from_values() 與 style_editor.py 的載入防呆共用同一個判斷式,
+# 不能各自維護一份看起來像、實際上不同的真值檢查。這裡直接測這個共用
+# helper 本身的行為。
+
+def test_parse_target_style_names_splits_strips_and_filters_empty():
+    assert parse_target_style_names("CHT, CHS") == ["CHT", "CHS"]
+    assert parse_target_style_names("  Sign  ,, OP ") == ["Sign", "OP"]
+
+
+def test_parse_target_style_names_all_blank_is_empty():
+    """`","`、`" "`、空字串這幾種在裸的 falsy-list 檢查底下可能仍是
+    「非空」的原始值,但切開、去空白、過濾之後應該一律得到空清單。"""
+    assert parse_target_style_names(",") == []
+    assert parse_target_style_names(" ") == []
+    assert parse_target_style_names("") == []
+
+
+def test_profile_from_values_uses_parse_target_style_names():
+    """profile_from_values() 對 target_style_names 的驗證要跟
+    parse_target_style_names() 是同一個判斷來源,不是另外維護一份。"""
+    values = dict(DEFAULT_VALUES)
+    values["target_style_names"] = ",,   ,"
+    with pytest.raises(ValueError, match="目標 Style 名稱不可為空"):
+        profile_from_values(values)

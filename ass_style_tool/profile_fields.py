@@ -1,7 +1,7 @@
 """Profile 與 GUI 欄位字典之間的轉換與驗證(純邏輯,不依賴 Qt)。"""
 from __future__ import annotations
 
-from typing import Dict, Tuple
+from typing import Dict, List, Tuple
 
 from .profile import Profile, TargetStyle, parse_ass_color
 
@@ -42,12 +42,28 @@ def _num(values: dict, key: str, cast):
         raise ValueError(f"欄位 {key} 必須是數字,收到 {values.get(key)!r}")
 
 
+def parse_target_style_names(raw: object) -> List[str]:
+    """把逗號分隔的原始字串解析成去除空白、過濾掉空字串後的樣式名稱清單。
+
+    這是「target_style_names 到底算不算有效」唯一的判斷邏輯來源
+    (最終審查 Batch A3 Finding 1)。profile_from_values() 與
+    style_editor.py 的載入防呆都要呼叫這一個函式,不能各自維護一份
+    看起來很像但實際不同的判斷式——先前兩次修復都是同一種形狀的問題:
+    載入端用「這個 List 是不是空的」這種粗略的真值檢查去猜測有效性,
+    但真正會拋錯的驗證邏輯(就是這裡)判斷的是「逗號切開、去空白、
+    過濾掉空字串之後還剩不剩東西」,兩者不是同一件事——`[""]`、
+    `[","]`、`["   "]` 在真值檢查底下都是「非空清單」,騙得過那個檢查,
+    卻仍然通不過這裡真正的驗證,一路把 ValueError 丟到使用者完全沒有
+    UI 能修的地方。
+    """
+    return [n.strip() for n in str(raw).split(",") if n.strip()]
+
+
 def profile_from_values(values: dict) -> Profile:
     fontname = str(values["fontname"]).strip()
     if not fontname:
         raise ValueError("字型名稱不可為空")
-    names = [n.strip() for n in str(values["target_style_names"]).split(",")
-             if n.strip()]
+    names = parse_target_style_names(values["target_style_names"])
     if not names:
         raise ValueError("目標 Style 名稱不可為空")
     alignment = _num(values, "alignment", int)

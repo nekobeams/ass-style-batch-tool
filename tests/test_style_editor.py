@@ -318,6 +318,56 @@ def test_load_profile_from_emits_its_target_style_names(qapp, tmp_path):
     assert editor.get_values()["target_style_names"] == "CHT, CHS"
 
 
+def test_profile_to_save_logs_when_falling_back_due_to_empty_selection(qapp):
+    """Finding 3(最終審查 Batch A3):callback 回傳 []——不是 None——代表
+    『目前作用中分頁確實存在,但確實沒有勾選任何樣式』,落回隱藏值本身
+    是對的(不然會把 profile_from_values() 一定拋錯的空清單存進去),
+    但這個代換原本完全無聲。這裡驗證 log 訊號有把實際存了什麼名字講
+    清楚,且用『、』分隔(跟這個程式庫其他使用者可見字串一致的格式),
+    不是逗號。"""
+    from ass_style_tool.qt.style_editor import StyleEditor
+    editor = StyleEditor(get_target_style_names=lambda: [])
+    editor.set_values({**DEFAULT_VALUES, "target_style_names": "CHT, CHS"})
+
+    logs = []
+    editor.log.connect(lambda text: logs.append(text))
+
+    profile = editor._profile_to_save()
+
+    assert profile.target_style_names == ["CHT", "CHS"]   # 落回隱藏值
+    assert any("CHT、CHS" in line for line in logs), logs
+
+
+def test_profile_to_save_does_not_log_when_callback_returns_none(qapp):
+    """callback 回傳 None(判斷不出是哪個分頁)時不該發 log——這種情況
+    連『目前分頁到底有沒有勾』都無從得知,講『未勾選任何樣式』會是錯的
+    宣稱。"""
+    from ass_style_tool.qt.style_editor import StyleEditor
+    editor = StyleEditor(get_target_style_names=lambda: None)
+    editor.set_values(DEFAULT_VALUES)
+
+    logs = []
+    editor.log.connect(lambda text: logs.append(text))
+
+    editor._profile_to_save()
+
+    assert logs == []
+
+
+def test_profile_to_save_does_not_log_when_names_present(qapp):
+    """有勾選(names 非空)時是正常覆蓋,不是 fallback,不該發 log。"""
+    from ass_style_tool.qt.style_editor import StyleEditor
+    editor = StyleEditor(get_target_style_names=lambda: ["CHT"])
+    editor.set_values(DEFAULT_VALUES)
+
+    logs = []
+    editor.log.connect(lambda text: logs.append(text))
+
+    editor._profile_to_save()
+
+    assert logs == []
+
+
 def test_load_profile_from_does_not_emit_when_file_is_corrupt(qapp, tmp_path):
     """壞檔案讀取失敗時不該廣播出一個假的/空的 target_style_names——
     load_profile() 在 set_values()/emit 之前就會拋例外,呼叫端
