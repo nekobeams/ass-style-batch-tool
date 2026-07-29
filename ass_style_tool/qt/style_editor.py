@@ -272,6 +272,12 @@ class StyleEditor(QWidget):
         # 能走到的資料,不是理論案例。用跟 profile_from_values() 完全
         # 同一個函式判斷有效性,兩處判斷式才不會再度各玩各的漂移開。
         if not parse_target_style_names(", ".join(profile.target_style_names)):
+            # Finding 3(最終審查 Batch A4):這個代換原本完全無聲,跟上一輪
+            # 修的存檔端 fallback log 是同一種缺陷,只是換了個 guard——
+            # 沿用同一個 log 訊號,講清楚實際發生了什麼、改用了什麼。
+            self.log.emit(
+                f"載入的設定檔目標樣式無效,已改用預設值:"
+                f"{DEFAULT_VALUES['target_style_names']}")
             profile = replace(
                 profile,
                 target_style_names=[str(DEFAULT_VALUES["target_style_names"])])
@@ -316,7 +322,13 @@ class StyleEditor(QWidget):
         profile = self.current_profile()
         if self._get_target_style_names is not None:
             names = self._get_target_style_names()
-            if names:
+            # Finding 2(最終審查 Batch A4):跟上一輪修的載入端防呆同一個
+            # 判斷式(parse_target_style_names()),不能再用裸的 list
+            # truthiness——`[""]` 是非空 list,騙得過 `if names:`,卻通不過
+            # 這裡真正的有效性判斷,原樣存進去會產生一個
+            # profile_from_values() 會拒絕、下次載入又被靜默改回 Default
+            # 的檔案。
+            if names is not None and parse_target_style_names(", ".join(names)):
                 profile = replace(profile, target_style_names=list(names))
             elif names is not None:
                 label = "、".join(profile.target_style_names)

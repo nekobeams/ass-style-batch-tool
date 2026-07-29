@@ -382,3 +382,50 @@ def test_load_profile_from_does_not_emit_when_file_is_corrupt(qapp, tmp_path):
     with pytest.raises(Exception):
         editor.load_profile_from(bad)
     assert seen == []
+
+
+def test_profile_to_save_rejects_blank_style_name_from_callback(qapp):
+    """Finding 2(最終審查 Batch A4):存檔端原本只用裸的 list truthiness
+    (`if names:`)判斷 callback 回傳值——`[""]`(可能來自畫面裡從一份
+    style 名稱是空字串的 .ass 掃出來的勾選,StylePicker 的名字直接取自
+    style_scan.summarize())是非空 list,騙得過那個檢查,卻通不過
+    parse_target_style_names() 真正的驗證,原樣存進去會產生一個
+    profile_from_values() 會拒絕、下次載入又被 Finding 1(上一輪)的
+    載入端防呆靜默改回 Default 的檔案。這裡確認存出的 profile 不會是
+    `[""]`,而是照『這個分頁沒勾選任何樣式』一樣落回隱藏值。"""
+    from ass_style_tool.qt.style_editor import StyleEditor
+    editor = StyleEditor(get_target_style_names=lambda: [""])
+    editor.set_values({**DEFAULT_VALUES, "target_style_names": "CHT, CHS"})
+
+    profile = editor._profile_to_save()
+
+    assert profile.target_style_names != [""]
+    assert profile.target_style_names == ["CHT", "CHS"]   # 落回隱藏值
+
+
+def test_load_profile_from_logs_when_target_style_names_invalid(qapp, tmp_path):
+    """Finding 3(最終審查 Batch A4):load 端這個 guard(把無效的
+    target_style_names 換成 Default)原本完全無聲,使用者看不出載入的
+    profile 目標樣式無效、被靜默換掉了。這裡存一個
+    target_style_names=[""] 的檔案(正常操作路徑就能產生的資料,不是
+    理論案例,見 profile_fields.parse_target_style_names() 的說明),
+    載入後確認 log 訊號有指名這次代換,講清楚換成了什麼。"""
+    from dataclasses import replace
+    from ass_style_tool.profile import save_profile
+    from ass_style_tool.profile_fields import profile_from_values
+    from ass_style_tool.qt.style_editor import StyleEditor
+
+    editor = StyleEditor()
+    profile = replace(profile_from_values(DEFAULT_VALUES),
+                      target_style_names=[""])
+    path = tmp_path / "blank.json"
+    save_profile(profile, path)
+
+    logs = []
+    editor.log.connect(lambda text: logs.append(text))
+
+    editor.load_profile_from(path)
+
+    assert any(DEFAULT_VALUES["target_style_names"] in line for line in logs), logs
+    assert (editor.get_values()["target_style_names"]
+           == DEFAULT_VALUES["target_style_names"])
