@@ -210,10 +210,16 @@ class SubtitleFileTab(QWidget):
         from .batch_worker import ScanWorker
         self.scan_button.setEnabled(False)
         self.run_button.setEnabled(False)
+        # 掃描現在會逐檔跑 ffprobe + 樣式解析,不是瞬間完成,所以跟批次
+        # 執行一樣要能取消、也要能看到進度(Finding 4)——沿用同一顆
+        # 進度條與取消鈕,不另外加 UI 元件。
+        self.cancel_button.setEnabled(True)
+        self.progress.setValue(0)
         self._scan_thread = QThread()
         self._scan_worker = ScanWorker(Path(folder))
         self._scan_worker.moveToThread(self._scan_thread)
         self._scan_thread.started.connect(self._scan_worker.run)
+        self._scan_worker.progress.connect(self._on_progress)
         self._scan_worker.finished.connect(self._on_scan_finished)
         self._scan_thread.start()
 
@@ -231,6 +237,7 @@ class SubtitleFileTab(QWidget):
         count = self.populate_preview(scan)
         self.log.emit(f"掃描完成:共 {count} 個字幕檔")
         self.scan_button.setEnabled(True)
+        self.cancel_button.setEnabled(False)
         if self._scan_thread is not None:
             self._scan_thread.quit()
             self._scan_thread.wait()
@@ -474,8 +481,18 @@ class SubtitleFileTab(QWidget):
         self.progress.setValue(done)
 
     def _on_cancel(self) -> None:
+        # 批次執行與掃描共用同一顆取消鈕(Finding 4):兩者理論上不會
+        # 同時在跑(Finding 2 已經讓 _on_run/_update_run_enabled 把兩個
+        # 執行緒都算進忙碌判斷),但這裡兩個都檢查一次,不去假設呼叫方
+        # 一定遵守那個互斥關係。
+        cancelled = False
         if self._worker is not None:
             self._worker.cancel()
+            cancelled = True
+        if self._scan_worker is not None:
+            self._scan_worker.cancel()
+            cancelled = True
+        if cancelled:
             self.cancel_button.setEnabled(False)
 
     def _on_finished(self, ok: int, skipped: int, error: int) -> None:
@@ -497,6 +514,12 @@ class SubtitleFileTab(QWidget):
     def shutdown(self) -> None:
         if self._worker is not None:
             self._worker.cancel()
+        if self._scan_worker is not None:
+            # ScanWorker.run() 是一次跑到底的單一呼叫,thread.quit() 只會
+            # 要求事件迴圈退出、不會中斷它,沒有先呼叫 cancel() 讓
+            # scan_folder() 的 should_cancel 檢查點生效的話,下面的
+            # thread.wait() 會卡到掃描自然跑完為止(Finding 3)。
+            self._scan_worker.cancel()
         for thread in (self._thread, self._scan_thread):
             if thread is not None:
                 thread.quit()

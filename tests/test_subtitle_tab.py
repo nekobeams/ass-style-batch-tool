@@ -734,3 +734,167 @@ def test_run_button_and_on_run_blocked_during_rescan(qapp):
     assert tab.table.item(0, 4).text() != "處理中…"    # mark_rows_pending 沒被呼叫
 
 
+# ---------- Finding 3:shutdown() 要能取消掃描執行緒 ----------
+
+def test_shutdown_cancels_scan_worker_before_waiting(qapp):
+    """Finding 3:ScanWorker.run() 是一次跑到底的單一呼叫,thread.quit()
+    只會要求事件迴圈退出、不會中斷它。shutdown() 若不先呼叫
+    _scan_worker.cancel() 讓 scan_folder() 的 should_cancel 檢查點生效,
+    後面的 thread.wait() 會卡到掃描自然跑完為止——關程式時使用者會覺得
+    卡死。這裡跟既有的 _worker.cancel() 呼叫方式對齊,直接驗證
+    _scan_worker.cancel() 真的被呼叫。"""
+    from unittest.mock import Mock
+    tab = _tab()
+    tab._scan_thread = Mock()
+    tab._scan_worker = Mock()
+
+    tab.shutdown()
+
+    tab._scan_worker.cancel.assert_called_once()
+
+
+def test_shutdown_safe_without_scan_worker(qapp):
+    """反向確認:預設狀態(尚未掃描過,_scan_worker/_scan_thread 皆為
+    None)呼叫 shutdown() 不能整個炸掉。"""
+    tab = _tab()
+    assert tab._scan_worker is None
+    tab.shutdown()  # 不應拋例外
+
+
+# ---------- Finding 4:掃描進度/取消要接回既有的進度條與取消鈕 ----------
+
+def test_on_scan_enables_cancel_button_and_resets_progress(
+        qapp, monkeypatch, tmp_path):
+    """Finding 4:掃描現在會逐檔跑 ffprobe + 樣式解析,不是瞬間完成,
+    開始掃描時要跟開始批次執行一樣把取消鈕打開、進度條歸零重新算。"""
+    import time
+    tab = _tab()
+    tab.folder_edit.setText(str(tmp_path))
+    tab.progress.setValue(7)
+
+    def fake_scan_folder(folder, *, progress=None, should_cancel=None):
+        time.sleep(0.2)  # 給測試機會在完成前觀察到 cancel 鈕已開啟
+        return _scan_two_files_with_styles()
+
+    monkeypatch.setattr("ass_style_tool.batch_runner.scan_folder",
+                        fake_scan_folder)
+
+    try:
+        tab._on_scan()
+        assert tab.cancel_button.isEnabled() is True
+        assert tab.progress.value() == 0
+    finally:
+        # 讓背景執行緒真的跑完再收尾,避免測試結束後還留著卡在
+        # QThread 事件迴圈裡的殘留執行緒。
+        deadline = time.monotonic() + 5.0
+        while tab._scan_thread is not None and time.monotonic() < deadline:
+            qapp.processEvents()
+
+
+def test_on_scan_finished_disables_cancel_button(qapp):
+    """Finding 4:掃描完成後要跟批次執行完成一樣把取消鈕收回去——不論是
+    正常掃完還是被取消掃完,ScanWorker 兩種情況都一樣會發 finished。"""
+    tab = _tab()
+    tab.cancel_button.setEnabled(True)
+
+    tab._on_scan_finished(_scan_two_files_with_styles())
+
+    assert tab.cancel_button.isEnabled() is False
+
+
+def test_on_cancel_cancels_scan_worker_only(qapp):
+    """Finding 4:取消鈕在掃描進行中按下時,要能取消 _scan_worker
+    (_worker 這時是 None,兩者理論上不會同時在跑)。"""
+    from unittest.mock import Mock
+    tab = _tab()
+    tab._worker = None
+    tab._scan_worker = Mock()
+    tab.cancel_button.setEnabled(True)
+
+    tab._on_cancel()
+
+    tab._scan_worker.cancel.assert_called_once()
+    assert tab.cancel_button.isEnabled() is False
+
+
+def test_on_cancel_still_cancels_batch_worker_only(qapp):
+    """反向確認:既有的批次執行取消路徑(_worker)沒有因為新增
+    _scan_worker 檢查而壞掉。"""
+    from unittest.mock import Mock
+    tab = _tab()
+    tab._worker = Mock()
+    tab._scan_worker = None
+    tab.cancel_button.setEnabled(True)
+
+    tab._on_cancel()
+
+    tab._worker.cancel.assert_called_once()
+    assert tab.cancel_button.isEnabled() is False
+
+
+def test_on_cancel_with_both_workers_present_cancels_both_defensively(qapp):
+    """_on_cancel 的註解說「兩者理論上不會同時在跑,但這裡兩個都檢查
+    一次,不去假設呼叫方一定遵守那個互斥關係」——這裡直接驗證兩者都非
+    None 時不會有例外、也不會漏掉任何一個 cancel(),取消鈕最終停在
+    disabled(不會出現「切換兩次變回 enabled」之類的怪狀態)。"""
+    from unittest.mock import Mock
+    tab = _tab()
+    tab._worker = Mock()
+    tab._scan_worker = Mock()
+    tab.cancel_button.setEnabled(True)
+
+    tab._on_cancel()
+
+    tab._worker.cancel.assert_called_once()
+    tab._scan_worker.cancel.assert_called_once()
+    assert tab.cancel_button.isEnabled() is False
+
+
+def test_scan_wires_progress_and_cancel_button(qapp, monkeypatch, tmp_path):
+    """Finding 4 端到端:用真正的 QThread 驅動 _on_scan(),確認共用的
+    進度條真的會隨 ScanWorker.progress 前進,而且按下取消鈕真的能提早
+    停止一個還在跑的掃描(不是等它自然跑完才生效)。"""
+    import time
+    tab = _tab()
+    tab.folder_edit.setText(str(tmp_path))
+
+    total = 5
+
+    def slow_scan_folder(folder, *, progress=None, should_cancel=None):
+        for i in range(1, total + 1):
+            if should_cancel is not None and should_cancel():
+                break
+            time.sleep(0.05)
+            if progress is not None:
+                progress(i, total)
+        return _scan_two_files_with_styles()
+
+    monkeypatch.setattr("ass_style_tool.batch_runner.scan_folder",
+                        slow_scan_folder)
+
+    try:
+        tab._on_scan()
+        assert tab.cancel_button.isEnabled() is True
+
+        deadline = time.monotonic() + 5.0
+        while tab.progress.value() == 0 and time.monotonic() < deadline:
+            qapp.processEvents()
+        assert tab.progress.value() > 0, (
+            "progress bar 從沒前進 -- ScanWorker.progress 沒接到 _on_progress")
+
+        tab._on_cancel()  # 使用者實際按下取消鈕的路徑
+
+        deadline = time.monotonic() + 5.0
+        while tab._scan_thread is not None and time.monotonic() < deadline:
+            qapp.processEvents()
+
+        assert tab._scan_thread is None, "scan did not finish/cancel"
+        assert tab.progress.value() < total, "cancel did not stop the scan early"
+    finally:
+        if tab._scan_worker is not None:
+            tab._scan_worker.cancel()
+        if tab._scan_thread is not None:
+            tab._scan_thread.quit()
+            tab._scan_thread.wait()
+
+
