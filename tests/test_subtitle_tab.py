@@ -934,3 +934,30 @@ def test_run_button_enabled_after_scan_completes_with_style_selected(
     assert tab.run_button.isEnabled() is True
 
 
+def test_scan_finished_cancelled_logs_cancellation_not_completion(qapp):
+    """Finding 3:ScanResult.cancelled 之前完全沒被 _on_scan_finished()
+    consult 過——取消掉的掃描被當成完整掃描處理,連 log 都寫「掃描完成」。
+    這裡驅動一個 cancelled=True、只解析了部分檔案的 ScanResult,確認
+    log 訊息反映的是「已取消」而不是「完成」,而且完成計數是用實際解析
+    完的 scan.styles 筆數(1),不是 scan.matches 的總數(3)。"""
+    from ass_style_tool.style_scan import FileStyles
+    tab = _tab()
+    a, b, c = Path("a.ass"), Path("b.ass"), Path("c.ass")
+    scan = ScanResult(
+        matches=[
+            MatchResult(a, 1, status="no_video"),
+            MatchResult(b, 2, status="no_video"),
+            MatchResult(c, 3, status="no_video"),
+        ],
+        warnings=[],
+        styles={a: FileStyles(a, {"Default": 48.0}, (1920, 1080))},
+        cancelled=True)
+
+    logs = []
+    tab.log.connect(logs.append)
+    tab._on_scan_finished(scan)
+
+    assert not any("掃描完成" in msg for msg in logs), logs
+    assert any("取消" in msg and "1" in msg and "3" in msg for msg in logs), logs
+
+

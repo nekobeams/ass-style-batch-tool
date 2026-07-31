@@ -247,7 +247,20 @@ class SubtitleFileTab(QWidget):
         self._scan_thread = None
         self._scan_worker = None
         count = self.populate_preview(scan)
-        self.log.emit(f"掃描完成:共 {count} 個字幕檔")
+        if scan.cancelled:
+            # 使用者取消時 scan.styles 只有取消點之前已經解析完的檔案,
+            # 不能沿用「掃描完成」的措辭,那會讓使用者誤以為整個資料夾
+            # 都掃過了,實際上尾端的檔案根本沒被讀取(Finding 3)。
+            completed = len(getattr(scan, "styles", {}))
+            total = len(scan.matches)
+            self.log.emit(f"掃描已取消:僅完成 {completed}/{total} 個字幕檔的解析")
+            # 讓後續的自動掃描(資料夾切換/分頁切換)真的會重掃一次,
+            # 而不是被「已經掃過這個資料夾」的記錄擋掉,永遠停在這份
+            # 不完整的結果上。
+            self._scanned_folder = None
+            self._auto_scanned = False
+        else:
+            self.log.emit(f"掃描完成:共 {count} 個字幕檔")
 
     def populate_preview(self, scan) -> int:
         rows = preview_rows(scan, self._plans())
