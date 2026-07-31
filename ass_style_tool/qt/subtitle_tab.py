@@ -234,15 +234,20 @@ class SubtitleFileTab(QWidget):
                 f"注意:有 {len(summary.inconsistent)} 個檔案的樣式組合與其他檔不同")
         for path in summary.unreadable:
             self.log.emit(f"警告:無法解析樣式 {path.name}")
-        count = self.populate_preview(scan)
-        self.log.emit(f"掃描完成:共 {count} 個字幕檔")
         self.scan_button.setEnabled(True)
         self.cancel_button.setEnabled(False)
         if self._scan_thread is not None:
             self._scan_thread.quit()
             self._scan_thread.wait()
+        # 一定要在 populate_preview()(內部會呼叫 _update_run_enabled()/
+        # _update_dry_run_enabled())之前把這兩個清空:這兩個函式把
+        # self._scan_thread is not None 算進「忙碌」,如果 populate_preview
+        # 在這裡之前執行,算出來的按鈕狀態永遠是「忙碌」,掃描結束後也
+        # 沒有其他地方會再重算一次,執行鈕就這樣被永久鎖死(Finding 1)。
         self._scan_thread = None
         self._scan_worker = None
+        count = self.populate_preview(scan)
+        self.log.emit(f"掃描完成:共 {count} 個字幕檔")
 
     def populate_preview(self, scan) -> int:
         rows = preview_rows(scan, self._plans())

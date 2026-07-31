@@ -898,3 +898,39 @@ def test_scan_wires_progress_and_cancel_button(qapp, monkeypatch, tmp_path):
             tab._scan_thread.wait()
 
 
+# ---------- Batch B1b review 修正:掃描生命週期(scan lifecycle)----------
+
+def test_run_button_enabled_after_scan_completes_with_style_selected(
+        qapp, monkeypatch, tmp_path):
+    """Finding 1:_update_run_enabled()/_update_dry_run_enabled() 把
+    self._scan_thread is not None 算進「忙碌」,但 _on_scan_finished()
+    在把 self._scan_thread 換回 None 之前就呼叫了 populate_preview()
+    (內部會呼叫這兩個函式)——所以每次掃描完成當下算出來的按鈕狀態都是
+    「忙碌」,而且結束後沒有任何地方會再重算一次,執行鈕就這樣被永久
+    鎖死。模擬 restore_settings() 之後的正常狀態(側欄已經勾好樣式),
+    走真正的 _on_scan() → QThread → _on_scan_finished() 全路徑,確認
+    掃描完成後執行鈕真的會被重新打開。"""
+    import time
+    tab = _tab()
+    tab.style_picker.set_available(["Default"])
+    tab.style_picker.set_selected(["Default"])   # 模擬 restore_settings() 之後的狀態
+
+    from ass_style_tool.style_scan import FileStyles
+    sub = Path("a.ass")
+    scan = ScanResult(
+        matches=[MatchResult(sub, 1, status="no_video")],
+        styles={sub: FileStyles(sub, {"Default": 48.0}, (1920, 1080))})
+
+    monkeypatch.setattr("ass_style_tool.batch_runner.scan_folder",
+                        lambda folder, **kw: scan)
+
+    tab.folder_edit.setText(str(tmp_path))
+    tab._on_scan()
+    deadline = time.monotonic() + 5.0
+    while tab._scan_thread is not None and time.monotonic() < deadline:
+        qapp.processEvents()
+
+    assert tab._scan_thread is None, "scan never finished"
+    assert tab.run_button.isEnabled() is True
+
+
