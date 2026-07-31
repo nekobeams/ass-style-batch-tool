@@ -961,3 +961,27 @@ def test_scan_finished_cancelled_logs_cancellation_not_completion(qapp):
     assert any("取消" in msg and "1" in msg and "3" in msg for msg in logs), logs
 
 
+def test_mode_switch_during_run_does_not_repaint_table(qapp):
+    """Finding 2:_on_mode_changed 之前沒有 _on_styles_changed 那樣的
+    『批次執行中不重畫』保護,即使模式radio在批次執行中並不會被停用
+    (_on_run 只停用 scan_button/run_button/dry_run_button)。切模式若照舊
+    整欄重畫,會把已定案的處理結果與「處理中…」標記蓋掉,跟 Finding 1
+    (前一批修法)想擋的問題一樣,只是走另一個入口。"""
+    from unittest.mock import Mock
+    tab = _tab()
+    scan = _scan_two_files_with_styles()
+    tab._on_scan_finished(scan)
+    tab.style_picker.set_available(["Default", "CHT"])
+    tab.style_picker.set_selected(["Default"])
+    tab.mark_rows_pending()
+    tab._set_row_result("a.ass", "ok")
+    resulted_text = tab.table.item(0, 4).text()
+    assert tab.table.item(1, 4).text() == "處理中…"
+
+    tab._thread = Mock()                      # 模擬批次執行緒仍在跑
+    tab.scale_mode_radio.setChecked(True)     # 執行中途切模式
+
+    assert tab.table.item(0, 4).text() == resulted_text
+    assert tab.table.item(1, 4).text() == "處理中…"
+
+

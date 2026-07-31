@@ -413,7 +413,18 @@ class SubtitleFileTab(QWidget):
         # _update_run_enabled()/_update_dry_run_enabled() 包在裡面,尚未
         # 掃描過(self._scan is None)時才需要另外呼叫。
         if self._scan is not None:
-            self.populate_preview(self._scan)
+            if self._thread is not None:
+                # 批次執行中:跟 _on_styles_changed() 同一個理由——表格
+                # 欄位已經寫進真正的處理結果或「處理中…」標記,這時候
+                # 整欄重畫會把已定案的內容蓋掉,也會讓
+                # _reconcile_stuck_rows() 掃不到(它只認 PENDING_TEXT)。
+                # 模式切換鈕本身在批次執行中不會被停用(_on_run 只停用
+                # scan_button/run_button/dry_run_button),所以這裡跟
+                # _on_styles_changed() 一樣只更新按鈕可用狀態,不重畫表格。
+                self._update_run_enabled()
+                self._update_dry_run_enabled()
+            else:
+                self.populate_preview(self._scan)
         else:
             self._update_dry_run_enabled()
             self._update_run_enabled()
