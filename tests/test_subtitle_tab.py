@@ -985,3 +985,19 @@ def test_mode_switch_during_run_does_not_repaint_table(qapp):
     assert tab.table.item(1, 4).text() == "處理中…"
 
 
+def test_dry_run_disabled_while_rescan_in_flight(qapp):
+    """Finding 4:_update_dry_run_enabled() 之前只檢查 self._thread,漏掉
+    了 self._scan_thread——跟其他三個忙碌判斷點(_update_run_enabled、
+    _auto_scan、auto_scan_once)不一致。重新掃描進行中時 self._scan 隨時
+    會被換掉,試算預覽不該讀取即將作廢的舊 scan。"""
+    from unittest.mock import Mock
+    tab = _tab()
+    tab.scale_mode_radio.setChecked(True)
+    tab._on_scan_finished(_scan_with_default_style())
+    assert tab.dry_run_button.isEnabled() is True
+
+    tab._scan_thread = Mock()          # 模擬重新掃描進行中
+    tab._update_dry_run_enabled()
+    assert tab.dry_run_button.isEnabled() is False
+
+

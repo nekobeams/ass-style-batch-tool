@@ -430,9 +430,14 @@ class SubtitleFileTab(QWidget):
             self._update_run_enabled()
 
     def _update_dry_run_enabled(self) -> None:
+        # 跟其餘三個忙碌判斷點(_update_run_enabled、_auto_scan、
+        # auto_scan_once)看齊,重新掃描進行中(self._scan_thread)也要算
+        # 忙碌:self._scan 隨時可能被 _on_scan_finished 換掉,不能讓試算
+        # 預覽讀取即將作廢的舊 scan(Finding 4)。
         self.dry_run_button.setEnabled(
             self.scale_mode_radio.isChecked() and self._scan is not None
-            and len(self._scan.matches) > 0 and self._thread is None)
+            and len(self._scan.matches) > 0 and self._thread is None
+            and self._scan_thread is None)
 
     def _on_dry_run(self) -> None:
         if self._scan is None:
