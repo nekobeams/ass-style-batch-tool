@@ -1,8 +1,9 @@
 """批次執行 worker:在 QThread 中逐檔呼叫 process_file,支援取消。"""
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Dict, List, Optional
 
 from PySide6.QtCore import QObject, Signal
 
@@ -13,6 +14,7 @@ from ..mkv_io import list_all_tracks, list_ass_tracks
 from ..mkv_mux import MuxMeta, MuxPair, pair_for_mux, process_mux
 from ..profile import Profile
 from ..scale_engine import ScaleOptions, scale_file
+from ..style_scan import FileStyles, scan_styles
 
 
 class ScanWorker(QObject):
@@ -270,22 +272,44 @@ class MkvWorker(QObject):
         self.finished.emit(ok, skipped, error)
 
 
-class MuxScanWorker(QObject):
-    """掃描影片資料夾與字幕資料夾,依集數配對。"""
+@dataclass
+class MuxScanResult:
+    """MuxScanWorker 的結果:配對結果 + 每個已配對字幕檔的樣式掃描結果。
 
-    finished = Signal(object)  # list[MuxPair]
+    file_styles 只含有字幕的配對(subtitle_path 不為 None),鍵是
+    subtitle_path——沒有字幕可掃的列(no_subtitle/ambiguous/no_episode)
+    本來就沒東西可以餵給 scan_styles。
+    """
+    pairs: List[MuxPair] = field(default_factory=list)
+    file_styles: Dict[Path, FileStyles] = field(default_factory=dict)
+
+
+class MuxScanWorker(QObject):
+    """掃描影片資料夾與字幕資料夾,依集數配對,並解析每個已配對字幕檔的樣式。
+
+    樣式解析(scan_styles)放在這裡而不是留給 GUI 端的 slot 處理,是因為
+    它要逐檔讀檔案、跑 pysubs2 解析——資料夾大的話這個迴圈本身就不是
+    瞬間完成的事,擺在 GUI 執行緒上會讓表格該出現的那一刻反而卡住視窗。
+    """
+
+    finished = Signal(object)  # 攜帶 MuxScanResult
 
     def __init__(self, video_folder: Path, subtitle_folder: Path,
-                 pair_fn=pair_for_mux) -> None:
+                 pair_fn=pair_for_mux, scan_styles_fn=scan_styles) -> None:
         super().__init__()
         self._video_folder = Path(video_folder)
         self._subtitle_folder = Path(subtitle_folder)
         self._pair_fn = pair_fn
+        self._scan_styles_fn = scan_styles_fn
 
     def run(self) -> None:
         _subs_in_v, videos = find_files(self._video_folder)
         subs, _videos_in_s = find_files(self._subtitle_folder)
-        self.finished.emit(self._pair_fn(videos, subs))
+        pairs = self._pair_fn(videos, subs)
+        matched = [p for p in pairs if p.subtitle_path is not None]
+        file_styles = {p.subtitle_path: self._scan_styles_fn(p.subtitle_path)
+                       for p in matched}
+        self.finished.emit(MuxScanResult(pairs=pairs, file_styles=file_styles))
 
 
 class MuxWorker(QObject):

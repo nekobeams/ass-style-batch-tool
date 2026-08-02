@@ -605,48 +605,40 @@ def test_run_button_enabled_in_direct_mode_without_styles(qapp, monkeypatch):
     assert tab.run_button.isEnabled() is True
 
 
-# ---------- _on_scan_done:未配對到字幕的列不能餵給 scan_styles ----------
+# ---------- _on_scan_done:消費 MuxScanWorker 已經算好的 MuxScanResult ----------
+# 「未配對到字幕的列不能餵給 scan_styles」這條過濾邏輯本身已經搬進
+# MuxScanWorker.run()(最終審查 I10:大季同步解析會卡住視窗),
+# 見 tests/test_mux_worker.py 的
+# test_scan_worker_scans_styles_for_matched_pairs_only /
+# test_scan_worker_all_unmatched_skips_scan_styles——那裡才是這條規則
+# 真正的邏輯所在地。這裡改成驗證 _on_scan_done 正確消費一份已經算好的
+# MuxScanResult,不重新推導 file_styles。
 
-def test_on_scan_done_skips_none_subtitle_pairs(qapp, monkeypatch):
-    """`p.subtitle_path is not None` 的過濾如果被拿掉,scan_styles 就會被
-    塞進 None——這裡讓假的 scan_styles 收到 None 直接炸掉,釘住這個過濾
-    條件不能被日後的「簡化」悄悄拿掉。"""
-    import ass_style_tool.qt.mux_tab as mux_tab_mod
+def test_on_scan_done_wires_file_styles_from_result(qapp, monkeypatch):
     from ass_style_tool.style_scan import FileStyles
+    from ass_style_tool.qt.batch_worker import MuxScanResult
     tab = _tab(monkeypatch)
-
-    scanned = []
-
-    def fake_scan_styles(path):
-        assert path is not None, "scan_styles 不該收到 None(subtitle_path 未過濾)"
-        scanned.append(path)
-        return FileStyles(path=path, styles={"CHT": 40.0})
-
-    monkeypatch.setattr(mux_tab_mod, "scan_styles", fake_scan_styles)
-    pairs = [
-        MuxPair(Path("a [01].mkv"), Path("a [01].ass"), 1, "matched"),
-        MuxPair(Path("b [02].mkv"), None, 2, "no_subtitle"),
-    ]
-    tab._on_scan_done(pairs)
-    assert scanned == [Path("a [01].ass")]
+    sub = Path("a [01].ass")
+    result = MuxScanResult(
+        pairs=[MuxPair(Path("a [01].mkv"), sub, 1, "matched"),
+              MuxPair(Path("b [02].mkv"), None, 2, "no_subtitle")],
+        file_styles={sub: FileStyles(path=sub, styles={"CHT": 40.0})})
+    tab._on_scan_done(result)
+    assert tab._file_styles == result.file_styles
+    assert "CHT" in tab.style_picker._available
 
 
 def test_on_scan_done_all_unmatched_yields_empty_styles_without_raising(
         qapp, monkeypatch):
-    """整批都沒配對到字幕時 scan_styles 完全不該被呼叫,也不能拋例外,
-    樣式清單應該是空的。"""
-    import ass_style_tool.qt.mux_tab as mux_tab_mod
+    """整批都沒配對到字幕時,MuxScanResult.file_styles 是空字典——這裡
+    確認分頁端不會因為空字典而拋例外,樣式清單顯示為空。"""
+    from ass_style_tool.qt.batch_worker import MuxScanResult
     tab = _tab(monkeypatch)
-
-    def boom(path):
-        raise AssertionError("全部未配對時不該呼叫 scan_styles")
-
-    monkeypatch.setattr(mux_tab_mod, "scan_styles", boom)
-    pairs = [
-        MuxPair(Path("a [01].mkv"), None, 1, "no_subtitle"),
-        MuxPair(Path("b [02].mkv"), None, 2, "ambiguous"),
-    ]
-    tab._on_scan_done(pairs)               # 不應拋例外
+    result = MuxScanResult(
+        pairs=[MuxPair(Path("a [01].mkv"), None, 1, "no_subtitle"),
+              MuxPair(Path("b [02].mkv"), None, 2, "ambiguous")],
+        file_styles={})
+    tab._on_scan_done(result)               # 不應拋例外
     assert tab.table.rowCount() == 2
     assert tab.style_picker.list.count() == 0
 
@@ -1057,7 +1049,8 @@ def test_scan_done_completes_bookkeeping_when_profile_is_invalid(qapp, monkeypat
     messages = []
     tab.log.connect(messages.append)
 
-    tab._on_scan_done(PAIRS)
+    from ass_style_tool.qt.batch_worker import MuxScanResult
+    tab._on_scan_done(MuxScanResult(pairs=PAIRS, file_styles={}))
 
     assert any("配對完成" in m for m in messages)
     assert tab.scan_button.isEnabled() is True

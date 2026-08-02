@@ -20,11 +20,62 @@ def test_scan_worker_pairs_two_folders(qapp, tmp_path):
     (sdir / "Show - 01.ass").write_bytes(b"")
     worker = MuxScanWorker(vdir, sdir)
     got = {}
-    worker.finished.connect(lambda pairs: got.update(pairs=pairs))
+    worker.finished.connect(lambda result: got.update(result=result))
     worker.run()
-    by_ep = {p.episode: p.status for p in got["pairs"]}
+    by_ep = {p.episode: p.status for p in got["result"].pairs}
     assert by_ep[1] == "matched"
     assert by_ep[2] == "no_subtitle"
+
+
+def test_scan_worker_scans_styles_for_matched_pairs_only(qapp, tmp_path):
+    """樣式解析(scan_styles)在 worker 執行緒裡跑,不留給 GUI 端的
+    slot——這裡直接測 worker 本身,不必透過分頁(最終審查 I10)。
+    「未配對到字幕的列不能餵給 scan_styles」的過濾也在這裡驗證:這條
+    真正的邏輯位置就是 MuxScanWorker.run(),不是 mux_tab 的 slot。"""
+    from ass_style_tool.qt.batch_worker import MuxScanWorker
+    from ass_style_tool.style_scan import FileStyles
+    vdir = tmp_path / "video"
+    sdir = tmp_path / "sub"
+    vdir.mkdir()
+    sdir.mkdir()
+    (vdir / "Show [01].mkv").write_bytes(b"")
+    (vdir / "Show [02].mkv").write_bytes(b"")
+    (sdir / "Show - 01.ass").write_bytes(b"")
+
+    scanned = []
+
+    def fake_scan_styles(path):
+        assert path is not None, "scan_styles 不該收到 None(subtitle_path 未過濾)"
+        scanned.append(path)
+        return FileStyles(path=path, styles={"CHT": 40.0})
+
+    worker = MuxScanWorker(vdir, sdir, scan_styles_fn=fake_scan_styles)
+    got = {}
+    worker.finished.connect(lambda result: got.update(result=result))
+    worker.run()
+
+    result = got["result"]
+    assert scanned == [sdir / "Show - 01.ass"]     # 只掃有配對到的那個
+    assert set(result.file_styles) == {sdir / "Show - 01.ass"}
+
+
+def test_scan_worker_all_unmatched_skips_scan_styles(qapp, tmp_path):
+    """整批都沒配對到字幕時,scan_styles 完全不該被呼叫。"""
+    from ass_style_tool.qt.batch_worker import MuxScanWorker
+    vdir = tmp_path / "video"
+    sdir = tmp_path / "sub"
+    vdir.mkdir()
+    sdir.mkdir()
+    (vdir / "Show [01].mkv").write_bytes(b"")
+
+    def boom(path):
+        raise AssertionError("全部未配對時不該呼叫 scan_styles")
+
+    worker = MuxScanWorker(vdir, sdir, scan_styles_fn=boom)
+    got = {}
+    worker.finished.connect(lambda result: got.update(result=result))
+    worker.run()               # 不應拋例外
+    assert got["result"].file_styles == {}
 
 
 def test_mux_worker_runs_and_reports(qapp, tmp_path):

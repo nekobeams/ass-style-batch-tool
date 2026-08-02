@@ -19,7 +19,7 @@ from ..mkv_batch import MkvTools
 from ..mkv_mux import MuxMeta, MuxPair
 from ..profile import Profile
 from ..scale_engine import ScaleError
-from ..style_scan import scan_styles, summarize
+from ..style_scan import summarize
 from ..tools import mkvextract_path, mkvmerge_path
 from ..track_edit import TrackEdit
 from .batch_worker import MuxScanWorker, MuxWorker, TrackScanWorker
@@ -364,7 +364,7 @@ class MuxTab(QWidget):
         self._scan_worker.finished.connect(self._on_scan_done)
         self._scan_thread.start()
 
-    def _on_scan_done(self, pairs: list) -> None:
+    def _on_scan_done(self, result) -> None:
         if self._closing:
             return
         if self._scan_thread is not None:
@@ -373,6 +373,7 @@ class MuxTab(QWidget):
         self._scan_thread = None
         self._scan_worker = None
         self.scan_button.setEnabled(True)
+        pairs = result.pairs
         if self._track_edits and self._scanned_key != self._track_edits_key:
             # 換了一組影片/字幕資料夾:先前設定的軌道修改是依 track id 套用
             # 的,套到新資料夾的檔案上等於用錯誤的軌道 id 亂改,必須清掉。
@@ -383,12 +384,12 @@ class MuxTab(QWidget):
         if s and Path(s).is_dir():
             subs, _ = find_files(Path(s))
             self._available_subtitles = sorted(subs)
-        matched_pairs = [p for p in pairs if p.subtitle_path is not None]
-        results = [scan_styles(p.subtitle_path) for p in matched_pairs]
-        summary = summarize(results)
+        # 樣式解析(scan_styles)已經在 MuxScanWorker.run() 裡跑完了,不在
+        # 這個 GUI 執行緒的 slot 裡逐檔解析——大季同步解析會讓表格該出現
+        # 的那一刻反而先卡住視窗(最終審查 I10)。
+        summary = summarize(list(result.file_styles.values()))
         self.style_picker.set_available(summary.names)
-        self._file_styles = dict(
-            zip((p.subtitle_path for p in matched_pairs), results))
+        self._file_styles = dict(result.file_styles)
         self.populate(pairs)
         matched = sum(1 for p in pairs if p.status == "matched")
         self.log.emit(f"配對完成:{len(pairs)} 部影片,{matched} 部有對應字幕")
