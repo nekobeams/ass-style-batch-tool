@@ -562,6 +562,13 @@ class MkvTab(QWidget):
         self._template_thread.start()
 
     def _on_template_styles_done(self, result) -> None:
+        if self._closing:
+            # shutdown() 對 _template_thread 呼叫 wait() 之後,worker 執行
+            # 緒排隊的 finished 訊號會在下一輪事件迴圈才送達——這時分頁
+            # 可能已經在銷毀路上,touch read_styles_button/style_picker/
+            # log 這些元件會有踩到已銷毀物件的風險。跟 _on_track_scan_done
+            # 、mux_tab._on_scan_done() 同一個理由,同一個防護。
+            return
         if self._template_thread is not None:
             self._template_thread.quit()
             self._template_thread.wait()

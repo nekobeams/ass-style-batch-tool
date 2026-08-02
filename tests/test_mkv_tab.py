@@ -511,6 +511,33 @@ def test_shutdown_without_template_thread_does_not_raise(qapp, monkeypatch):
     tab.shutdown()          # 不應拋例外
 
 
+def test_template_styles_done_ignored_after_closing(qapp, monkeypatch):
+    """shutdown() 對 _template_thread 呼叫 wait() 之後,worker 排隊的
+    finished 訊號會在下一輪事件迴圈才送達分頁——這時分頁可能已經在銷毀
+    路上,_on_template_styles_done() 不能在這個時間點還去碰
+    read_styles_button/style_picker/log 這些元件。"""
+    from unittest.mock import Mock
+    from ass_style_tool.mkv_io import TemplateExtraction
+    from ass_style_tool.qt.batch_worker import TemplateStyleResult
+    tab = _tab(monkeypatch)
+    tab.populate(FILES)
+    tab._template_thread = Mock()
+    tab._template_worker = Mock()
+    tab.read_styles_button.setEnabled(False)   # 模擬讀取仍在進行中的狀態
+    tab._closing = True
+
+    messages = []
+    tab.log.connect(messages.append)
+    tab._on_template_styles_done(
+        TemplateStyleResult(extraction=TemplateExtraction(path=None,
+                                                           error="no_track")))
+
+    assert messages == []                              # 沒有任何 log
+    assert tab.read_styles_button.isEnabled() is False  # 沒有被重新啟用
+    assert tab._template_thread is not None             # 沒有被清空
+    tab._template_thread.quit.assert_not_called()       # 也沒有去動這條執行緒
+
+
 # ---------- 範本檔樣式讀取 ----------
 
 def _drive_read_template_styles(tab, qapp, monkeypatch, *,
