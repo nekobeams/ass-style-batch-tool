@@ -10,7 +10,8 @@ from PySide6.QtCore import QObject, Signal
 from ..batch_runner import process_file
 from ..episode_match import ass_output_name, find_files
 from ..mkv_batch import MkvTools, process_mkv
-from ..mkv_io import list_all_tracks, list_ass_tracks
+from ..mkv_io import (TemplateExtraction, extract_template_subtitle,
+                      list_all_tracks, list_ass_tracks)
 from ..mkv_mux import MuxMeta, MuxPair, pair_for_mux, process_mux
 from ..profile import Profile
 from ..scale_engine import ScaleOptions, scale_file
@@ -193,6 +194,55 @@ class MkvScanWorker(_TrackListWorker):
     def __init__(self, paths, mkvmerge: Path,
                  list_fn=list_ass_tracks) -> None:
         super().__init__(paths, mkvmerge, list_fn)
+
+
+@dataclass
+class TemplateStyleResult:
+    """TemplateStyleWorker 的結果:抽取結果 + (成功時)樣式解析結果。
+
+    extraction.path 為 None 時 styles 一定是 None——沒抽到範本檔就沒東西
+    可以拿去解析樣式,呼叫端要先看 extraction 才能決定要不要看 styles。
+    """
+    extraction: TemplateExtraction
+    styles: Optional[FileStyles] = None
+
+
+class TemplateStyleWorker(QObject):
+    """MKV 分頁「讀取樣式名稱」:抽一條範本字幕軌 + 解析樣式,丟到背景
+    執行緒跑,不卡住 GUI。
+
+    只處理一個檔案(不是清單),所以沒有 progress(int, int) 的意義,也
+    沒有 cancel()——這裡跟這個專案其他 worker 的「取消」語意一樣,都只
+    能擋「下一步」不能真的中斷正在跑的子行程(list_ass_tracks/
+    extract_track 底下都是單次 subprocess.run,沒有中途檢查點可以插),
+    而這裡從頭到尾就只有一步,沒有「下一步」可以擋,所以乾脆不假裝有
+    取消能力。移到背景執行緒解決的是「GUI 執行緒被鎖住最多 360 秒、視窗
+    顯示沒回應」,不是提供中途喊停。
+    """
+
+    finished = Signal(object)  # 攜帶 TemplateStyleResult
+
+    def __init__(self, mkv_path: Path, mkvmerge: Path, mkvextract: Path,
+                 out_dir: Optional[Path] = None,
+                 extract_fn=extract_template_subtitle,
+                 scan_fn=scan_styles) -> None:
+        super().__init__()
+        self._mkv_path = mkv_path
+        self._mkvmerge = mkvmerge
+        self._mkvextract = mkvextract
+        self._out_dir = out_dir
+        self._extract_fn = extract_fn
+        self._scan_fn = scan_fn
+
+    def run(self) -> None:
+        extraction = self._extract_fn(
+            self._mkv_path, self._mkvmerge, self._mkvextract, self._out_dir)
+        if extraction.path is None:
+            self.finished.emit(TemplateStyleResult(extraction=extraction))
+            return
+        styles = self._scan_fn(extraction.path)
+        self.finished.emit(
+            TemplateStyleResult(extraction=extraction, styles=styles))
 
 
 class TrackScanWorker(_TrackListWorker):

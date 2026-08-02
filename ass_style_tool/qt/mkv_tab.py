@@ -20,13 +20,12 @@ from PySide6.QtWidgets import (QAbstractItemView, QButtonGroup, QFileDialog,
                                QWidget)
 
 from ..mkv_batch import MkvTools, track_key
-from ..mkv_io import SubtitleTrack, extract_template_subtitle, extract_track
+from ..mkv_io import SubtitleTrack, extract_track
 from ..profile import Profile
 from ..scale_engine import ScaleError
-from ..style_scan import scan_styles
 from ..tools import mkvextract_path, mkvmerge_path
 from ..track_select import TrackKey, all_keys, resolve_tracks
-from .batch_worker import MkvScanWorker, MkvWorker
+from .batch_worker import MkvScanWorker, MkvWorker, TemplateStyleWorker
 from .gui_helpers import CANCELLED_TEXT, PENDING_TEXT, RESULT_ICONS
 from .layout_helpers import (action_row, group, main_splitter, page_layout,
                              settings_sidebar)
@@ -53,6 +52,9 @@ class MkvTab(QWidget):
         self._worker = None
         self._scan_thread: Optional[QThread] = None
         self._scan_worker = None
+        self._template_thread: Optional[QThread] = None
+        self._template_worker = None
+        self._template_video_name: Optional[str] = None
         self._scan_dialog: Optional[ScanProgressDialog] = None
         self._scanned_folder: Optional[str] = None
         self._auto_scanned = False
@@ -533,7 +535,14 @@ class MkvTab(QWidget):
 
         不逐檔抽取:一季全抽很慢,而使用者的情境是全季樣式名一致,
         一個範本檔就夠。與「修改既有軌道」對話框同一種心智模型。
+
+        抽取(mkvmerge -J)+ 解析都丟到背景執行緒跑,不在這個 slot 裡
+        直接呼叫——兩段子行程加起來逾時上限有 360 秒,擺在 GUI 執行緒上
+        視窗會整個「沒有回應」(最終審查 I8)。
         """
+        if self._template_thread is not None:
+            self.log.emit("正在讀取樣式名稱,請稍候")
+            return
         files = self.current_files()
         if not files:
             self.log.emit("請先掃描資料夾")
@@ -542,11 +551,28 @@ class MkvTab(QWidget):
         if mkvmerge is None or mkvextract is None:
             self.log.emit("找不到 MKVToolNix,無法讀取樣式名稱")
             return
-        extraction = extract_template_subtitle(
+        self._template_video_name = files[0].name
+        self.read_styles_button.setEnabled(False)
+        self._template_thread = QThread()
+        self._template_worker = TemplateStyleWorker(
             files[0], mkvmerge, mkvextract, self._preview_dir)
+        self._template_worker.moveToThread(self._template_thread)
+        self._template_thread.started.connect(self._template_worker.run)
+        self._template_worker.finished.connect(self._on_template_styles_done)
+        self._template_thread.start()
+
+    def _on_template_styles_done(self, result) -> None:
+        if self._template_thread is not None:
+            self._template_thread.quit()
+            self._template_thread.wait()
+        self._template_thread = None
+        self._template_worker = None
+        self.read_styles_button.setEnabled(True)
+        name = self._template_video_name
+        extraction = result.extraction
         if extraction.path is None:
             if extraction.error == "extract_failed":
-                self.log.emit(f"抽取 {files[0].name} 的字幕軌失敗,"
+                self.log.emit(f"抽取 {name} 的字幕軌失敗,"
                               "無法讀取樣式名稱(檔案可能損壞或磁碟空間不足)")
             elif extraction.error == "identify_failed":
                 # 連 mkvmerge -J 都沒問出這個檔案有哪些軌(逾時、檔案損毀
@@ -555,24 +581,25 @@ class MkvTab(QWidget):
                 # 一起講,那會把使用者導去錯的排查方向(以為片源是圖形
                 # 字幕,實際上可能是檔案損毀或 MKVToolNix 出問題)。
                 self.log.emit(
-                    f"無法讀取 {files[0].name} 的字幕軌清單"
+                    f"無法讀取 {name} 的字幕軌清單"
                     "(mkvmerge 執行失敗、逾時,或檔案已損毀/被占用)")
             else:
-                # Minor bullet:只抽了 files[0] 當範本(見本函式開頭的
-                # docstring),訊息卻原本講「這批影片」,會讓人誤以為整批
-                # 都檢查過了、全部都沒有文字字幕軌——其實後面的檔案根本
-                # 沒被碰過。改成點名第一個檔案,不擴大成整批的結論。
+                # Minor bullet:只抽了第一個檔案當範本(見
+                # read_template_styles() 開頭的 docstring),訊息卻原本講
+                # 「這批影片」,會讓人誤以為整批都檢查過了、全部都沒有
+                # 文字字幕軌——其實後面的檔案根本沒被碰過。改成點名第一
+                # 個檔案,不擴大成整批的結論。
                 self.log.emit(
-                    f"{files[0].name} 沒有文字字幕軌,無法讀取樣式名稱"
+                    f"{name} 沒有文字字幕軌,無法讀取樣式名稱"
                     "(可能是 PGS/VobSub 圖形字幕;只檢查了第一個影片,"
                     "其餘影片未逐一確認)")
             return
-        result = scan_styles(extraction.path)
-        if result.error is not None:
-            self.log.emit(f"範本字幕解析失敗:{result.error}")
+        styles = result.styles
+        if styles.error is not None:
+            self.log.emit(f"範本字幕解析失敗:{styles.error}")
             return
-        self.style_picker.set_available(sorted(result.styles))
-        self.log.emit(f"從 {files[0].name} 讀到 {len(result.styles)} 個樣式")
+        self.style_picker.set_available(sorted(styles.styles))
+        self.log.emit(f"從 {name} 讀到 {len(styles.styles)} 個樣式")
 
     def effective_profile(self) -> Profile:
         """把側欄勾選的樣式名蓋進目前的 profile(與其他兩個分頁的作法相同)。"""
@@ -673,7 +700,7 @@ class MkvTab(QWidget):
         for worker in (self._worker, self._scan_worker):
             if worker is not None:
                 worker.cancel()
-        for thread in (self._thread, self._scan_thread):
+        for thread in (self._thread, self._scan_thread, self._template_thread):
             if thread is not None:
                 thread.quit()
                 thread.wait()

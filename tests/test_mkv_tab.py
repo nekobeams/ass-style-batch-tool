@@ -487,20 +487,74 @@ def test_shutdown_closes_orphaned_scan_dialog(qapp, monkeypatch):
     assert tab._scan_worker is None
 
 
+def test_shutdown_waits_for_template_thread(qapp, monkeypatch):
+    """讀取樣式名稱進行中關閉分頁時,shutdown() 要等 _template_thread
+    收尾(quit + wait),不能留著一條沒人管的執行緒——這條執行緒沒有
+    cancel() 可呼叫(見 TemplateStyleWorker 的說明:單一子行程呼叫沒有
+    中途檢查點可以插),shutdown() 只需要負責等它,不必也不能取消它。"""
+    from unittest.mock import Mock
+    tab = _tab(monkeypatch)
+    tab._template_thread = Mock()
+    tab._template_worker = Mock()
+
+    tab.shutdown()
+
+    tab._template_thread.quit.assert_called_once()
+    tab._template_thread.wait.assert_called_once()
+    # 沒有 cancel() 可呼叫,shutdown() 也真的沒去呼叫它
+    tab._template_worker.cancel.assert_not_called()
+
+
+def test_shutdown_without_template_thread_does_not_raise(qapp, monkeypatch):
+    tab = _tab(monkeypatch)
+    assert tab._template_thread is None
+    tab.shutdown()          # 不應拋例外
+
+
 # ---------- 範本檔樣式讀取 ----------
+
+def _drive_read_template_styles(tab, qapp, monkeypatch, *,
+                                extract_fn=None, scan_fn=None):
+    """呼叫 tab.read_template_styles() 並跑完真正的 QThread + TemplateStyleWorker。
+
+    抽取(mkvmerge -J + mkvextract)+ 解析已經搬進背景執行緒跑(最終審查
+    I8),不再是 read_template_styles() 這個 slot 裡的同步呼叫——跟
+    MkvScanWorker 既有的測試手法一樣:monkeypatch 掉分頁自己拿來建構
+    worker 的那個名字(這裡是 TemplateStyleWorker),用同樣的呼叫簽章包一
+    層 factory,把假的 extract_fn/scan_fn 注入到真正的 worker 類別裡,
+    而不是 monkeypatch 早就在模組載入時就綁定死的預設參數(那樣不會有
+    任何效果)。"""
+    import time
+    from ass_style_tool.qt.batch_worker import TemplateStyleWorker
+
+    def factory(mkv_path, mkvmerge, mkvextract, out_dir):
+        kwargs = {}
+        if extract_fn is not None:
+            kwargs["extract_fn"] = extract_fn
+        if scan_fn is not None:
+            kwargs["scan_fn"] = scan_fn
+        return TemplateStyleWorker(mkv_path, mkvmerge, mkvextract, out_dir,
+                                   **kwargs)
+
+    monkeypatch.setattr("ass_style_tool.qt.mkv_tab.TemplateStyleWorker",
+                        factory)
+    tab.read_template_styles()
+    deadline = time.monotonic() + 5.0
+    while tab._template_thread is not None and time.monotonic() < deadline:
+        qapp.processEvents()
+    assert tab._template_thread is None, "read_template_styles 沒有跑完"
+
 
 def test_read_template_styles_fills_picker(qapp, monkeypatch, tmp_path):
     from ass_style_tool.style_scan import FileStyles
     tab = _tab(monkeypatch)
     tab.populate(FILES)
-    monkeypatch.setattr(
-        "ass_style_tool.qt.mkv_tab.extract_template_subtitle",
-        lambda mkv, mkvmerge, mkvextract, out_dir:
-            TemplateExtraction(path=tmp_path / "t.ass"))
-    monkeypatch.setattr(
-        "ass_style_tool.qt.mkv_tab.scan_styles",
-        lambda path: FileStyles(path, {"Default": 48.0, "CHT": 52.0}))
-    tab.read_template_styles()
+    _drive_read_template_styles(
+        tab, qapp, monkeypatch,
+        extract_fn=lambda mkv, mkvmerge, mkvextract, out_dir:
+            TemplateExtraction(path=tmp_path / "t.ass"),
+        scan_fn=lambda path:
+            FileStyles(path, {"Default": 48.0, "CHT": 52.0}))
     from PySide6.QtCore import Qt
     names = [tab.style_picker.list.item(i).data(Qt.ItemDataRole.UserRole)
              for i in range(tab.style_picker.list.count())]
@@ -513,13 +567,12 @@ def test_read_template_styles_reports_no_text_track(qapp, monkeypatch):
     test_read_template_styles_reports_extraction_failure)。"""
     tab = _tab(monkeypatch)
     tab.populate(FILES)
-    monkeypatch.setattr(
-        "ass_style_tool.qt.mkv_tab.extract_template_subtitle",
-        lambda mkv, mkvmerge, mkvextract, out_dir:
-            TemplateExtraction(path=None, error="no_track"))
     messages = []
     tab.log.connect(messages.append)
-    tab.read_template_styles()
+    _drive_read_template_styles(
+        tab, qapp, monkeypatch,
+        extract_fn=lambda mkv, mkvmerge, mkvextract, out_dir:
+            TemplateExtraction(path=None, error="no_track"))
     assert any("沒有文字字幕軌" in m for m in messages)
     # 不能同時冒出「抽取失敗」的措辭,兩種情況的訊息必須是互斥的。
     assert not any("失敗" in m for m in messages)
@@ -533,13 +586,12 @@ def test_read_template_styles_no_text_track_message_names_the_first_file_only(
     且明講其餘影片未被檢查,不能誇大成整批的結論。"""
     tab = _tab(monkeypatch)
     tab.populate(FILES)
-    monkeypatch.setattr(
-        "ass_style_tool.qt.mkv_tab.extract_template_subtitle",
-        lambda mkv, mkvmerge, mkvextract, out_dir:
-            TemplateExtraction(path=None, error="no_track"))
     messages = []
     tab.log.connect(messages.append)
-    tab.read_template_styles()
+    _drive_read_template_styles(
+        tab, qapp, monkeypatch,
+        extract_fn=lambda mkv, mkvmerge, mkvextract, out_dir:
+            TemplateExtraction(path=None, error="no_track"))
     assert any(FILES[0].name in m and "其餘影片未逐一確認" in m
               for m in messages)
 
@@ -551,13 +603,12 @@ def test_read_template_styles_reports_identify_failure(qapp, monkeypatch):
     MKVToolNix 本身出問題),也不能跟「軌道存在但抽取失敗」混為一談。"""
     tab = _tab(monkeypatch)
     tab.populate(FILES)
-    monkeypatch.setattr(
-        "ass_style_tool.qt.mkv_tab.extract_template_subtitle",
-        lambda mkv, mkvmerge, mkvextract, out_dir:
-            TemplateExtraction(path=None, error="identify_failed"))
     messages = []
     tab.log.connect(messages.append)
-    tab.read_template_styles()
+    _drive_read_template_styles(
+        tab, qapp, monkeypatch,
+        extract_fn=lambda mkv, mkvmerge, mkvextract, out_dir:
+            TemplateExtraction(path=None, error="identify_failed"))
     assert any("無法讀取" in m and "字幕軌清單" in m for m in messages)
     assert not any("沒有文字字幕軌" in m for m in messages)
     assert not any("抽取" in m and "失敗" in m for m in messages)
@@ -569,13 +620,12 @@ def test_read_template_styles_reports_extraction_failure(qapp, monkeypatch):
     根本不存在的問題(圖形字幕),而錯過真正的原因。"""
     tab = _tab(monkeypatch)
     tab.populate(FILES)
-    monkeypatch.setattr(
-        "ass_style_tool.qt.mkv_tab.extract_template_subtitle",
-        lambda mkv, mkvmerge, mkvextract, out_dir:
-            TemplateExtraction(path=None, error="extract_failed"))
     messages = []
     tab.log.connect(messages.append)
-    tab.read_template_styles()
+    _drive_read_template_styles(
+        tab, qapp, monkeypatch,
+        extract_fn=lambda mkv, mkvmerge, mkvextract, out_dir:
+            TemplateExtraction(path=None, error="extract_failed"))
     assert any("失敗" in m for m in messages)
     # 不能同時冒出「沒有文字字幕軌」的措辭,兩種情況的訊息必須是互斥的。
     assert not any("沒有文字字幕軌" in m for m in messages)
@@ -594,12 +644,9 @@ def test_read_template_styles_uses_the_first_file(qapp, monkeypatch, tmp_path):
         seen.append(mkv)
         return TemplateExtraction(path=tmp_path / "t.ass")
 
-    monkeypatch.setattr(
-        "ass_style_tool.qt.mkv_tab.extract_template_subtitle", fake_extract)
-    monkeypatch.setattr(
-        "ass_style_tool.qt.mkv_tab.scan_styles",
-        lambda path: FileStyles(path, {"Default": 48.0}))
-    tab.read_template_styles()
+    _drive_read_template_styles(
+        tab, qapp, monkeypatch, extract_fn=fake_extract,
+        scan_fn=lambda path: FileStyles(path, {"Default": 48.0}))
     assert seen == [FILES[0]]
 
 
@@ -616,12 +663,9 @@ def test_read_template_styles_passes_the_tracked_temp_dir(qapp, monkeypatch, tmp
         seen_dirs.append(out_dir)
         return TemplateExtraction(path=tmp_path / "t.ass")
 
-    monkeypatch.setattr(
-        "ass_style_tool.qt.mkv_tab.extract_template_subtitle", fake_extract)
-    monkeypatch.setattr(
-        "ass_style_tool.qt.mkv_tab.scan_styles",
-        lambda path: FileStyles(path, {"Default": 48.0}))
-    tab.read_template_styles()
+    _drive_read_template_styles(
+        tab, qapp, monkeypatch, extract_fn=fake_extract,
+        scan_fn=lambda path: FileStyles(path, {"Default": 48.0}))
     assert seen_dirs == [tab._preview_dir]
     tab.shutdown()
 
@@ -643,20 +687,98 @@ def test_read_template_styles_reports_tools_missing(qapp, monkeypatch):
     assert any("找不到 MKVToolNix" in m for m in messages)
 
 
+def test_read_template_styles_disables_button_while_running(qapp, monkeypatch):
+    """最終審查 I8:抽取+解析原本直接在這個 slot 裡同步跑,最多 360 秒的
+    子行程逾時會讓視窗整個「沒有回應」。搬到背景執行緒後,至少要讓使用者
+    看得出「正在讀取」——按鈕在 worker 還沒 emit finished 之前必須是停用
+    的,而不是靜靜地卡住看起來像沒反應。"""
+    import time
+    from ass_style_tool.qt.batch_worker import TemplateStyleWorker
+
+    release = {"go": False}
+
+    def slow_extract(mkv, mkvmerge, mkvextract, out_dir):
+        # 模擬子行程還在跑:worker 執行緒等到測試主動放行才回傳,
+        # 讓測試有機會在「執行中」這個時間點檢查按鈕狀態。
+        deadline = time.monotonic() + 5.0
+        while not release["go"] and time.monotonic() < deadline:
+            time.sleep(0.01)
+        return TemplateExtraction(path=None, error="no_track")
+
+    def factory(mkv_path, mkvmerge, mkvextract, out_dir):
+        return TemplateStyleWorker(mkv_path, mkvmerge, mkvextract, out_dir,
+                                   extract_fn=slow_extract)
+
+    tab = _tab(monkeypatch)
+    tab.populate(FILES)
+    monkeypatch.setattr("ass_style_tool.qt.mkv_tab.TemplateStyleWorker",
+                        factory)
+
+    assert tab.read_styles_button.isEnabled() is True
+    tab.read_template_styles()
+    assert tab.read_styles_button.isEnabled() is False, (
+        "worker 還在跑(release 還沒放行),按鈕應該維持停用")
+
+    release["go"] = True
+    deadline = time.monotonic() + 5.0
+    while tab._template_thread is not None and time.monotonic() < deadline:
+        qapp.processEvents()
+
+    assert tab._template_thread is None, "read_template_styles 沒有跑完"
+    assert tab.read_styles_button.isEnabled() is True
+
+
+def test_read_template_styles_ignores_click_while_already_running(
+        qapp, monkeypatch):
+    """讀取進行中再按一次按鈕不該再開一條執行緒(那會讓兩個 worker 同時
+    寫 self._template_video_name,結果錯亂),只提示使用者稍候。"""
+    import time
+    from ass_style_tool.qt.batch_worker import TemplateStyleWorker
+
+    release = {"go": False}
+
+    def slow_extract(mkv, mkvmerge, mkvextract, out_dir):
+        deadline = time.monotonic() + 5.0
+        while not release["go"] and time.monotonic() < deadline:
+            time.sleep(0.01)
+        return TemplateExtraction(path=None, error="no_track")
+
+    def factory(mkv_path, mkvmerge, mkvextract, out_dir):
+        return TemplateStyleWorker(mkv_path, mkvmerge, mkvextract, out_dir,
+                                   extract_fn=slow_extract)
+
+    tab = _tab(monkeypatch)
+    tab.populate(FILES)
+    monkeypatch.setattr("ass_style_tool.qt.mkv_tab.TemplateStyleWorker",
+                        factory)
+    messages = []
+    tab.log.connect(messages.append)
+
+    tab.read_template_styles()
+    first_thread = tab._template_thread
+    tab.read_template_styles()          # 讀取進行中,再點一次
+
+    assert tab._template_thread is first_thread    # 沒有另外開一條執行緒
+    assert any("請稍候" in m for m in messages)
+
+    release["go"] = True
+    deadline = time.monotonic() + 5.0
+    while tab._template_thread is not None and time.monotonic() < deadline:
+        qapp.processEvents()
+    assert tab._template_thread is None, "read_template_styles 沒有跑完"
+
+
 def test_read_template_styles_reports_parse_error(qapp, monkeypatch, tmp_path):
     from ass_style_tool.style_scan import FileStyles
     tab = _tab(monkeypatch)
     tab.populate(FILES)
-    monkeypatch.setattr(
-        "ass_style_tool.qt.mkv_tab.extract_template_subtitle",
-        lambda mkv, mkvmerge, mkvextract, out_dir:
-            TemplateExtraction(path=tmp_path / "t.ass"))
-    monkeypatch.setattr(
-        "ass_style_tool.qt.mkv_tab.scan_styles",
-        lambda path: FileStyles(path, error="壞檔"))
     messages = []
     tab.log.connect(messages.append)
-    tab.read_template_styles()
+    _drive_read_template_styles(
+        tab, qapp, monkeypatch,
+        extract_fn=lambda mkv, mkvmerge, mkvextract, out_dir:
+            TemplateExtraction(path=tmp_path / "t.ass"),
+        scan_fn=lambda path: FileStyles(path, error="壞檔"))
     assert any("壞檔" in m for m in messages)
 
 
