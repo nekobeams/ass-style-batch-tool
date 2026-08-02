@@ -42,6 +42,13 @@ Name: "mkvtoolnix"; Description: "MKVToolNix(MKV 字幕封裝/處理用)"; Types
 
 [Files]
 Source: "dist\ass_style_tool\*"; DestDir: "{app}"; Components: core; Flags: recursesubdirs ignoreversion
+; libmpv 的授權文字。跟 ffmpeg/MKVToolNix 不同,libmpv-2.dll 是固定內建的
+; (預覽功能一定要它,PyInstaller 直接把它收進 dist),不是可選元件,所以
+; 這兩行掛在 core 底下、沒有 Components 條件。
+; libmpv 依 GPL v2 or later 散布(這是從 DLL 自身的版本資源讀出來的,不是
+; 推測),GPL 要求隨附授權全文與取得對應原始碼的方式,後者寫在 README.txt。
+Source: "installer_payload\libmpv\COPYING.txt"; DestDir: "{app}\licenses\libmpv"; Components: core; Flags: ignoreversion
+Source: "installer_payload\libmpv\README.txt"; DestDir: "{app}\licenses\libmpv"; Components: core; Flags: ignoreversion
 #if DirExists("installer_payload\ffmpeg")
 ; 只裝 ffprobe.exe。程式全域只用 ffprobe 偵測影片解析度,從未呼叫 ffmpeg.exe
 ; (tools.py 也只提供 ffprobe_path),原本的 *.exe 會把 144 MB 的 ffmpeg.exe
