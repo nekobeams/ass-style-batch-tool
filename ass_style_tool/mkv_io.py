@@ -45,8 +45,14 @@ def parse_ass_tracks(identify_json: dict) -> List[SubtitleTrack]:
     return result
 
 
-def list_ass_tracks(mkv_path: Path, mkvmerge: Path) -> List[SubtitleTrack]:
-    """跑 mkvmerge -J 列舉 ASS 字幕軌;任何失敗回 []。"""
+def _run_mkvmerge_identify(mkv_path: Path, mkvmerge: Path) -> Optional[dict]:
+    """跑 mkvmerge -J,回傳解析後的 JSON;任何失敗(執行錯誤/逾時/非零
+    結束碼/JSON 壞掉)回 None。
+
+    list_ass_tracks 與 extract_template_subtitle 都要跑同一個 identify
+    指令,共用這個函式確保「什麼算失敗」只有一份定義——分開各自實作的話,
+    兩邊的失敗判斷遲早會慢慢分岔(這個專案已經因為同一個模式吃過幾次虧)。
+    """
     cmd = [str(mkvmerge), "-J", str(mkv_path)]
     try:
         result = subprocess.run(
@@ -54,12 +60,19 @@ def list_ass_tracks(mkv_path: Path, mkvmerge: Path) -> List[SubtitleTrack]:
             **no_window_kwargs(),
         )
     except (OSError, subprocess.TimeoutExpired):
-        return []
+        return None
     if result.returncode != 0:
-        return []
+        return None
     try:
-        data = json.loads(result.stdout)
+        return json.loads(result.stdout)
     except (ValueError, TypeError):
+        return None
+
+
+def list_ass_tracks(mkv_path: Path, mkvmerge: Path) -> List[SubtitleTrack]:
+    """跑 mkvmerge -J 列舉 ASS 字幕軌;任何失敗回 []。"""
+    data = _run_mkvmerge_identify(mkv_path, mkvmerge)
+    if data is None:
         return []
     return parse_ass_tracks(data)
 
@@ -181,9 +194,14 @@ class TemplateExtraction:
 
     path 為 None 時 error 說明原因,呼叫端要各自對應不同的提示訊息,
     不能混為一談:
-      "no_track"       -- 這個檔本來就沒有 ASS/SSA 字幕軌(可能是 PGS/
-                          VobSub 圖形字幕),換個檔也不會有。
-      "extract_failed" -- 軌道存在,但 mkvextract 抽取失敗(壞檔、磁碟
+      "identify_failed" -- 連 mkvmerge -J 都沒能成功問出這個檔案有哪些軌
+                          (逾時、檔案損毀/被占用、mkvmerge 當掉、輸出不是
+                          合法 JSON)——完全不知道這個檔案有沒有字幕軌,
+                          不能當成「沒有」來講。
+      "no_track"        -- mkvmerge -J 有正常回應,但回應裡就是沒有
+                          ASS/SSA 字幕軌(可能是 PGS/VobSub 圖形字幕),
+                          換個檔也不會有。
+      "extract_failed"  -- 軌道存在,但 mkvextract 抽取失敗(壞檔、磁碟
                           空間不足、權限問題、mkvextract 當掉…)——這批
                           影片可能有文字字幕,只是這次抽取沒成功。
     """
@@ -204,7 +222,10 @@ def extract_template_subtitle(
     (例如分頁的 _preview_dir),應該傳進來,避免範本檔留在系統暫存目錄
     裡沒人清。
     """
-    tracks = list_ass_tracks(mkv_path, mkvmerge)
+    data = _run_mkvmerge_identify(mkv_path, mkvmerge)
+    if data is None:
+        return TemplateExtraction(path=None, error="identify_failed")
+    tracks = parse_ass_tracks(data)
     if not tracks:
         return TemplateExtraction(path=None, error="no_track")
     directory = out_dir if out_dir is not None else Path(tempfile.gettempdir())

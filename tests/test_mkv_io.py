@@ -295,10 +295,24 @@ def test_list_all_tracks_oserror_returns_empty(monkeypatch):
 from ass_style_tool.mkv_io import TemplateExtraction, extract_template_subtitle
 
 
+def _identify_json(*track_ids: int) -> dict:
+    """組一份 mkvmerge -J 風格的 identify JSON,含指定 id 的 ASS 字幕軌。
+
+    extract_template_subtitle 直接呼叫 _run_mkvmerge_identify(不再經過
+    list_ass_tracks),所以這裡要餵的是原始 JSON 形狀,不是 SubtitleTrack
+    物件。"""
+    return {"tracks": [
+        {"id": tid, "type": "subtitles",
+         "properties": {"codec_id": "S_TEXT/ASS", "language": "chi",
+                        "track_name": "繁中"}}
+        for tid in track_ids
+    ]}
+
+
 def test_extract_template_subtitle_picks_first_track(monkeypatch, tmp_path):
-    tracks = [_track(2), _track(3)]
     monkeypatch.setattr(
-        "ass_style_tool.mkv_io.list_ass_tracks", lambda mkv, mkvmerge: tracks)
+        "ass_style_tool.mkv_io._run_mkvmerge_identify",
+        lambda mkv, mkvmerge: _identify_json(2, 3))
     seen = {}
 
     def fake_extract_track(mkv, track_id, out_path, mkvextract):
@@ -317,7 +331,8 @@ def test_extract_template_subtitle_picks_first_track(monkeypatch, tmp_path):
 
 def test_extract_template_subtitle_no_track_returns_no_track_reason(monkeypatch):
     monkeypatch.setattr(
-        "ass_style_tool.mkv_io.list_ass_tracks", lambda mkv, mkvmerge: [])
+        "ass_style_tool.mkv_io._run_mkvmerge_identify",
+        lambda mkv, mkvmerge: _identify_json())    # identify 成功、但 0 條軌
 
     def fail_if_called(*a, **k):
         raise AssertionError("沒有字幕軌就不該呼叫 extract_track")
@@ -329,11 +344,30 @@ def test_extract_template_subtitle_no_track_returns_no_track_reason(monkeypatch)
     assert result == TemplateExtraction(path=None, error="no_track")
 
 
+def test_extract_template_subtitle_identify_failure_returns_identify_failed_reason(
+        monkeypatch):
+    """identify 本身就失敗(逾時/壞檔/mkvmerge 當掉/輸出不是合法 JSON)時,
+    不能跟「identify 正常回應、但真的是 0 條軌」混成同一種 error——前者
+    根本不知道這個檔案有沒有字幕軌,後者才是真的確認過沒有。"""
+    monkeypatch.setattr(
+        "ass_style_tool.mkv_io._run_mkvmerge_identify",
+        lambda mkv, mkvmerge: None)                # identify 本身失敗
+
+    def fail_if_called(*a, **k):
+        raise AssertionError("identify 都失敗了就不該呼叫 extract_track")
+
+    monkeypatch.setattr(
+        "ass_style_tool.mkv_io.extract_track", fail_if_called)
+    result = extract_template_subtitle(
+        Path("show.mkv"), Path("mkvmerge"), Path("mkvextract"))
+    assert result == TemplateExtraction(path=None, error="identify_failed")
+
+
 def test_extract_template_subtitle_extraction_failure_returns_extract_failed_reason(
         monkeypatch, tmp_path):
     monkeypatch.setattr(
-        "ass_style_tool.mkv_io.list_ass_tracks",
-        lambda mkv, mkvmerge: [_track(2)])
+        "ass_style_tool.mkv_io._run_mkvmerge_identify",
+        lambda mkv, mkvmerge: _identify_json(2))
     monkeypatch.setattr(
         "ass_style_tool.mkv_io.extract_track",
         lambda mkv, track_id, out_path, mkvextract: False)
@@ -345,8 +379,8 @@ def test_extract_template_subtitle_extraction_failure_returns_extract_failed_rea
 def test_extract_template_subtitle_defaults_to_system_temp_dir(monkeypatch):
     import tempfile
     monkeypatch.setattr(
-        "ass_style_tool.mkv_io.list_ass_tracks",
-        lambda mkv, mkvmerge: [_track(2)])
+        "ass_style_tool.mkv_io._run_mkvmerge_identify",
+        lambda mkv, mkvmerge: _identify_json(2))
     seen = {}
 
     def fake_extract_track(mkv, track_id, out_path, mkvextract):

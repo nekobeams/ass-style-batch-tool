@@ -544,6 +544,25 @@ def test_read_template_styles_no_text_track_message_names_the_first_file_only(
               for m in messages)
 
 
+def test_read_template_styles_reports_identify_failure(qapp, monkeypatch):
+    """連 mkvmerge -J 都沒能成功問出這個檔案有哪些軌(逾時/損毀/被占用/
+    mkvmerge 當掉)——根本不知道有沒有字幕軌,不能講成「確認過沒有」
+    (那會把使用者導去查圖形字幕,但真正的原因可能是檔案損毀或
+    MKVToolNix 本身出問題),也不能跟「軌道存在但抽取失敗」混為一談。"""
+    tab = _tab(monkeypatch)
+    tab.populate(FILES)
+    monkeypatch.setattr(
+        "ass_style_tool.qt.mkv_tab.extract_template_subtitle",
+        lambda mkv, mkvmerge, mkvextract, out_dir:
+            TemplateExtraction(path=None, error="identify_failed"))
+    messages = []
+    tab.log.connect(messages.append)
+    tab.read_template_styles()
+    assert any("無法讀取" in m and "字幕軌清單" in m for m in messages)
+    assert not any("沒有文字字幕軌" in m for m in messages)
+    assert not any("抽取" in m and "失敗" in m for m in messages)
+
+
 def test_read_template_styles_reports_extraction_failure(qapp, monkeypatch):
     """軌道存在,但 mkvextract 抽取失敗(壞檔/磁碟空間/權限…)——訊息要
     講「抽取失敗」,不能說成「沒有文字字幕軌」,否則使用者會被導去檢查

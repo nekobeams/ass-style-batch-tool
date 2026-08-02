@@ -548,6 +548,15 @@ class MkvTab(QWidget):
             if extraction.error == "extract_failed":
                 self.log.emit(f"抽取 {files[0].name} 的字幕軌失敗,"
                               "無法讀取樣式名稱(檔案可能損壞或磁碟空間不足)")
+            elif extraction.error == "identify_failed":
+                # 連 mkvmerge -J 都沒問出這個檔案有哪些軌(逾時、檔案損毀
+                # /被占用、mkvmerge 當掉、輸出不是合法 JSON),根本不知道
+                # 有沒有字幕軌——不能跟下面「確認過就是沒有」的訊息混在
+                # 一起講,那會把使用者導去錯的排查方向(以為片源是圖形
+                # 字幕,實際上可能是檔案損毀或 MKVToolNix 出問題)。
+                self.log.emit(
+                    f"無法讀取 {files[0].name} 的字幕軌清單"
+                    "(mkvmerge 執行失敗、逾時,或檔案已損毀/被占用)")
             else:
                 # Minor bullet:只抽了 files[0] 當範本(見本函式開頭的
                 # docstring),訊息卻原本講「這批影片」,會讓人誤以為整批
