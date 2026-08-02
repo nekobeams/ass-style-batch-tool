@@ -364,14 +364,28 @@ class MuxScanWorker(QObject):
         self._subtitle_folder = Path(subtitle_folder)
         self._pair_fn = pair_fn
         self._scan_styles_fn = scan_styles_fn
+        self._cancelled = False
+
+    def cancel(self) -> None:
+        self._cancelled = True
 
     def run(self) -> None:
         _subs_in_v, videos = find_files(self._video_folder)
         subs, _videos_in_s = find_files(self._subtitle_folder)
         pairs = self._pair_fn(videos, subs)
         matched = [p for p in pairs if p.subtitle_path is not None]
-        file_styles = {p.subtitle_path: self._scan_styles_fn(p.subtitle_path)
-                       for p in matched}
+        # 逐檔解析樣式:跟 _TrackListWorker 一樣,檔案與檔案之間放一個
+        # 取消檢查點(正在跑的那一次 scan_styles 會先跑完,單一檔案的
+        # 解析是毫秒級,不值得也沒辦法中斷)。沒有這個檢查點的話,關掉
+        # 視窗時 mux_tab.shutdown() 的 _scan_thread.wait() 會一路等到整季
+        # 的字幕都解析完為止。已解析的部分照常回報,不丟棄——配對結果
+        # (pairs)本來就完整,樣式只是附帶資訊,少幾筆不影響正確性。
+        file_styles = {}
+        for pair in matched:
+            if self._cancelled:
+                break
+            file_styles[pair.subtitle_path] = self._scan_styles_fn(
+                pair.subtitle_path)
         self.finished.emit(MuxScanResult(pairs=pairs, file_styles=file_styles))
 
 

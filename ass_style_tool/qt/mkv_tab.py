@@ -229,7 +229,8 @@ class MkvTab(QWidget):
         if (not folder or not Path(folder).is_dir()
                 or folder == self._scanned_folder):
             return
-        if self._scan_thread is not None or self._thread is not None:
+        if (self._scan_thread is not None or self._thread is not None
+                or self._template_thread is not None):
             return
         self._on_scan()
 
@@ -261,6 +262,13 @@ class MkvTab(QWidget):
     def _on_scan(self) -> None:
         if self._thread is not None:
             self.log.emit("批次處理進行中,請稍後再掃描")
+            return
+        if self._template_thread is not None:
+            # 讀取樣式名稱搬到背景執行緒之後(最終審查 I8),GUI 不再被
+            # 卡住,使用者因此有機會在讀取途中按重新掃描/換資料夾。這時
+            # 若放行,_on_template_styles_done() 會拿一個「已經不在目前
+            # 清單裡的影片」抽到的樣式去填 style_picker(最終審查 Minor)。
+            self.log.emit("正在讀取樣式名稱,請稍候再掃描")
             return
         folder = self.folder_edit.text().strip()
         if not folder or not Path(folder).is_dir():
@@ -724,6 +732,12 @@ class MkvTab(QWidget):
         # 主視窗關閉後 quitOnLastWindowClosed 因為這個還可見的對話框而永遠
         # 不會成立,process 會卡著不退出。
         self._finish_scan()
+        # _closing 讓 _on_template_styles_done() 提早 return,所以那條路徑
+        # 的收尾不會執行——這裡補上,跟 _finish_scan() 之於掃描 worker 是
+        # 同一個道理:上面的迴圈已經 quit()+wait() 過了,只差把參照放掉,
+        # 不要留著一個已收掉的 QThread 與它的 worker(最終審查 Minor)。
+        self._template_thread = None
+        self._template_worker = None
         import shutil
         shutil.rmtree(self._preview_dir, ignore_errors=True)
 

@@ -494,15 +494,19 @@ def test_shutdown_waits_for_template_thread(qapp, monkeypatch):
     中途檢查點可以插),shutdown() 只需要負責等它,不必也不能取消它。"""
     from unittest.mock import Mock
     tab = _tab(monkeypatch)
-    tab._template_thread = Mock()
-    tab._template_worker = Mock()
+    thread, worker = Mock(), Mock()
+    tab._template_thread = thread
+    tab._template_worker = worker
 
     tab.shutdown()
 
-    tab._template_thread.quit.assert_called_once()
-    tab._template_thread.wait.assert_called_once()
+    # 先留住 Mock 參照再呼叫:shutdown() 收尾時會把這兩個欄位放掉
+    # (見 test_shutdown_clears_template_references),不能等它跑完才從
+    # tab 上取。
+    thread.quit.assert_called_once()
+    thread.wait.assert_called_once()
     # 沒有 cancel() 可呼叫,shutdown() 也真的沒去呼叫它
-    tab._template_worker.cancel.assert_not_called()
+    worker.cancel.assert_not_called()
 
 
 def test_shutdown_without_template_thread_does_not_raise(qapp, monkeypatch):
@@ -1077,3 +1081,53 @@ def test_rescan_restores_blank_result_column(qapp, monkeypatch):
     assert tab.file_table.item(0, 2).text() != ""
     tab.populate(FILES)      # 重新列出 == 重新掃描的等效路徑
     assert tab.file_table.item(0, 2).text() == ""
+
+
+# ---------- 最終審查 Minor:讀取樣式名稱與掃描的互斥、shutdown 收尾 ----------
+
+def test_scan_blocked_while_template_read_in_flight(qapp, monkeypatch):
+    """讀取樣式名稱搬到背景執行緒之後,GUI 不再被卡住,使用者因此有機會
+    在讀取途中按重新掃描/換資料夾。若放行,_on_template_styles_done()
+    會拿一個已經不在目前清單裡的影片抽到的樣式去填 style_picker。"""
+    from unittest.mock import Mock
+    tab = _tab(monkeypatch)
+    tab.populate(FILES)
+    tab._template_thread = Mock()
+    messages = []
+    tab.log.connect(messages.append)
+
+    tab._on_scan()
+
+    assert any("正在讀取樣式名稱" in m for m in messages)
+    assert tab._scan_thread is None          # 沒有真的開掃描
+
+
+def test_auto_scan_skipped_while_template_read_in_flight(qapp, monkeypatch,
+                                                         tmp_path):
+    """_auto_scan 的忙碌判斷也要含 _template_thread,跟 _on_scan 一致。"""
+    from unittest.mock import Mock
+    tab = _tab(monkeypatch)
+    calls = []
+    monkeypatch.setattr(tab, "_on_scan", lambda: calls.append(1))
+    tab.folder_edit.setText(str(tmp_path))
+    tab._template_thread = Mock()
+
+    tab._auto_scan()
+
+    assert calls == []
+
+
+def test_shutdown_clears_template_references(qapp, monkeypatch):
+    """_closing 會讓 _on_template_styles_done() 提早 return,那條路徑的
+    收尾不會執行——shutdown() 要自己把參照放掉,不要留著一個已經 quit()
+    +wait() 過的 QThread 與它的 worker(跟 _finish_scan() 對掃描 worker
+    做的事同一個道理)。"""
+    from unittest.mock import Mock
+    tab = _tab(monkeypatch)
+    tab._template_thread = Mock()
+    tab._template_worker = Mock()
+
+    tab.shutdown()
+
+    assert tab._template_thread is None
+    assert tab._template_worker is None

@@ -247,3 +247,37 @@ def test_track_scan_worker_empty_list_finishes_empty(qapp):
     assert got["finished"] == {}
     # (0, 0) 仍會先發出(Fix 6:進度在迴圈前無條件送一次),即使總數是 0
     assert got["progress"] == [(0, 0)]
+
+
+def test_scan_worker_cancel_stops_style_scanning(qapp, tmp_path):
+    """最終審查 Minor:MuxScanWorker 的逐檔樣式解析迴圈原本沒有取消
+    檢查點(不像 _TrackListWorker 同樣形狀的迴圈有)——關掉視窗時
+    mux_tab.shutdown() 的 _scan_thread.wait() 會一路等到整季字幕都解析完。
+    加了檢查點之後,取消要真的提早停,而且已解析的部分照常回報。"""
+    from ass_style_tool.qt.batch_worker import MuxScanWorker
+    from ass_style_tool.style_scan import FileStyles
+    vdir = tmp_path / "video"
+    sdir = tmp_path / "sub"
+    vdir.mkdir()
+    sdir.mkdir()
+    for i in (1, 2, 3, 4):
+        (vdir / f"Show [{i:02d}].mkv").write_bytes(b"")
+        (sdir / f"Show - {i:02d}.ass").write_bytes(b"")
+
+    worker = MuxScanWorker(vdir, sdir)
+    calls = []
+
+    def fake_scan_styles(path):
+        calls.append(path)
+        if len(calls) == 2:
+            worker.cancel()        # 第 2 個檔案解析完就取消
+        return FileStyles(path=path, styles={"CHT": 40.0})
+
+    worker._scan_styles_fn = fake_scan_styles
+    got = {}
+    worker.finished.connect(lambda result: got.update(result=result))
+    worker.run()
+
+    assert len(calls) == 2                          # 真的提早停
+    assert len(got["result"].file_styles) == 2      # 已解析的照常回報
+    assert len(got["result"].pairs) == 4            # 配對結果本來就完整

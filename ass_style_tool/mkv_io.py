@@ -114,18 +114,8 @@ def parse_all_tracks(identify_json: dict) -> List[MediaTrack]:
 
 def list_all_tracks(mkv_path: Path, mkvmerge: Path) -> List[MediaTrack]:
     """跑 mkvmerge -J 列出所有軌;任何失敗回 []。"""
-    cmd = [str(mkvmerge), "-J", str(mkv_path)]
-    try:
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=60, encoding="utf-8",
-            **no_window_kwargs())
-    except (OSError, subprocess.TimeoutExpired):
-        return []
-    if result.returncode != 0:
-        return []
-    try:
-        data = json.loads(result.stdout)
-    except (ValueError, TypeError):
+    data = _run_mkvmerge_identify(mkv_path, mkvmerge)
+    if data is None:
         return []
     return parse_all_tracks(data)
 
