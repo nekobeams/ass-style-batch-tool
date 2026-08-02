@@ -1139,3 +1139,69 @@ def test_rescan_restores_plan_column(qapp, monkeypatch):
     tab.populate(PAIRS)      # 重新配對 == 重新掃描的等效路徑
     text = tab.table.item(0, 5).text()
     assert "Default 48 →" in text
+
+
+# ---------- F2:執行中不得覆寫共用的「預計 / 結果」欄 ----------
+
+def _mid_run_table(monkeypatch):
+    """建一個「批次執行中」的表格:一列已有結果、一列仍是「處理中…」。"""
+    from unittest.mock import Mock
+    tab = _tab(monkeypatch)
+    tab.apply_mode_radio.setChecked(True)
+    tab.populate(PAIRS)
+    tab.mark_rows_pending()
+    tab._set_row_result("a [01].mkv", "ok")
+    resulted = tab.table.item(0, 5).text()
+    assert tab.table.item(2, 5).text() == "處理中…"
+    tab._thread = Mock()          # 模擬批次執行緒仍在跑
+    return tab, resulted
+
+
+def test_mode_switch_during_run_does_not_repaint_plan_column(qapp, monkeypatch):
+    """執行中切換前處理模式會走 _on_preprocess_mode_changed →
+    _recompute_plan_column,整欄重畫會把已定案的結果換成新模式的預測
+    文字,PENDING_TEXT 標記也會被蓋掉,_reconcile_stuck_rows() 就再也
+    找不到那些列(取消後停在假的預告文字上,跟從未開始處理分不出來)。"""
+    tab, resulted = _mid_run_table(monkeypatch)
+
+    tab.scale_mode_radio.setChecked(True)      # 執行中途切模式
+
+    assert tab.table.item(0, 5).text() == resulted
+    assert tab.table.item(2, 5).text() == "處理中…"
+
+
+def test_styles_changed_during_run_does_not_repaint_plan_column(
+        qapp, monkeypatch):
+    """同一條規則的另一個入口:執行中改目標樣式勾選。"""
+    tab, resulted = _mid_run_table(monkeypatch)
+
+    tab.style_picker.set_available(["Default", "CHT"])
+    tab.style_picker.set_selected(["CHT"])     # 執行中途改勾選
+
+    assert tab.table.item(0, 5).text() == resulted
+    assert tab.table.item(2, 5).text() == "處理中…"
+
+
+def test_set_row_subtitle_during_run_does_not_repaint_plan_column(
+        qapp, monkeypatch):
+    """第三個入口:set_row_subtitle() 直接寫格子,沒有經過
+    _recompute_plan_column(),所以要各自擋一次。"""
+    tab, resulted = _mid_run_table(monkeypatch)
+
+    tab.set_row_subtitle(0, Path("manual.ass"))   # 執行中途手動改配對
+
+    assert tab.table.item(0, 5).text() == resulted
+
+
+def test_plan_column_still_repaints_when_not_running(qapp, monkeypatch):
+    """防護不能過寬:沒有在跑批次時,切模式仍然必須重算整欄,否則畫面會
+    留著前一個模式的預告(Task 10 當初修的就是這個)。"""
+    tab = _tab(monkeypatch)
+    tab.apply_mode_radio.setChecked(True)
+    tab.populate(PAIRS)
+    before = tab.table.item(0, 5).text()
+
+    tab.direct_mode_radio.setChecked(True)     # 沒有在跑,應該要重算
+
+    assert tab.table.item(0, 5).text() != before
+    assert "直接封裝" in tab.table.item(0, 5).text()

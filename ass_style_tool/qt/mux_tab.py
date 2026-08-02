@@ -456,7 +456,13 @@ class MuxTab(QWidget):
         # 手動指定的字幕檔通常沒掃過樣式(不在 self._file_styles 裡),
         # _plan_text_for() 對 file_styles=None 會自然回傳空字串——比留著
         # 前一個字幕檔算出來的舊「預計」文字被誤讀成這次的預告好。
-        self.table.item(row, 5).setText(self._plan_text_for(new_pair))
+        # 但執行中不能改這一欄(最終審查 F2,與 _recompute_plan_column()
+        # 同一條規則):此時格子裡是「處理中…」或已定案的結果,覆寫掉會
+        # 讓 _reconcile_stuck_rows() 再也認不出這一列,取消後停在一段假的
+        # 預告文字上。這裡是獨立入口(沒有經過 _recompute_plan_column()),
+        # 所以要各自擋一次。
+        if self._thread is None:
+            self.table.item(row, 5).setText(self._plan_text_for(new_pair))
         check = self.table.item(row, 0)
         check.setCheckState(
             Qt.CheckState.Checked if new_pair.status == "matched"
@@ -547,7 +553,19 @@ class MuxTab(QWidget):
         這個——不然畫面會留著前一個模式(或前一次勾選)算出來的預告,
         被誤讀成「目前這個模式/勾選會這樣改」(跟字幕檔分頁同一個 Task 6
         review 發現、延到 Task 10 修的缺陷)。
+
+        但批次執行中不能重算(最終審查 F2):這一欄是「預計 / 結果」共用
+        的,執行開始後裡面裝的是 mark_rows_pending() 寫的「處理中…」與
+        _set_row_result() 寫進去的真正結果。模式 radio 與樣式勾選在執行
+        期間都沒有被停用,這時整欄重畫會把已定案的結果換成新模式的預測
+        文字,而且 PENDING_TEXT 標記一被蓋掉,_reconcile_stuck_rows() 就
+        再也找不到那些列——取消時它們會停在一段假的預測文字上,跟「從未
+        開始處理」完全分不出來。字幕檔分頁的 _on_styles_changed()/
+        _on_mode_changed() 是同一條規則,只是那邊擋在呼叫端;這裡擋在
+        這個函式裡,連 set_row_subtitle() 那條入口也一併涵蓋。
         """
+        if self._thread is not None:
+            return
         for r, pair in enumerate(self._pairs):
             item = self.table.item(r, 5)
             if item is not None:

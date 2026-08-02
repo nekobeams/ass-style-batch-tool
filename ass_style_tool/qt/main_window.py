@@ -1,6 +1,7 @@
 """v2 Qt 主視窗外殼:分頁籤、主題切換、log、QSettings 持久化。"""
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import List, Optional
 
 from PySide6.QtCore import QSettings, Qt
@@ -95,7 +96,7 @@ class MainWindow(QMainWindow):
         self.mux_tab.log.connect(self.append_log)
         self.tabs.addTab(self.mux_tab, "封裝")
 
-        self.preview_panel = PreviewPanel(self.style_editor.current_profile)
+        self.preview_panel = PreviewPanel(self._preview_profile)
         self.preview_panel.readout_changed.connect(
             self.style_editor.readout_view.update_from)
         self._preview_split = QSplitter()
@@ -204,6 +205,30 @@ class MainWindow(QMainWindow):
         """
         tab = self._last_work_tab
         return tab.style_picker.selected() if tab is not None else None
+
+    def _preview_profile(self):
+        """「樣式與預覽」分頁要用的 profile(注入給 PreviewPanel)。
+
+        樣式的各項數值來自樣式編輯器,但**目標樣式名稱**要跟著使用者在
+        工作分頁的勾選走,不能用 StyleEditor 自己那份隱藏值——那份值只在
+        載入 profile 時更新,使用者在側欄改勾選它完全不知道。
+
+        沒接起來的話,預覽的換算對照會拿一組跟實際執行不同的目標樣式去
+        找「原始值」,講出跟真正會發生的事互相矛盾的話,例如明明工作分頁
+        勾的是 Sign(會被改到),預覽卻說「此檔案沒有目標樣式『Default』
+        → 套用時將略過,不會改到這個檔案」(最終審查 F1)。
+
+        層疊方式與三個工作分頁的 effective_profile() 完全一致:數值照
+        編輯器,target_style_names 換成分頁的勾選;判斷不出作用中分頁
+        (剛啟動、還沒切過分頁)或該分頁一個都沒勾時,保留編輯器原值,
+        不要用空清單蓋掉——空的 target_style_names 會讓
+        profile_from_values() 直接拋錯。
+        """
+        profile = self.style_editor.current_profile()
+        names = self._active_tab_selected_styles()
+        if names:
+            return replace(profile, target_style_names=names)
+        return profile
 
     def _apply_target_style_names_to_active_tab(self, names: list) -> None:
         """StyleEditor 載入 profile 後(profile_loaded 訊號),把它的

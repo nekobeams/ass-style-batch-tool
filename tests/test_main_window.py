@@ -538,3 +538,42 @@ def test_loading_profile_with_default_placeholder_still_applies(
         assert window.subtitle_tab.style_picker.selected() == ["Default"]
     finally:
         window.deleteLater()
+
+
+# ---------- F1:預覽分頁的目標樣式要跟著工作分頁的勾選 ----------
+
+def test_preview_profile_uses_active_tab_selection(qapp, monkeypatch, tmp_path):
+    """F1(最終審查):PreviewPanel 原本直接吃 style_editor.current_profile,
+    而那份 target_style_names 只在載入 profile 時才更新——使用者在工作分頁
+    側欄改勾選,預覽完全不知道。結果是換算對照會拿一組跟實際執行不同的
+    目標樣式去找「原始值」,講出跟真正會發生的事矛盾的話(勾的是 Sign
+    會被改到,預覽卻說「沒有目標樣式 Default → 將略過」)。"""
+    window = _window(monkeypatch, tmp_path)
+    try:
+        window.subtitle_tab.style_picker.set_available(["Default", "Sign"])
+        window.subtitle_tab.style_picker.set_selected(["Sign"])
+        assert window._last_work_tab is window.subtitle_tab
+
+        assert window._preview_profile().target_style_names == ["Sign"]
+    finally:
+        window.deleteLater()
+
+
+def test_preview_profile_keeps_editor_value_when_nothing_selected(
+        qapp, monkeypatch, tmp_path):
+    """一個都沒勾時要保留編輯器原本的值,不能用空清單蓋掉——空的
+    target_style_names 會讓 profile_from_values() 直接拋錯,而 PreviewPanel
+    的 _update_readout() 只接 ValueError 然後保留上一次讀出,使用者會看到
+    畫面靜止不動卻不知道為什麼。"""
+    window = _window(monkeypatch, tmp_path)
+    try:
+        window.subtitle_tab.style_picker.set_available(["Default"])
+        window.subtitle_tab.style_picker.set_selected([])
+        assert window._last_work_tab is window.subtitle_tab
+
+        profile = window._preview_profile()
+        assert profile.target_style_names            # 不是空的
+        assert profile.target_style_names == (
+            window.style_editor.current_profile().target_style_names)
+    finally:
+        window.deleteLater()
