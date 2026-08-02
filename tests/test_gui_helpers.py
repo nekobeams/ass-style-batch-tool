@@ -130,9 +130,33 @@ def test_apply_plan_text_scales_by_play_res():
 
 
 def test_apply_plan_text_marks_missing_style():
+    """精確比對整串:子字串斷言(「找不到」in text)抓不到 ⊘ 標記被拿掉、
+    多個樣式名的「、」連接壞掉、或前後間距跑掉——而這一格的文字就是使用者
+    用來判斷「這個檔會不會被改」的唯一依據(最終審查 Minor)。"""
     fs = FileStyles(Path("a.ass"), {"CHS": 48.0}, (1920, 1080))
     text = apply_plan_text(fs, _profile(), ["Default"])
-    assert "找不到" in text and "Default" in text
+    assert text == "⊘ 找不到 Default"
+
+
+def test_apply_plan_text_missing_style_joins_multiple_names():
+    """多個目標樣式全都找不到時,用「、」連接(不是 Python 的 list repr,
+    也不是逗號)——這條路徑先前完全沒有測試覆蓋。"""
+    fs = FileStyles(Path("a.ass"), {"CHS": 48.0}, (1920, 1080))
+    text = apply_plan_text(fs, _profile(), ["Default", "Sign"])
+    assert text == "⊘ 找不到 Default、Sign"
+
+
+def test_apply_plan_text_joins_multiple_found_styles():
+    """成功路徑的多樣式連接也同樣沒被測過。"""
+    fs = FileStyles(Path("a.ass"), {"Default": 48.0, "Sign": 24.0},
+                    (1920, 1080))
+    text = apply_plan_text(fs, _profile(fontsize="72"), ["Default", "Sign"])
+    assert text == "Default 48 → 72、Sign 24 → 72"
+
+
+def test_apply_plan_text_with_no_file_styles():
+    """file_styles 為 None(該檔還沒掃到樣式)回空字串,不是拋例外。"""
+    assert apply_plan_text(None, _profile(), ["Default"]) == ""
 
 
 def test_apply_plan_text_marks_unreadable_file():
@@ -159,9 +183,23 @@ def test_scale_plan_text_derives_factor_from_target_size():
 
 
 def test_scale_plan_text_marks_missing_base_style():
+    """同上,精確比對整串而不是子字串。"""
     fs = FileStyles(Path("a.ass"), {"CHS": 40.0}, (1920, 1080))
     text = scale_plan_text(fs, ScaleOptions(factor=1.5, base_style="Default"))
-    assert "找不到基準樣式" in text
+    assert text == "⊘ 找不到基準樣式 Default"
+
+
+def test_scale_plan_text_with_no_file_styles():
+    """file_styles 為 None 回空字串,不是拋例外(先前未覆蓋)。"""
+    assert scale_plan_text(
+        None, ScaleOptions(factor=1.5, base_style="Default")) == ""
+
+
+def test_scale_plan_text_without_factor_or_target_size():
+    """factor 與 target_size 都沒給時回空字串——這條分支先前完全沒被
+    測過,而 ScaleOptions 允許兩者皆 None。"""
+    fs = FileStyles(Path("a.ass"), {"Default": 40.0}, (1920, 1080))
+    assert scale_plan_text(fs, ScaleOptions(base_style="Default")) == ""
 
 
 def test_scale_plan_text_marks_zero_base_size_instead_of_blank():
@@ -204,8 +242,7 @@ def test_apply_plan_text_srt_source_with_convert_all_disabled():
     fs = FileStyles(Path("a.srt"), {"CHS": 48.0}, (1920, 1080))
     text = apply_plan_text(fs, _profile(), ["Default"],
                            convert_all_if_srt=False)
-    assert "全部樣式" not in text
-    assert "找不到" in text and "Default" in text
+    assert text == "⊘ 找不到 Default"
 
 
 # ---------- C2:封裝分頁的「找不到」不是「略過」,是「原樣封裝」 ----------

@@ -1,5 +1,5 @@
-"""tests for batch_worker module."""
-import pytest
+"""batch_worker 的 worker 類別測試(不啟動真的 QThread,直接呼叫 run())。"""
+from __future__ import annotations
 
 
 # ---------- ScanWorker 進度與取消 ----------
