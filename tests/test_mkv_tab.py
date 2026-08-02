@@ -1131,3 +1131,202 @@ def test_shutdown_clears_template_references(qapp, monkeypatch):
 
     assert tab._template_thread is None
     assert tab._template_worker is None
+
+
+# ---------- 送進預覽:抽取搬到背景執行緒(最終審查,I8 同類缺陷) ----------
+
+def _drive_send_preview(tab, qapp, monkeypatch, *, extract_fn=None):
+    """呼叫 tab._on_send_preview() 並跑完真正的 QThread + PreviewExtractWorker。
+
+    跟 _drive_read_template_styles() 同一個理由:extract_fn 是 worker 的
+    預設參數,在模組載入時就綁定死了,test 時 monkeypatch 模組層級的
+    函式名稱不會有任何效果,要用同一套「monkeypatch 掉分頁拿來建構
+    worker 的那個名字,factory 包一層注入假函式」的手法。"""
+    import time
+    from ass_style_tool.qt.batch_worker import PreviewExtractWorker
+
+    def factory(mkv_path, track_id, out_path, mkvextract):
+        kwargs = {}
+        if extract_fn is not None:
+            kwargs["extract_fn"] = extract_fn
+        return PreviewExtractWorker(mkv_path, track_id, out_path, mkvextract,
+                                    **kwargs)
+
+    monkeypatch.setattr("ass_style_tool.qt.mkv_tab.PreviewExtractWorker",
+                        factory)
+    tab._on_send_preview()
+    deadline = time.monotonic() + 5.0
+    while tab._preview_extract_thread is not None and time.monotonic() < deadline:
+        qapp.processEvents()
+    assert tab._preview_extract_thread is None, "_on_send_preview 沒有跑完"
+
+
+def test_send_preview_requires_a_selected_file(qapp, monkeypatch):
+    tab = _tab(monkeypatch)
+    messages = []
+    tab.log.connect(messages.append)
+    tab._on_send_preview()
+    assert any("請先選取一個 MKV 檔" in m for m in messages)
+    assert tab._preview_extract_thread is None
+
+
+def test_send_preview_requires_scanned_tracks(qapp, monkeypatch):
+    tab = _tab(monkeypatch)
+    tab.populate(FILES)
+    tab.file_table.setCurrentCell(0, 0)
+    messages = []
+    tab.log.connect(messages.append)
+    tab._on_send_preview()
+    assert any("還沒掃過字幕軌" in m for m in messages)
+    assert tab._preview_extract_thread is None
+
+
+def test_send_preview_requires_matching_tracks(qapp, monkeypatch):
+    tab = _tab(monkeypatch)
+    tab.populate(FILES)
+    tab._files_tracks = dict(TRACKS)
+    tab._track_keys = {("jpn", "")}      # 三個檔都沒有這個鍵
+    tab.file_table.setCurrentCell(0, 0)
+    messages = []
+    tab.log.connect(messages.append)
+    tab._on_send_preview()
+    assert any("沒有符合目前選擇的字幕軌" in m for m in messages)
+    assert tab._preview_extract_thread is None
+
+
+def test_send_preview_emits_signal_on_success(qapp, monkeypatch):
+    tab = _tab(monkeypatch)
+    tab.populate(FILES)
+    tab._files_tracks = dict(TRACKS)
+    tab.file_table.setCurrentCell(0, 0)     # e1.mkv,軌 2/3 都符合(無規則)
+
+    seen = []
+    tab.preview_requested.connect(lambda temp, path: seen.append((temp, path)))
+
+    _drive_send_preview(
+        tab, qapp, monkeypatch,
+        extract_fn=lambda mkv, track_id, out_path, mkvextract: True)
+
+    assert len(seen) == 1
+    temp, path = seen[0]
+    assert path == Path("e1.mkv")
+    assert temp == tab._preview_dir / "e1_track2.ass"   # 永遠選第一條
+    assert tab.preview_button.isEnabled() is True
+
+
+def test_send_preview_reports_extraction_failure(qapp, monkeypatch):
+    tab = _tab(monkeypatch)
+    tab.populate(FILES)
+    tab._files_tracks = dict(TRACKS)
+    tab.file_table.setCurrentCell(0, 0)
+    messages = []
+    tab.log.connect(messages.append)
+    seen = []
+    tab.preview_requested.connect(lambda temp, path: seen.append(1))
+
+    _drive_send_preview(
+        tab, qapp, monkeypatch,
+        extract_fn=lambda mkv, track_id, out_path, mkvextract: False)
+
+    assert any("抽取軌 2 失敗" in m for m in messages)
+    assert seen == []                          # 失敗不能送進預覽
+    assert tab.preview_button.isEnabled() is True
+
+
+def test_send_preview_reports_worker_exception(qapp, monkeypatch):
+    """最終審查已在 TemplateStyleWorker 上付過的學費:worker 裡未預期的
+    例外若沒被接住,finished 永遠不會發出,按鈕就永久卡死——這裡直接在
+    設計階段就補上同一道防護,不是等 review 抓到才修。"""
+    tab = _tab(monkeypatch)
+    tab.populate(FILES)
+    tab._files_tracks = dict(TRACKS)
+    tab.file_table.setCurrentCell(0, 0)
+    messages = []
+    tab.log.connect(messages.append)
+
+    def boom(mkv, track_id, out_path, mkvextract):
+        raise OSError("磁碟已滿")
+
+    _drive_send_preview(tab, qapp, monkeypatch, extract_fn=boom)
+
+    assert any("抽取軌 2 失敗" in m and "磁碟已滿" in m for m in messages)
+    assert tab.preview_button.isEnabled() is True
+
+
+def test_send_preview_ignores_click_while_already_running(qapp, monkeypatch):
+    import time
+    from ass_style_tool.qt.batch_worker import PreviewExtractWorker
+
+    release = {"go": False}
+
+    def slow_extract(mkv, track_id, out_path, mkvextract):
+        deadline = time.monotonic() + 5.0
+        while not release["go"] and time.monotonic() < deadline:
+            time.sleep(0.01)
+        return True
+
+    def factory(mkv_path, track_id, out_path, mkvextract):
+        return PreviewExtractWorker(mkv_path, track_id, out_path, mkvextract,
+                                    extract_fn=slow_extract)
+
+    tab = _tab(monkeypatch)
+    tab.populate(FILES)
+    tab._files_tracks = dict(TRACKS)
+    tab.file_table.setCurrentCell(0, 0)
+    monkeypatch.setattr("ass_style_tool.qt.mkv_tab.PreviewExtractWorker",
+                        factory)
+    messages = []
+    tab.log.connect(messages.append)
+
+    tab._on_send_preview()
+    first_thread = tab._preview_extract_thread
+    assert tab.preview_button.isEnabled() is False
+    tab._on_send_preview()          # 抽取進行中,再點一次
+
+    assert tab._preview_extract_thread is first_thread
+    assert any("請稍候" in m for m in messages)
+
+    release["go"] = True
+    deadline = time.monotonic() + 5.0
+    while tab._preview_extract_thread is not None and time.monotonic() < deadline:
+        qapp.processEvents()
+    assert tab._preview_extract_thread is None
+
+
+def test_preview_extract_done_ignored_after_closing(qapp, monkeypatch):
+    from unittest.mock import Mock
+    from ass_style_tool.qt.batch_worker import PreviewExtractResult
+    tab = _tab(monkeypatch)
+    tab._preview_extract_thread = Mock()
+    tab._preview_extract_worker = Mock()
+    tab.preview_button.setEnabled(False)
+    tab._closing = True
+
+    messages = []
+    tab.log.connect(messages.append)
+    seen = []
+    tab.preview_requested.connect(lambda temp, path: seen.append(1))
+
+    tab._on_preview_extract_done(PreviewExtractResult(
+        mkv_path=Path("e1.mkv"), track_id=2, out_path=Path("t.ass"),
+        success=True))
+
+    assert messages == []
+    assert seen == []
+    assert tab.preview_button.isEnabled() is False
+    assert tab._preview_extract_thread is not None
+
+
+def test_shutdown_waits_for_preview_extract_thread(qapp, monkeypatch):
+    from unittest.mock import Mock
+    tab = _tab(monkeypatch)
+    thread, worker = Mock(), Mock()
+    tab._preview_extract_thread = thread
+    tab._preview_extract_worker = worker
+
+    tab.shutdown()
+
+    thread.quit.assert_called_once()
+    thread.wait.assert_called_once()
+    assert tab._preview_extract_thread is None
+    assert tab._preview_extract_worker is None

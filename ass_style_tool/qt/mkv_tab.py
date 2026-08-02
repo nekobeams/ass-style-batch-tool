@@ -20,12 +20,13 @@ from PySide6.QtWidgets import (QAbstractItemView, QButtonGroup, QFileDialog,
                                QWidget)
 
 from ..mkv_batch import MkvTools, track_key
-from ..mkv_io import SubtitleTrack, extract_track
+from ..mkv_io import SubtitleTrack
 from ..profile import Profile
 from ..scale_engine import ScaleError
 from ..tools import mkvextract_path, mkvmerge_path
 from ..track_select import TrackKey, all_keys, resolve_tracks
-from .batch_worker import MkvScanWorker, MkvWorker, TemplateStyleWorker
+from .batch_worker import (MkvScanWorker, MkvWorker, PreviewExtractWorker,
+                          TemplateStyleWorker)
 from .gui_helpers import CANCELLED_TEXT, PENDING_TEXT, RESULT_ICONS
 from .layout_helpers import (action_row, group, main_splitter, page_layout,
                              settings_sidebar)
@@ -55,6 +56,8 @@ class MkvTab(QWidget):
         self._template_thread: Optional[QThread] = None
         self._template_worker = None
         self._template_video_name: Optional[str] = None
+        self._preview_extract_thread: Optional[QThread] = None
+        self._preview_extract_worker = None
         self._scan_dialog: Optional[ScanProgressDialog] = None
         self._scanned_folder: Optional[str] = None
         self._auto_scanned = False
@@ -518,6 +521,16 @@ class MkvTab(QWidget):
         return None
 
     def _on_send_preview(self) -> None:
+        """抽一條字幕軌到暫存檔,送進「樣式與預覽」分頁。
+
+        抽取(extract_track)丟到背景執行緒跑,不在這個 slot 裡直接
+        呼叫——底下是單次 subprocess.run,最多 300 秒逾時,擺在 GUI
+        執行緒上會讓整個視窗「沒有回應」,跟 read_template_styles() 原本
+        的 I8 是同一類缺陷、同一個檔案裡的另一處(最終審查)。
+        """
+        if self._preview_extract_thread is not None:
+            self.log.emit("正在抽取預覽字幕,請稍候")
+            return
         path = self._current_file()
         if path is None:
             self.log.emit("請先選取一個 MKV 檔")
@@ -531,11 +544,34 @@ class MkvTab(QWidget):
             return
         track = picked[0]
         temp = self._preview_dir / f"{path.stem}_track{track.track_id}.ass"
-        if not extract_track(path, track.track_id, temp,
-                             self._tools.mkvextract):
-            self.log.emit(f"抽取軌 {track.track_id} 失敗,無法預覽")
+        self.preview_button.setEnabled(False)
+        self._preview_extract_thread = QThread()
+        self._preview_extract_worker = PreviewExtractWorker(
+            path, track.track_id, temp, self._tools.mkvextract)
+        self._preview_extract_worker.moveToThread(self._preview_extract_thread)
+        self._preview_extract_thread.started.connect(
+            self._preview_extract_worker.run)
+        self._preview_extract_worker.finished.connect(
+            self._on_preview_extract_done)
+        self._preview_extract_thread.start()
+
+    def _on_preview_extract_done(self, result) -> None:
+        if self._closing:
+            # 跟 _on_template_styles_done() 同一個理由:shutdown() 對這條
+            # 執行緒呼叫 wait() 之後,worker 排隊的 finished 訊號會在下一輪
+            # 事件迴圈才送達,這時分頁可能已經在銷毀路上。
             return
-        self.preview_requested.emit(temp, path)
+        if self._preview_extract_thread is not None:
+            self._preview_extract_thread.quit()
+            self._preview_extract_thread.wait()
+        self._preview_extract_thread = None
+        self._preview_extract_worker = None
+        self.preview_button.setEnabled(True)
+        if not result.success:
+            reason = f"(原因:{result.error})" if result.error else ""
+            self.log.emit(f"抽取軌 {result.track_id} 失敗,無法預覽{reason}")
+            return
+        self.preview_requested.emit(result.out_path, result.mkv_path)
 
     # ---------- 範本檔樣式讀取 ----------
     def read_template_styles(self) -> None:
@@ -723,7 +759,8 @@ class MkvTab(QWidget):
         for worker in (self._worker, self._scan_worker):
             if worker is not None:
                 worker.cancel()
-        for thread in (self._thread, self._scan_thread, self._template_thread):
+        for thread in (self._thread, self._scan_thread, self._template_thread,
+                      self._preview_extract_thread):
             if thread is not None:
                 thread.quit()
                 thread.wait()
@@ -732,12 +769,15 @@ class MkvTab(QWidget):
         # 主視窗關閉後 quitOnLastWindowClosed 因為這個還可見的對話框而永遠
         # 不會成立,process 會卡著不退出。
         self._finish_scan()
-        # _closing 讓 _on_template_styles_done() 提早 return,所以那條路徑
-        # 的收尾不會執行——這裡補上,跟 _finish_scan() 之於掃描 worker 是
-        # 同一個道理:上面的迴圈已經 quit()+wait() 過了,只差把參照放掉,
-        # 不要留著一個已收掉的 QThread 與它的 worker(最終審查 Minor)。
+        # _closing 讓 _on_template_styles_done()/_on_preview_extract_done()
+        # 提早 return,所以那兩條路徑的收尾不會執行——這裡補上,跟
+        # _finish_scan() 之於掃描 worker 是同一個道理:上面的迴圈已經
+        # quit()+wait() 過了,只差把參照放掉,不要留著已收掉的 QThread
+        # 與它的 worker(最終審查 Minor)。
         self._template_thread = None
         self._template_worker = None
+        self._preview_extract_thread = None
+        self._preview_extract_worker = None
         import shutil
         shutil.rmtree(self._preview_dir, ignore_errors=True)
 

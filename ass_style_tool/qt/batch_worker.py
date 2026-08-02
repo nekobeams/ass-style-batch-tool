@@ -11,7 +11,7 @@ from ..batch_runner import process_file
 from ..episode_match import ass_output_name, find_files
 from ..mkv_batch import MkvTools, process_mkv
 from ..mkv_io import (TemplateExtraction, extract_template_subtitle,
-                      list_all_tracks, list_ass_tracks)
+                      extract_track, list_all_tracks, list_ass_tracks)
 from ..mkv_mux import MuxMeta, MuxPair, pair_for_mux, process_mux
 from ..profile import Profile
 from ..scale_engine import ScaleOptions, scale_file
@@ -256,6 +256,57 @@ class TemplateStyleWorker(QObject):
             return
         self.finished.emit(
             TemplateStyleResult(extraction=extraction, styles=styles))
+
+
+@dataclass
+class PreviewExtractResult:
+    """PreviewExtractWorker 的結果。
+
+    success 為 False 時 error 可能有更明確的原因(worker 例外訊息);
+    extract_track 本身失敗時單純回 False、沒有額外原因字串,呼叫端要
+    兩種都處理。"""
+    mkv_path: Path
+    track_id: int
+    out_path: Path
+    success: bool
+    error: Optional[str] = None
+
+
+class PreviewExtractWorker(QObject):
+    """MKV 分頁「送進預覽」:抽一條字幕軌到暫存檔,丟到背景執行緒跑。
+
+    跟 TemplateStyleWorker 同一個理由,同一個檔案裡另一處同樣形狀的
+    缺陷(最終審查):extract_track 底下是單次 subprocess.run,最多
+    300 秒逾時,擺在 GUI 執行緒上會讓整個視窗「沒有回應」。沒有
+    cancel() 的理由也相同——單一子行程呼叫沒有中途檢查點可以插。
+    """
+
+    finished = Signal(object)  # 攜帶 PreviewExtractResult
+
+    def __init__(self, mkv_path: Path, track_id: int, out_path: Path,
+                 mkvextract: Path, extract_fn=extract_track) -> None:
+        super().__init__()
+        self._mkv_path = mkv_path
+        self._track_id = track_id
+        self._out_path = out_path
+        self._mkvextract = mkvextract
+        self._extract_fn = extract_fn
+
+    def run(self) -> None:
+        # 一定要 emit finished,不管中間發生什麼事——跟 TemplateStyleWorker
+        # 同一個理由,不重複那份說明,見那邊的註解。
+        try:
+            ok = self._extract_fn(
+                self._mkv_path, self._track_id, self._out_path,
+                self._mkvextract)
+        except Exception as exc:  # noqa: BLE001 -- 見上面的說明,一定要 emit
+            self.finished.emit(PreviewExtractResult(
+                mkv_path=self._mkv_path, track_id=self._track_id,
+                out_path=self._out_path, success=False, error=str(exc)))
+            return
+        self.finished.emit(PreviewExtractResult(
+            mkv_path=self._mkv_path, track_id=self._track_id,
+            out_path=self._out_path, success=ok))
 
 
 class TrackScanWorker(_TrackListWorker):
