@@ -590,7 +590,7 @@ class MkvTab(QWidget):
                 self.log.emit(
                     f"無法讀取 {name} 的字幕軌清單"
                     "(mkvmerge 執行失敗、逾時,或檔案已損毀/被占用)")
-            else:
+            elif extraction.error == "no_track":
                 # Minor bullet:只抽了第一個檔案當範本(見
                 # read_template_styles() 開頭的 docstring),訊息卻原本講
                 # 「這批影片」,會讓人誤以為整批都檢查過了、全部都沒有
@@ -600,6 +600,14 @@ class MkvTab(QWidget):
                     f"{name} 沒有文字字幕軌,無法讀取樣式名稱"
                     "(可能是 PGS/VobSub 圖形字幕;只檢查了第一個影片,"
                     "其餘影片未逐一確認)")
+            else:
+                # 最終審查 Minor:這裡原本是無條件 else,把任何未知的
+                # error 值都當成「確認過沒有字幕軌」講——這正是 I9 那次
+                # 修的同一種錯:「不知道」被講成「確定沒有」。三個已知原因
+                # 都比對過還落到這裡,代表 TemplateExtraction 出現了目前
+                # 沒處理過的新原因,老實講出來,不要冒充成確定的結論。
+                self.log.emit(
+                    f"讀取 {name} 的樣式名稱失敗(原因:{extraction.error})")
             return
         styles = result.styles
         if styles.error is not None:

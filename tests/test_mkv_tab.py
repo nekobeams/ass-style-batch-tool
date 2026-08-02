@@ -623,6 +623,23 @@ def test_read_template_styles_no_text_track_message_names_the_first_file_only(
               for m in messages)
 
 
+def test_read_template_styles_reports_unknown_reason_honestly(qapp, monkeypatch):
+    """最終審查 Minor:三個已知原因(no_track/extract_failed/
+    identify_failed)都比對過還落到 else 分支,代表出現了目前沒處理過的
+    新原因——這裡不能像原本那樣把它冒充成「確認過沒有字幕軌」(跟 I9 是
+    同一種錯,只是換了一層),要老實講出原因字串。"""
+    tab = _tab(monkeypatch)
+    tab.populate(FILES)
+    messages = []
+    tab.log.connect(messages.append)
+    _drive_read_template_styles(
+        tab, qapp, monkeypatch,
+        extract_fn=lambda mkv, mkvmerge, mkvextract, out_dir:
+            TemplateExtraction(path=None, error="some_future_reason"))
+    assert any("some_future_reason" in m for m in messages)
+    assert not any("沒有文字字幕軌" in m for m in messages)
+
+
 def test_read_template_styles_reports_identify_failure(qapp, monkeypatch):
     """連 mkvmerge -J 都沒能成功問出這個檔案有哪些軌(逾時/損毀/被占用/
     mkvmerge 當掉)——根本不知道有沒有字幕軌,不能講成「確認過沒有」

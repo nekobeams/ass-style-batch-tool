@@ -235,12 +235,25 @@ class TemplateStyleWorker(QObject):
         self._scan_fn = scan_fn
 
     def run(self) -> None:
-        extraction = self._extract_fn(
-            self._mkv_path, self._mkvmerge, self._mkvextract, self._out_dir)
-        if extraction.path is None:
-            self.finished.emit(TemplateStyleResult(extraction=extraction))
+        # 一定要 emit finished,不管中間發生什麼事:read_template_styles()
+        # 靠 finished 訊號才會清空 _template_thread、重新啟用按鈕。這裡若
+        # 有未預期的例外沒被接住,finished 永遠不會發出,分頁就此卡死
+        # ——按鈕永久停用,連新的「正在讀取,請稍候」重入防護都會把之後
+        # 每一次點擊都擋下來,除了重開程式沒有其他復原路徑(最終審查
+        # Minor)。
+        try:
+            extraction = self._extract_fn(
+                self._mkv_path, self._mkvmerge, self._mkvextract,
+                self._out_dir)
+            if extraction.path is None:
+                self.finished.emit(TemplateStyleResult(extraction=extraction))
+                return
+            styles = self._scan_fn(extraction.path)
+        except Exception as exc:  # noqa: BLE001 -- 見上面的說明,一定要 emit
+            self.finished.emit(TemplateStyleResult(
+                extraction=TemplateExtraction(
+                    path=None, error=f"worker_error:{exc}")))
             return
-        styles = self._scan_fn(extraction.path)
         self.finished.emit(
             TemplateStyleResult(extraction=extraction, styles=styles))
 

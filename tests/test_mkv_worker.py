@@ -218,3 +218,51 @@ def test_scan_worker_empty_list_finishes_empty(qapp):
     worker.run()
     assert got["finished"] == {}
     assert got["progress"] == [(0, 0)]
+
+
+# ---------- TemplateStyleWorker:未預期例外不能讓 finished 永遠不發 ----------
+
+def test_template_style_worker_emits_finished_on_extract_exception(qapp):
+    """最終審查 Minor:extract_fn 拋出未預期例外時,如果 finished 沒發出,
+    read_template_styles() 就永遠不會清空 _template_thread、重新啟用
+    按鈕——分頁卡死,連重新點擊都被「正在讀取,請稍候」的重入防護擋掉,
+    除了重開程式沒有其他復原路徑。這裡確認例外會被接住,轉成一個帶錯誤
+    原因的結果照樣 emit 出去。"""
+    from ass_style_tool.qt.batch_worker import TemplateStyleWorker
+
+    def boom(mkv, mkvmerge, mkvextract, out_dir):
+        raise IndexError("list index out of range")
+
+    worker = TemplateStyleWorker(
+        Path("show.mkv"), Path("mkvmerge"), Path("mkvextract"),
+        extract_fn=boom)
+    got = {}
+    worker.finished.connect(lambda result: got.update(result=result))
+    worker.run()                       # 不應拋例外
+
+    result = got["result"]
+    assert result.extraction.path is None
+    assert "worker_error" in result.extraction.error
+    assert "list index out of range" in result.extraction.error
+
+
+def test_template_style_worker_emits_finished_on_scan_exception(qapp, tmp_path):
+    """同一條規則,換成 scan_fn(第二段呼叫)拋例外。"""
+    from ass_style_tool.mkv_io import TemplateExtraction
+    from ass_style_tool.qt.batch_worker import TemplateStyleWorker
+
+    def boom(path):
+        raise ValueError("編碼判斷失敗")
+
+    worker = TemplateStyleWorker(
+        Path("show.mkv"), Path("mkvmerge"), Path("mkvextract"),
+        extract_fn=lambda mkv, mkvmerge, mkvextract, out_dir:
+            TemplateExtraction(path=tmp_path / "t.ass"),
+        scan_fn=boom)
+    got = {}
+    worker.finished.connect(lambda result: got.update(result=result))
+    worker.run()                       # 不應拋例外
+
+    result = got["result"]
+    assert result.extraction.path is None
+    assert "worker_error" in result.extraction.error
