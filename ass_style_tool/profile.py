@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import Tuple
 
 import pysubs2
 
@@ -53,6 +54,34 @@ def parse_ass_color(text: str) -> pysubs2.Color:
 
 def color_to_ass(color: pysubs2.Color) -> str:
     return f"&H{color.a:02X}{color.b:02X}{color.g:02X}{color.r:02X}"
+
+
+def ass_color_to_rgb(ass: str) -> Tuple[int, int, int]:
+    """ASS 色碼(&HAABBGGRR)轉 (r, g, b) 三元組,丟棄 alpha。
+
+    給色彩選擇器這類只認識 RGB 的 UI 元件用——需要 alpha 的呼叫端直接用
+    parse_ass_color(ass).a。非法字串沿用 parse_ass_color 丟 ValueError,
+    不在這裡吞掉。
+    """
+    c = parse_ass_color(ass)
+    return c.r, c.g, c.b
+
+
+def rgb_to_ass_color(rgb: Tuple[int, int, int], alpha_ass: str) -> str:
+    """(r, g, b) 三元組 + 舊 alpha 來源字串 → 新的 ASS 色碼。
+
+    色彩選擇器只給得出新的 RGB,alpha 從欄位原本的文字(alpha_ass)
+    取回——那個值本來就代表「換色前這個欄位的完整色碼」,換色動作只該
+    影響 RGB,不該連 alpha 一起變動。alpha_ass 若因為欄位打到一半而是
+    無效色碼,parse_ass_color 會丟 ValueError,這裡接住並退回 0,不讓
+    整個換色動作被還沒打完的欄位內容擋下來。
+    """
+    r, g, b = rgb
+    try:
+        a = parse_ass_color(alpha_ass).a
+    except ValueError:
+        a = 0
+    return f"&H{a:02X}{b:02X}{g:02X}{r:02X}"
 
 
 def _validate_style(style: TargetStyle) -> None:

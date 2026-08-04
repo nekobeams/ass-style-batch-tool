@@ -21,7 +21,8 @@ from ..scale_engine import ScaleError, read_as_ass_text, scale_text
 from ..style_scan import summarize
 from .batch_worker import BatchWorker, ScaleWorker
 from .gui_helpers import (CANCELLED_TEXT, PENDING_TEXT, RESULT_ICONS,
-                          apply_plan_text, preview_rows, scale_plan_text)
+                          apply_plan_text, preview_rows, run_button_enabled,
+                          scale_plan_text)
 from .layout_helpers import (action_row, group, main_splitter, page_layout,
                              settings_sidebar)
 from .scale_panel import ScalePanel
@@ -357,15 +358,17 @@ class SubtitleFileTab(QWidget):
         has_rows = self.table.rowCount() > 0
         # 重新掃描進行中也算「忙碌」:_scan 隨時可能被 _on_scan_finished
         # 換成新的內容,這時候開放執行按鈕會讓使用者對著即將作廢的舊
-        # scan 按下開始(Finding 2)。
+        # scan 按下開始(Finding 2)。跟 MKV/封裝分頁是同一套骨架,共用
+        # gui_helpers.run_button_enabled()——多一個 _scan_thread busy
+        # 判斷是這個分頁特有的(另外兩個分頁沒有背景重新掃描這回事)。
+        # 縮放模式不吃側欄的目標樣式勾選(ScalePanel.get_options() 已經
+        # 自己給齊所有需要的參數),所以只有非縮放(套用)模式才需要看勾選。
         busy = self._thread is not None or self._scan_thread is not None
-        if self.scale_mode_radio.isChecked():
-            # 縮放模式不吃側欄的目標樣式勾選(ScalePanel.get_options() 已經
-            # 自己給齊所有需要的參數),所以按鈕只看有沒有掃到列、有沒有在跑。
-            self.run_button.setEnabled(has_rows and not busy)
-        else:
-            has_styles = bool(self.style_picker.selected())
-            self.run_button.setEnabled(has_rows and has_styles and not busy)
+        self.run_button.setEnabled(run_button_enabled(
+            ready=has_rows,
+            busy=busy,
+            requires_styles=not self.scale_mode_radio.isChecked(),
+            styles_selected=bool(self.style_picker.selected())))
 
     def auto_scan_once(self) -> None:
         """分頁第一次被顯示時自動掃描一次(主視窗切分頁時呼叫)。"""

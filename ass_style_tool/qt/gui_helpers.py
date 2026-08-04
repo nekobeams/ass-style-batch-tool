@@ -184,6 +184,30 @@ def result_text_for(status: str, was_direct: bool) -> str:
     return RESULT_ICONS.get(status, status)
 
 
+def run_button_enabled(*, ready: bool, busy: bool,
+                       requires_styles: bool, styles_selected: bool) -> bool:
+    """執行鈕(「開始套用樣式」/「開始處理」/「開始封裝」)能不能按。
+
+    三個分頁(subtitle_tab/mkv_tab/mux_tab)的判斷式各自看不同的東西
+    決定 ready(有沒有可處理的檔案、工具在不在)和 busy(是不是正在跑),
+    但套進「哪個 mode 需要樣式勾選、勾了沒」這一格之後,骨架完全一樣:
+    ready 且沒在忙,而且如果目前模式需要樣式勾選,勾選不能是空的。
+
+    抽出來之前這條規則在三個檔案裡各寫一份(各自的用詞、行號也不同),
+    沒有任何機制保證改一處時另外兩處會跟著改對;現在三處都呼叫同一個
+    函式,而且這個函式本身有獨立測試涵蓋四種組合,不必再各自為政。
+
+    requires_styles/styles_selected:「需要樣式勾選」是哪個模式(套用
+    模式 vs 縮放/直接封裝模式)由呼叫端決定並算好布林值傳進來——這裡
+    不認識「模式」這個概念,只認識「這次需不需要看勾選」。
+    """
+    if not ready or busy:
+        return False
+    if requires_styles and not styles_selected:
+        return False
+    return True
+
+
 def scale_plan_text(file_styles: Optional[FileStyles],
                     options: ScaleOptions) -> str:
     """縮放模式的「預計」欄文字。"""

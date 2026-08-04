@@ -340,3 +340,40 @@ def test_result_text_for_unknown_status_falls_back_to_status_itself():
     直接把狀態字串印出來,不要讓呼叫端看到 KeyError。"""
     from ass_style_tool.qt.gui_helpers import result_text_for
     assert result_text_for("weird_status", was_direct=False) == "weird_status"
+
+
+# ---------- run_button_enabled(從 mux_tab/mkv_tab/subtitle_tab 三份幾乎
+# 一模一樣的「執行鈕能不能按」判斷抽出的共用公式) ----------
+
+def test_run_button_enabled_requires_ready():
+    from ass_style_tool.qt.gui_helpers import run_button_enabled
+    assert run_button_enabled(ready=False, busy=False,
+                              requires_styles=False, styles_selected=False) is False
+
+
+def test_run_button_enabled_blocked_while_busy():
+    from ass_style_tool.qt.gui_helpers import run_button_enabled
+    assert run_button_enabled(ready=True, busy=True,
+                              requires_styles=False, styles_selected=False) is False
+
+
+def test_run_button_enabled_blocked_when_styles_required_but_none_selected():
+    """套用模式(mux_tab/mkv_tab 的 apply_mode、subtitle_tab 的非縮放模式)
+    一個樣式都沒勾等於這批不會改到任何東西,不該讓使用者按下去。"""
+    from ass_style_tool.qt.gui_helpers import run_button_enabled
+    assert run_button_enabled(ready=True, busy=False,
+                              requires_styles=True, styles_selected=False) is False
+
+
+def test_run_button_enabled_true_when_styles_required_and_selected():
+    from ass_style_tool.qt.gui_helpers import run_button_enabled
+    assert run_button_enabled(ready=True, busy=False,
+                              requires_styles=True, styles_selected=True) is True
+
+
+def test_run_button_enabled_ignores_selection_when_styles_not_required():
+    """縮放/直接封裝模式不吃樣式勾選(各自的參數面板已經給齊所有需要的
+    參數),不論有沒有勾都不該被這個條件擋下來。"""
+    from ass_style_tool.qt.gui_helpers import run_button_enabled
+    assert run_button_enabled(ready=True, busy=False,
+                              requires_styles=False, styles_selected=False) is True

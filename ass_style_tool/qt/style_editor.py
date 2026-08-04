@@ -15,7 +15,8 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QFileDialog, QFormLayout,
 from PySide6.QtWidgets import QColorDialog
 from PySide6.QtGui import QColor, QFontDatabase
 
-from ..profile import (Profile, load_profile, parse_ass_color, save_profile)
+from ..profile import (Profile, ass_color_to_rgb, load_profile,
+                       rgb_to_ass_color, save_profile)
 from ..profile_fields import (DEFAULT_VALUES, parse_target_style_names,
                               profile_from_values, values_from_profile)
 from .gui_helpers import font_is_missing
@@ -61,17 +62,17 @@ def migrate_legacy_profiles(legacy_dir: Path, target_dir: Path) -> int:
     return count
 
 
+# 演算法本體(色碼 <-> RGB 三元組)在 ..profile.ass_color_to_rgb /
+# rgb_to_ass_color,不依賴 Qt,可以獨立測試。這裡只做 QColor 這一層薄
+# 轉換,讓呼叫端(_pick_color 等)不用自己記得怎麼拆三元組。
 def _ass_to_qcolor(ass: str) -> QColor:
-    c = parse_ass_color(ass)
-    return QColor(c.r, c.g, c.b)
+    r, g, b = ass_color_to_rgb(ass)
+    return QColor(r, g, b)
 
 
 def _qcolor_to_ass(color: QColor, alpha_ass: str) -> str:
-    try:
-        a = parse_ass_color(alpha_ass).a
-    except ValueError:
-        a = 0
-    return f"&H{a:02X}{color.blue():02X}{color.green():02X}{color.red():02X}"
+    return rgb_to_ass_color((color.red(), color.green(), color.blue()),
+                            alpha_ass)
 
 
 class StyleEditor(QWidget):

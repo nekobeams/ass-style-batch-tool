@@ -24,7 +24,8 @@ from ..tools import mkvextract_path, mkvmerge_path
 from ..track_edit import TrackEdit
 from .batch_worker import MuxScanWorker, MuxWorker, TrackScanWorker
 from .gui_helpers import (CANCELLED_TEXT, PENDING_TEXT, RESULT_ICONS,
-                          apply_plan_text, result_text_for, scale_plan_text)
+                          apply_plan_text, result_text_for, run_button_enabled,
+                          scale_plan_text)
 from .layout_helpers import (action_row, group, main_splitter, page_layout,
                              settings_sidebar)
 from .modify_tracks_dialog import ModifyTracksDialog
@@ -677,15 +678,14 @@ class MuxTab(QWidget):
     def _refresh_run_button(self) -> None:
         # 「先套用目前樣式」一個樣式都沒勾等於這批不會改到任何東西,不該讓
         # 使用者按下去;直接封裝/先縮放字級不吃這個勾選,維持原本只看有沒
-        # 有掃到可封裝的列。跟字幕檔分頁(subtitle_tab.py)的
-        # _update_run_enabled() 是同一套邏輯。
-        gated_by_styles = (self.apply_mode_radio.isChecked()
-                           and not self.style_picker.selected())
-        self.run_button.setEnabled(
-            self.tools_available
-            and any(p.status == "matched" for p in self._pairs)
-            and self._thread is None
-            and not gated_by_styles)
+        # 有掃到可封裝的列。跟字幕檔/MKV 分頁是同一套骨架,共用
+        # gui_helpers.run_button_enabled()。
+        self.run_button.setEnabled(run_button_enabled(
+            ready=(self.tools_available
+                  and any(p.status == "matched" for p in self._pairs)),
+            busy=self._thread is not None,
+            requires_styles=self.apply_mode_radio.isChecked(),
+            styles_selected=bool(self.style_picker.selected())))
 
     def _refresh_modify_button(self) -> None:
         self.modify_tracks_button.setEnabled(
