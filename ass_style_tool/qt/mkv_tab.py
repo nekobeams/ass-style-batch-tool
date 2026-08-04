@@ -27,7 +27,8 @@ from ..tools import mkvextract_path, mkvmerge_path
 from ..track_select import TrackKey, all_keys, resolve_tracks
 from .batch_worker import (MkvScanWorker, MkvWorker, PreviewExtractWorker,
                           TemplateStyleWorker)
-from .gui_helpers import CANCELLED_TEXT, PENDING_TEXT, RESULT_ICONS
+from .gui_helpers import (CANCELLED_TEXT, PENDING_TEXT, RESULT_ICONS,
+                          describe_track_match)
 from .layout_helpers import (action_row, group, main_splitter, page_layout,
                              settings_sidebar)
 from .scale_panel import ScalePanel
@@ -387,15 +388,7 @@ class MkvTab(QWidget):
 
     def _refresh_track_column(self) -> None:
         for row, path in enumerate(self._files):
-            picked = self._tracks_for(path)
-            if picked is None:
-                text = ""
-            elif not picked:
-                text = "✗ 無符合的軌"
-            elif len(picked) == 1:
-                text = f"✓ 軌 {picked[0].track_id}"
-            else:
-                text = "⚠ " + "、".join(f"軌 {t.track_id}" for t in picked)
+            text = describe_track_match(self._tracks_for(path))
             item = self.file_table.item(row, 1)
             if item is not None:
                 item.setText(text)

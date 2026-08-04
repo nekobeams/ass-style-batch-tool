@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Sequence
 
 from ..ass_style import compute_applied_values
+from ..mkv_io import SubtitleTrack
 from ..profile import Profile
 from ..scale_engine import ScaleOptions, fmt_num
 from ..style_scan import FileStyles
@@ -33,6 +34,11 @@ PENDING_TEXT = "處理中…"
 # 還在跑,或跟這次批次的結果搞混。三個分頁的 _on_finished 都要在收尾時
 # 把還卡著 PENDING_TEXT 的列換成這個明確標記(Task 10 review Finding 2)。
 CANCELLED_TEXT = "⊘ 未執行(已取消)"
+
+# 封裝分頁 direct 模式(原字幕直接封,不套用樣式)成功時的結果文字,
+# 不能沿用 RESULT_ICONS["ok"]——那句話在 direct 模式底下是錯的。
+# 供下面 result_text_for() 使用,從 mux_tab.py 抽到這裡。
+_RESULT_DIRECT_TEXT = "✓ 已封裝(原字幕直接封,未套用樣式)"
 
 
 @dataclass
@@ -141,6 +147,41 @@ def apply_plan_text(file_styles: Optional[FileStyles], profile: Profile,
     if not parts:
         return f"⊘ 找不到 {'、'.join(target_names)}{not_found_suffix}"
     return "、".join(parts)
+
+
+def describe_track_match(tracks: Optional[List[SubtitleTrack]]) -> str:
+    """MKV 分頁「將套用的軌」欄文字:依目前規則命中幾條軌決定。
+
+    從 mkv_tab.py 的 _refresh_track_column() 抽出——None(還沒掃過軌,
+    跟「掃過但沒符合的」是不同狀態,必須顯示不同文字)回空字串;掃過但
+    一條都不符合回明確的「無符合」標記,不能跟「還沒掃」一樣印空白,
+    不然使用者分不清是規則太嚴格還是根本沒掃過;剛好一條直接印軌號;
+    多條(規則模糊,例如語言+軌名同時命中兩條)全部列出並加警示符號,
+    提醒使用者這條規則對這個檔案不是單一明確命中。
+    """
+    if tracks is None:
+        return ""
+    if not tracks:
+        return "✗ 無符合的軌"
+    if len(tracks) == 1:
+        return f"✓ 軌 {tracks[0].track_id}"
+    return "⚠ " + "、".join(f"軌 {t.track_id}" for t in tracks)
+
+
+def result_text_for(status: str, was_direct: bool) -> str:
+    """封裝分頁「結果」欄文字:direct 模式(原字幕直接封)不套用任何
+    樣式,不能沿用套用模式共用的 RESULT_ICONS["ok"]("✓ 已套用")
+    ——那句話在 direct 模式底下是錯的,使用者會誤以為樣式真的被套用了。
+    direct 旗標只在 status == "ok" 時才有意義,失敗/略過不受影響。
+
+    從 mux_tab.py 的 _set_row_result() 抽出。
+    """
+    # 已知、接受的缺口:縮放模式若縮放係數算出來剛好等於不縮放
+    # (no-op scale),這裡仍回傳泛用的 RESULT_ICONS["ok"]——要準確判斷
+    # 需要進一步檢視 report 內容,不在這個函式的職責範圍。
+    if status == "ok" and was_direct:
+        return _RESULT_DIRECT_TEXT
+    return RESULT_ICONS.get(status, status)
 
 
 def scale_plan_text(file_styles: Optional[FileStyles],
