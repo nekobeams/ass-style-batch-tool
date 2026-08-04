@@ -1,0 +1,55 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ass-style-batch-tool"
+dynamic = ["version"]
+description = "批次修改整季動畫字幕樣式:依片源解析度自動換算、只改指定樣式,支援 MKV 字幕軌與封裝、內嵌 mpv 即時預覽"
+readme = "README.md"
+requires-python = ">=3.9"
+# 連結 libmpv(GPLv2 或更新版本)因此採用 GPLv3
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
+authors = [{ name = "nekobeams" }]
+keywords = ["ass", "ssa", "subtitle", "anime", "mkv", "fansub", "aegisub"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Win32 (MS Windows)",
+    "Intended Audience :: End Users/Desktop",
+    "Natural Language :: Chinese (Traditional)",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3",
+    "Topic :: Multimedia :: Video",
+    "Topic :: Text Processing :: Markup",
+]
+
+# 執行期依賴。python-mpv 刻意不列:預覽功能是選配,player.py 以
+# try/except 延遲 import,缺了只停用預覽、不影響批次功能;而且光裝
+# python-mpv 也不會有預覽,還需要另外取得 libmpv-2.dll(pip 給不了)。
+dependencies = [
+    "pysubs2>=1.6",
+    "charset-normalizer>=3.0",
+    "PySide6>=6.6",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
+# GUI 程式用 gui-scripts:Windows 上產生的是不帶主控台的啟動器,
+# 不會在視窗後面多掛一個黑色終端機視窗(與 .spec 的 console=False 一致)。
+[project.gui-scripts]
+ass-style-tool = "ass_style_tool.qt.main_window:main"
+
+[project.urls]
+Homepage = "https://github.com/nekobeams/ass-style-batch-tool"
+Repository = "https://github.com/nekobeams/ass-style-batch-tool"
+Issues = "https://github.com/nekobeams/ass-style-batch-tool/issues"
+
+[tool.setuptools]
+# 明確列出,避免自動探索把 tests/ 之類的目錄也當成套件
+packages = ["ass_style_tool", "ass_style_tool.qt"]
+
+[tool.setuptools.dynamic]
+# 版本號的單一來源。ass_style_tool.iss 也讀同一個檔,不要在別處另寫版本號。
+version = { file = "VERSION" }

@@ -31,7 +31,16 @@
 
 **一般使用者**:到 [Releases](../../releases) 下載安裝程式,執行安裝精靈即可。安裝程式會自動偵測系統上是否已有 ffmpeg/MKVToolNix,只在缺少時才提供安裝選項,libmpv(播放預覽用)固定內建。
 
-**從原始碼執行**:
+**當成套件安裝**:
+
+```powershell
+py -m pip install .
+ass-style-tool
+```
+
+安裝後會多一個 `ass-style-tool` 指令,直接執行就會開啟視窗。
+
+**從原始碼直接跑**(開發用,不安裝):
 
 ```powershell
 py -m pip install -r requirements.txt
@@ -39,6 +48,14 @@ py -m ass_style_tool
 ```
 
 需要 Python 3.9+。**Windows 上請用 `py`,不要用 `python`**——多數 Windows 安裝環境的 `python` 指令是個什麼都不做的商店存根(exit code 49),`py` 才是真正的 launcher。
+
+> **`pyproject.toml` 與 `requirements.txt` 的關係**
+>
+> `pyproject.toml` 是套件本身的定義(PEP 621):中繼資料、執行期依賴、`ass-style-tool` 進入點。`pip install .` 讀的是它。開發用的依賴放在 `[project.optional-dependencies]` 的 `dev` 群組,要跑測試就裝 `pip install -e ".[dev]"`。
+>
+> `requirements.txt` 保留給開發環境,內容是「拿來直接跑原始碼所需的一切」(含 `pytest`),CI 也是用它。兩邊的執行期依賴清單一致,新增依賴時兩個檔案都要更新。
+>
+> 版本號的單一來源是根目錄的 `VERSION` 檔——`pyproject.toml` 與 `ass_style_tool.iss`(安裝程式)都讀它,改版本只要改這一個檔案。
 
 MKV/封裝分頁需要 [MKVToolNix](https://mkvtoolnix.download/)(`mkvmerge`/`mkvextract` 在 PATH 中);影片解析度偵測需要 `ffprobe`(在 PATH 中,選配,缺少時只影響長寬比警告,不影響樣式套用本身);內嵌預覽需要 `libmpv-2.dll`,從原始碼執行時要自行取得對應 Windows 版本並放進 Python 的 `site-packages`(與 `mpv.py` 同層)。
 
