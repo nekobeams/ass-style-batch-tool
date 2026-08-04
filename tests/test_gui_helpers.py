@@ -280,3 +280,34 @@ def test_preview_rows_plan_defaults_to_blank():
     from ass_style_tool.qt.gui_helpers import preview_rows
     scan = ScanResult(matches=[MatchResult(Path("a.ass"), 1, status="no_video")])
     assert preview_rows(scan)[0].plan == ""
+
+
+# ---------- describe_track_match(從 mkv_tab.py 抽出) ----------
+
+def _track(track_id: int):
+    from ass_style_tool.mkv_io import SubtitleTrack
+    return SubtitleTrack(track_id=track_id, codec_id="S_TEXT/ASS", language="",
+                         track_name="", default=False, forced=False)
+
+
+def test_describe_track_match_not_scanned_yet_is_blank():
+    """None 代表這個檔案還沒掃過軌,不是「掃過但沒符合的」——兩者要
+    顯示不同文字,不能都印成空字串或都印成「無符合」。"""
+    from ass_style_tool.qt.gui_helpers import describe_track_match
+    assert describe_track_match(None) == ""
+
+
+def test_describe_track_match_empty_list_shows_no_match_marker():
+    from ass_style_tool.qt.gui_helpers import describe_track_match
+    assert describe_track_match([]) == "✗ 無符合的軌"
+
+
+def test_describe_track_match_single_track_shows_its_id():
+    from ass_style_tool.qt.gui_helpers import describe_track_match
+    assert describe_track_match([_track(2)]) == "✓ 軌 2"
+
+
+def test_describe_track_match_multiple_tracks_lists_all_ids():
+    from ass_style_tool.qt.gui_helpers import describe_track_match
+    text = describe_track_match([_track(2), _track(5)])
+    assert text == "⚠ 軌 2、軌 5"

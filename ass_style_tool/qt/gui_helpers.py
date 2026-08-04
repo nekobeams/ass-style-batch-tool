@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Sequence
 
 from ..ass_style import compute_applied_values
+from ..mkv_io import SubtitleTrack
 from ..profile import Profile
 from ..scale_engine import ScaleOptions, fmt_num
 from ..style_scan import FileStyles
@@ -141,6 +142,25 @@ def apply_plan_text(file_styles: Optional[FileStyles], profile: Profile,
     if not parts:
         return f"⊘ 找不到 {'、'.join(target_names)}{not_found_suffix}"
     return "、".join(parts)
+
+
+def describe_track_match(tracks: Optional[List[SubtitleTrack]]) -> str:
+    """MKV 分頁「將套用的軌」欄文字:依目前規則命中幾條軌決定。
+
+    從 mkv_tab.py 的 _refresh_track_column() 抽出——None(還沒掃過軌,
+    跟「掃過但沒符合的」是不同狀態,必須顯示不同文字)回空字串;掃過但
+    一條都不符合回明確的「無符合」標記,不能跟「還沒掃」一樣印空白,
+    不然使用者分不清是規則太嚴格還是根本沒掃過;剛好一條直接印軌號;
+    多條(規則模糊,例如語言+軌名同時命中兩條)全部列出並加警示符號,
+    提醒使用者這條規則對這個檔案不是單一明確命中。
+    """
+    if tracks is None:
+        return ""
+    if not tracks:
+        return "✗ 無符合的軌"
+    if len(tracks) == 1:
+        return f"✓ 軌 {tracks[0].track_id}"
+    return "⚠ " + "、".join(f"軌 {t.track_id}" for t in tracks)
 
 
 def scale_plan_text(file_styles: Optional[FileStyles],
