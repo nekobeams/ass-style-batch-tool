@@ -6,6 +6,8 @@ Batch-edit ASS/SSA subtitle styles across a whole anime season, without touching
 
 > **The application UI, in-app text, and full documentation are Traditional Chinese only.** This page is a short summary for browsers who don't read Chinese; it is not a translation of the app itself. The primary audience is the Chinese-speaking anime-subtitling/collecting community.
 
+![Subtitle files tab](docs/images/subtitle-tab.png)
+
 ## What it does
 
 Subtitle files collected from different fansub groups often disagree on resolution and style settings, so the same "normal dialogue" line looks a different size from episode to episode. This tool:

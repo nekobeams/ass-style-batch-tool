@@ -14,6 +14,8 @@
 2. **只改你指定的樣式**——精準命中要改的 Style(例如 `Default`),OP/ED/特效/標示等其他樣式完全不受影響,也不會動到 PlayResX/PlayResY/ScaledBorderAndShadow 這些標頭。
 3. **檔名不必對得上**——依集數編號配對字幕與影片,不同壓製組的命名習慣(`[VCB-Studio]`、`[LoliHouse]`、`[DBD-Raws]` 等)都認得。
 
+![字幕檔分頁](docs/images/subtitle-tab.png)
+
 ## 功能總覽(四個分頁)
 
 - **字幕檔**——批次套用樣式,或縮放字級。掃描資料夾後即時預覽每一集會被改成什麼(套用前預告、套用後結果),再按下去真正執行。
@@ -42,6 +44,8 @@ MKV/封裝分頁需要 [MKVToolNix](https://mkvtoolnix.download/)(`mkvmerge`/`mk
 
 ### 先設定樣式(「樣式與預覽」分頁)
 
+![樣式與預覽分頁](docs/images/preview-tab.png)
+
 在這裡編輯字型、大小、顏色、外框、陰影、對齊、邊距,以及**基準解析度**(換算的基準,通常填 1920×1080)。設定可以「另存」成 JSON 重複使用(參考 `profiles/sample-1080p.json`),下次「載入」即可。
 
 想確認實際效果的話,從其他分頁的表格**雙擊任一列**會把該集載進這個分頁的內嵌播放器,點左側字幕行清單就跳到對應時間點,直接看到套用後的樣子。
@@ -59,6 +63,8 @@ MKV/封裝分頁需要 [MKVToolNix](https://mkvtoolnix.download/)(`mkvmerge`/`mk
 
 ### 二、改 MKV 裡面的字幕軌(「MKV」分頁)
 
+![MKV 分頁](docs/images/mkv-tab.png)
+
 需要 MKVToolNix。
 
 1. 選影片資料夾,自動列出所有 MKV。
@@ -69,6 +75,8 @@ MKV/封裝分頁需要 [MKVToolNix](https://mkvtoolnix.download/)(`mkvmerge`/`mk
 「送進預覽」可以把選取檔案的字幕軌送到預覽分頁確認效果。
 
 ### 三、把外部字幕封進 MKV(「封裝」分頁)
+
+![封裝分頁](docs/images/mux-tab.png)
 
 需要 MKVToolNix。
 
