@@ -2,6 +2,8 @@
 
 # ASS 字幕樣式批次工具
 
+[![Tests](https://github.com/nekobeams/ass-style-batch-tool/actions/workflows/test.yml/badge.svg)](https://github.com/nekobeams/ass-style-batch-tool/actions/workflows/test.yml)
+
 批次修改整季動畫字幕的樣式,不必逐檔手動改,也不必碰不該碰的東西。
 
 ## 這個工具解決什麼問題
