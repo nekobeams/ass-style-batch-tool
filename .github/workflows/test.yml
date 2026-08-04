@@ -19,7 +19,7 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      # 整套 684 顆在同一個 process 跑完。
+      # 整套 693 顆在同一個 process 跑完。
       #
       # 這裡曾經分兩段跑(--ignore=tests/test_mkv_tab.py 加上單獨跑該檔),
       # 用來規避整套一起跑時約 50% 機率觸發的 Qt 原生層 teardown heap
