@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- 工作目錄/repo root:`C:\Claude_code`;git branch 由執行者依 subagent-driven 流程建立(從 master HEAD 分出)
+- 工作目錄/repo root:專案根目錄;git branch 由執行者依 subagent-driven 流程建立(從 master HEAD 分出)
 - **環境重點**:`python` 是壞的 Windows Store stub,一律用 `py`:`py -m pytest tests -v`
 - Python 3.9+ 相容;`mux_tab.py` 已有 `from __future__ import annotations`
 - Qt 測試用既有 `tests/conftest.py` 的 offscreen `qapp` fixture;絕不初始化真實 mkvmerge(測試用 monkeypatch `mkvmerge_path`/`mkvextract_path`)

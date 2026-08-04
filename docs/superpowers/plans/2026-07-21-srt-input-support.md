@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- 工作目錄/repo root:`C:\Claude_code`;git branch 由執行者依 subagent-driven 流程建立(從 master HEAD 分出)
+- 工作目錄/repo root:專案根目錄;git branch 由執行者依 subagent-driven 流程建立(從 master HEAD 分出)
 - **環境重點**:`python` 是壞的 Windows Store stub,一律用 `py`:`py -m pytest tests -q`
 - Python 3.9+ 相容;各檔案已有 `from __future__ import annotations`
 - 輸出一律 ASS 內容;輸出檔名規則:`.ass`/`.ssa` 保留原副檔名,`.srt`(及其他非 ASS 家族)正規化成 `.ass`

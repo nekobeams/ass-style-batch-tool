@@ -14,7 +14,7 @@
 
 ## Global Constraints
 
-- 工作目錄/repo root:`C:\Claude_code`;git branch 由執行者依 subagent-driven 流程建立(從 master HEAD 分出)
+- 工作目錄/repo root:專案根目錄;git branch 由執行者依 subagent-driven 流程建立(從 master HEAD 分出)
 - **環境重點**:`python` 是壞的 Windows Store stub,一律用 `py`:`py -m pytest tests -v`;打包用 `py -m PyInstaller`
 - Python 3.9+ 相容;各檔案已有 `from __future__ import annotations`
 - **測試絕不污染真實使用者環境**:profile 改用 `%APPDATA%` 後,測試必須用 conftest autouse fixture 把 `APPDATA` 重導到 tmp,絕不寫入真實 `%APPDATA%`(比照先前 QSettings 用 IniFormat tmp 檔避免污染 registry 的做法)
@@ -378,7 +378,7 @@ Run:
 ```powershell
 py -c "import mpv, os, ctypes.util; print('mpv module:', mpv.__file__)"
 Get-ChildItem -Path (Split-Path (py -c "import mpv; print(mpv.__file__)")) -Filter "*mpv*.dll" -ErrorAction SilentlyContinue
-Get-ChildItem -Path "C:\Users\CAT\AppData\Local\Programs\Python\Python313\Lib\site-packages" -Filter "libmpv*.dll" -ErrorAction SilentlyContinue
+Get-ChildItem -Path (py -c "import site; print(site.getsitepackages()[0])") -Filter "libmpv*.dll" -ErrorAction SilentlyContinue
 ```
 
 記下 `libmpv-2.dll` 的絕對路徑(記為 `<LIBMPV_PATH>`),Step 5 的 spec 會用到。
@@ -449,7 +449,7 @@ Expected: 成功,產生 `dist/ass_style_tool/ass_style_tool.exe`
 
 Run(直接執行打包出的 exe,不透過 `py -m`):
 ```powershell
-$exe = "C:\Claude_code\dist\ass_style_tool\ass_style_tool.exe"
+$exe = ".\dist\ass_style_tool\ass_style_tool.exe"
 $p = Start-Process -FilePath $exe -PassThru
 Start-Sleep -Seconds 5
 if ($p.HasExited) { Write-Output "FAIL exit=$($p.ExitCode)" } else { Write-Output "OK pid=$($p.Id)" }
@@ -465,7 +465,7 @@ if ($p.HasExited) { Write-Output "FAIL exit=$($p.ExitCode)" } else { Write-Outpu
 2. 「樣式與預覽」分頁 mpv 播放器正常(不是「缺 libmpv」降級提示)—— libmpv 綁定成功的關鍵指標
 3. `tools/` 資料夾預期為空 → MKV/封裝分頁顯示「找不到 mkvmerge」停用提示(這是預期行為)
 4. 設定持久化:選資料夾 → 關閉 → 重開 exe → 路徑還原
-5. `%APPDATA%\ass-style-tool\profiles\` 正確建立;若開發機舊 `C:\Claude_code\profiles` 有檔案,首次啟動應已複製過去
+5. `%APPDATA%\ass-style-tool\profiles\` 正確建立;若開發機舊專案根目錄下的 `profiles\` 有檔案,首次啟動應已複製過去
 
 - [ ] **Step 8: 疊代直到通過**
 

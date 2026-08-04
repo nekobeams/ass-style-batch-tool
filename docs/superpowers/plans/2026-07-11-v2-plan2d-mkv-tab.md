@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- 工作目錄/repo root:`C:\Claude_code`,git branch 由執行者依 subagent-driven 流程建立
+- 工作目錄/repo root:專案根目錄,git branch 由執行者依 subagent-driven 流程建立
 - **環境重點**:`python` 是壞的 Windows Store stub,一律用 `py`:`py -m pytest tests -v`
 - Python 3.9+ 相容;每個新模組頂端加 `from __future__ import annotations`
 - **測試絕不可真的執行 mkvmerge/mkvextract**:`mkv_batch` 的外部程序函式全部以參數注入,測試傳假函式;worker 測試注入假 `process_fn`;GUI 測試用假軌道資料
@@ -1277,7 +1277,7 @@ Run: `py -c "import ass_style_tool.qt.main_window; print('ok')"`
 Expected: `ok`
 
 ```powershell
-$p = Start-Process -FilePath "py" -ArgumentList "-m","ass_style_tool" -WorkingDirectory "C:\Claude_code" -PassThru
+$p = Start-Process -FilePath "py" -ArgumentList "-m","ass_style_tool" -WorkingDirectory $PWD -PassThru
 Start-Sleep -Seconds 3
 if ($p.HasExited) { Write-Output "FAIL exit=$($p.ExitCode)" } else { Write-Output "OK"; Stop-Process -Id $p.Id }
 ```

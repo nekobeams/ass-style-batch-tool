@@ -16,7 +16,7 @@
 - `PreviewPanel` 既有行為(視覺預覽、時間軸、防抖、shutdown 清理)不可退化。
 - 使用者選定:整個左欄(profile 列 + 欄位 + 讀出)一起捲動,不做 profile 列固定。
 - commit 訊息結尾加:`Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>`
-- 環境:PowerShell/Bash 前先確認 CWD 在 `C:\Claude_code`(Bash 每次 `cd /c/Claude_code`)。
+- 環境:PowerShell/Bash 前先確認 CWD 在專案根目錄(Bash 每次 `cd` 過去)。
 
 ---
 

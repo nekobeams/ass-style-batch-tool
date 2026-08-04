@@ -16,7 +16,7 @@
 - 縮放/四捨五入規則必須與現有 `apply_profile` 逐欄位一致:`fontsize=round(x*scale_y)`(整數)、`outline=round(x*scale_y, 2)`、`shadow=round(x*scale_y, 2)`、`margin_l/r=round(x*scale_x)`、`margin_v=round(x*scale_y)`。
 - `PreviewPanel` 既有行為(視覺預覽、時間軸、防抖、關閉清理)不可退化;`MkvWorker`/其他分頁不受本次影響。
 - commit 訊息結尾加:`Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>`
-- **環境坑**:PowerShell/subprocess 前先確認 CWD 在 `C:\Claude_code`(見 HANDOFF)。
+- **環境坑**:PowerShell/subprocess 前先確認 CWD 在專案根目錄(見 HANDOFF)。
 
 ---
 

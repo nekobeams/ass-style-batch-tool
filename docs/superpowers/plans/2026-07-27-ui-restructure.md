@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- 專案根目錄是 `C:\Claude_code`。每個指令前先切過去。
+- 每個指令前先切到專案根目錄。
 - **一律用 `py`,不要用 `python`**(`python` 是壞掉的 WindowsApps stub,會靜默失敗)。
 - 測試指令:`py -m pytest tests -q`(從 repo root)。改動前 master 是 **423 passed**。
 - 回覆用繁體中文;commit 訊息用英文。

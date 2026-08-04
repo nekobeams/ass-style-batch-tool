@@ -8,7 +8,7 @@
 
 **Architecture:** 新增 `ass_style_tool.iss`(Inno Setup script)。`core` 元件(必要)裝主程式;`ffmpeg`/`mkvtoolnix` 元件(選用)只在對應的 `installer_payload/` 子資料夾存在時才出現在編譯出的安裝程式裡(ISPP 前處理器 `#if DirExists(...)` 編譯期判斷),執行檔複製進安裝目錄的 `tools/` 子資料夾(對應 `bundled_tools_dir()` 的 frozen 路徑),LICENSE 複製進 `licenses/<工具>/`。是否已裝的偵測(決定選用元件預設勾選/不勾選)由 Pascal Script 在精靈的元件選擇頁面時動態設定。
 
-**Tech Stack:** Inno Setup 6(`ISCC.exe` 命令列編譯器,已安裝於 `C:\Users\CAT\AppData\Local\Programs\Inno Setup 6\`)、Pascal Script(Inno Setup 內建)、ISPP(Inno Setup Preprocessor,內建)。
+**Tech Stack:** Inno Setup 6(`ISCC.exe` 命令列編譯器,已安裝於 `%LOCALAPPDATA%\Programs\Inno Setup 6\`)、Pascal Script(Inno Setup 內建)、ISPP(Inno Setup Preprocessor,內建)。
 
 **Spec:** `docs/superpowers/specs/2026-07-14-innosetup-installer-design.md`
 
@@ -20,8 +20,8 @@
 
 ## Global Constraints
 
-- 工作目錄/repo root:`C:\Claude_code`;直接在 `master` 上做(此計畫兩個 task 都是控制器執行,不建 subagent 分支——但仍遵照專案慣例,若後續要走完整 subagent-driven 流程可先 `git checkout -b feature/innosetup-installer`)
-- `ISCC.exe` 路徑:`C:\Users\CAT\AppData\Local\Programs\Inno Setup 6\ISCC.exe`
+- 工作目錄/repo root:專案根目錄;直接在 `master` 上做(此計畫兩個 task 都是控制器執行,不建 subagent 分支——但仍遵照專案慣例,若後續要走完整 subagent-driven 流程可先 `git checkout -b feature/innosetup-installer`)
+- `ISCC.exe` 路徑:`%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe`
 - **執行編譯出的安裝程式一律用 PowerShell,不要用 Bash/Git Bash**(見上方已驗證細節 3)
 - AppId 固定:`{{A6F1AE07-C85D-4E18-B33C-08AA18A17BF4}`(已產生,寫死進 script,讓重跑安裝程式視為升級而非全新安裝——之後任何版本都不可以再改這個值)
 - `installer_payload/ffmpeg/`、`installer_payload/mkvtoolnix/` 由使用者自行放入官方 portable 執行檔 + LICENSE 檔,Claude 不下載/內嵌第三方二進位
@@ -194,20 +194,20 @@ end;
 用 PowerShell 建立零位元組假執行檔(模擬使用者尚未放入真實二進位前的測試):
 
 ```powershell
-New-Item -ItemType Directory -Force -Path "C:\Claude_code\installer_payload\ffmpeg" | Out-Null
-New-Item -ItemType Directory -Force -Path "C:\Claude_code\installer_payload\mkvtoolnix" | Out-Null
-New-Item -ItemType File -Force -Path "C:\Claude_code\installer_payload\ffmpeg\ffmpeg.exe" | Out-Null
-New-Item -ItemType File -Force -Path "C:\Claude_code\installer_payload\ffmpeg\ffprobe.exe" | Out-Null
-"fake ffmpeg license for testing" | Set-Content "C:\Claude_code\installer_payload\ffmpeg\LICENSE"
-New-Item -ItemType File -Force -Path "C:\Claude_code\installer_payload\mkvtoolnix\mkvmerge.exe" | Out-Null
-New-Item -ItemType File -Force -Path "C:\Claude_code\installer_payload\mkvtoolnix\mkvextract.exe" | Out-Null
-"fake mkvtoolnix license for testing" | Set-Content "C:\Claude_code\installer_payload\mkvtoolnix\LICENSE"
+New-Item -ItemType Directory -Force -Path ".\installer_payload\ffmpeg" | Out-Null
+New-Item -ItemType Directory -Force -Path ".\installer_payload\mkvtoolnix" | Out-Null
+New-Item -ItemType File -Force -Path ".\installer_payload\ffmpeg\ffmpeg.exe" | Out-Null
+New-Item -ItemType File -Force -Path ".\installer_payload\ffmpeg\ffprobe.exe" | Out-Null
+"fake ffmpeg license for testing" | Set-Content ".\installer_payload\ffmpeg\LICENSE"
+New-Item -ItemType File -Force -Path ".\installer_payload\mkvtoolnix\mkvmerge.exe" | Out-Null
+New-Item -ItemType File -Force -Path ".\installer_payload\mkvtoolnix\mkvextract.exe" | Out-Null
+"fake mkvtoolnix license for testing" | Set-Content ".\installer_payload\mkvtoolnix\LICENSE"
 ```
 
 - [ ] **Step 4: 編譯**
 
-Run: `& "C:\Users\CAT\AppData\Local\Programs\Inno Setup 6\ISCC.exe" "C:\Claude_code\ass_style_tool.iss"`
-Expected: `Successful compile`,產生 `C:\Claude_code\installer_dist\ass-style-tool-setup.exe`
+Run: `& "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" "ass_style_tool.iss"`
+Expected: `Successful compile`,產生 `installer_dist\ass-style-tool-setup.exe`
 
 - [ ] **Step 5: 靜默安裝測試(這台機器已裝 MKVToolNix,沒裝 ffmpeg——驗證預設勾選狀態符合偵測結果)**
 
@@ -216,7 +216,7 @@ Expected: `Successful compile`,產生 `C:\Claude_code\installer_dist\ass-style-t
 ```powershell
 $testDir = "$env:TEMP\ass-style-tool-test"
 Remove-Item -Path $testDir -Recurse -Force -ErrorAction SilentlyContinue
-& "C:\Claude_code\installer_dist\ass-style-tool-setup.exe" /VERYSILENT "/DIR=$testDir" "/LOG=$env:TEMP\ass-style-tool-test-install.log" /SUPPRESSMSGBOXES
+& ".\installer_dist\ass-style-tool-setup.exe" /VERYSILENT "/DIR=$testDir" "/LOG=$env:TEMP\ass-style-tool-test-install.log" /SUPPRESSMSGBOXES
 Start-Sleep -Seconds 3
 Get-ChildItem -Path $testDir -Recurse | Select-Object FullName
 ```
@@ -234,7 +234,7 @@ Expected:
 ```powershell
 $testDir2 = "$env:TEMP\ass-style-tool-test-all"
 Remove-Item -Path $testDir2 -Recurse -Force -ErrorAction SilentlyContinue
-& "C:\Claude_code\installer_dist\ass-style-tool-setup.exe" /VERYSILENT "/DIR=$testDir2" "/COMPONENTS=core,ffmpeg,mkvtoolnix" /SUPPRESSMSGBOXES
+& ".\installer_dist\ass-style-tool-setup.exe" /VERYSILENT "/DIR=$testDir2" "/COMPONENTS=core,ffmpeg,mkvtoolnix" /SUPPRESSMSGBOXES
 Start-Sleep -Seconds 3
 Get-ChildItem -Path $testDir2 -Recurse -Filter "*.exe" | Select-Object Name
 ```
@@ -269,12 +269,12 @@ if (Test-Path $uninstallKey) { Remove-Item -Path $uninstallKey -Recurse -Force }
 同時刪除假 payload(下個 task 前使用者要放真實二進位進同一批資料夾,先清空):
 
 ```powershell
-Remove-Item -Path "C:\Claude_code\installer_payload" -Recurse -Force
+Remove-Item -Path ".\installer_payload" -Recurse -Force
 ```
 
 - [ ] **Step 9: 全套單元測試確認無回歸(本計畫未改動 Python 程式碼,純確認基準未變動)**
 
-Run: `py -m pytest tests -q`(從 `C:\Claude_code`)
+Run: `py -m pytest tests -q`(從專案根目錄)
 Expected: `284 passed`(與本計畫開始前相同——這個 task 完全沒有碰任何 Python 檔案)
 
 - [ ] **Step 10: 切回正式的 `PrivilegesRequired=admin`**
@@ -295,13 +295,13 @@ PrivilegesRequired=admin
 
 - [ ] **Step 11: 最終編譯確認(只編譯,不安裝)**
 
-Run: `& "C:\Users\CAT\AppData\Local\Programs\Inno Setup 6\ISCC.exe" "C:\Claude_code\ass_style_tool.iss"`
+Run: `& "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" "ass_style_tool.iss"`
 Expected: `Successful compile`(改回 `admin` 純粹是 manifest 旗標,不影響編譯本身能不能過)
 
 - [ ] **Step 12: Commit**
 
 ```powershell
-cd C:\Claude_code
+cd <repo-root>
 git add ass_style_tool.iss .gitignore
 git commit -m "build: add Inno Setup installer script with detected-component defaults"
 ```
@@ -329,8 +329,8 @@ git commit -m "build: add Inno Setup installer script with detected-component de
 - [ ] **Step 1: 確認使用者已放入真實檔案**
 
 ```powershell
-Get-ChildItem "C:\Claude_code\installer_payload\ffmpeg" -ErrorAction SilentlyContinue
-Get-ChildItem "C:\Claude_code\installer_payload\mkvtoolnix" -ErrorAction SilentlyContinue
+Get-ChildItem ".\installer_payload\ffmpeg" -ErrorAction SilentlyContinue
+Get-ChildItem ".\installer_payload\mkvtoolnix" -ErrorAction SilentlyContinue
 ```
 
 若任一資料夾不存在或是空的,停下來提醒使用者先放檔案,不要用假檔硬跑這個 task(Task 1 的假檔測試已經證明邏輯正確,這個 task 的目的是驗證真實二進位能不能正常運作,不是重複邏輯測試)。
@@ -347,7 +347,7 @@ PrivilegesRequired=lowest
 
 - [ ] **Step 3: 編譯(lowest 測試版)**
 
-Run: `& "C:\Users\CAT\AppData\Local\Programs\Inno Setup 6\ISCC.exe" "C:\Claude_code\ass_style_tool.iss"`
+Run: `& "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" "ass_style_tool.iss"`
 Expected: `Successful compile`
 
 - [ ] **Step 4: 安裝到測試目錄,啟動程式,確認工具可用**
@@ -355,7 +355,7 @@ Expected: `Successful compile`
 ```powershell
 $testDir = "$env:TEMP\ass-style-tool-realcheck"
 Remove-Item -Path $testDir -Recurse -Force -ErrorAction SilentlyContinue
-& "C:\Claude_code\installer_dist\ass-style-tool-setup.exe" /VERYSILENT "/DIR=$testDir" /SUPPRESSMSGBOXES
+& ".\installer_dist\ass-style-tool-setup.exe" /VERYSILENT "/DIR=$testDir" /SUPPRESSMSGBOXES
 Start-Sleep -Seconds 3
 $p = Start-Process -FilePath "$testDir\ass_style_tool.exe" -PassThru
 Start-Sleep -Seconds 5
@@ -383,7 +383,7 @@ if (Test-Path $uninstallKey) { Remove-Item -Path $uninstallKey -Recurse -Force }
 
 把 `ass_style_tool.iss` 的 `PrivilegesRequired=lowest` 改回 `PrivilegesRequired=admin`。
 
-Run: `& "C:\Users\CAT\AppData\Local\Programs\Inno Setup 6\ISCC.exe" "C:\Claude_code\ass_style_tool.iss"`
+Run: `& "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" "ass_style_tool.iss"`
 Expected: `Successful compile`(**不要**再自動靜默安裝——會卡 UAC)
 
 - [ ] **Step 8: 全套單元測試複驗**
@@ -398,7 +398,7 @@ Expected: `284 passed`
 - [ ] **Step 10: Commit(若 `.iss` 因偵測邏輯調整而有變動才需要;若跟 Task 1 commit 後完全相同則跳過)**
 
 ```powershell
-cd C:\Claude_code
+cd <repo-root>
 git status --short ass_style_tool.iss
 ```
 

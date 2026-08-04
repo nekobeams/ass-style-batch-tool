@@ -11,7 +11,7 @@
 ## Global Constraints
 
 - **一律用 `py`,不要用 `python`**(本機 `python` 是壞掉的 WindowsApps stub,靜默 exit 49/9009)
-- 測試指令一律 `py -m pytest tests -q`,從 repo root `C:\Claude_code` 執行
+- 測試指令一律 `py -m pytest tests -q`,從 repo root(專案根目錄)執行
 - Qt 測試在 offscreen 下跑(`tests/conftest.py` 已設定),**絕不**真的呼叫 mkvextract / ffprobe / mpv,一律注入假物件
 - 純邏輯模組不得 import PySide6
 - 所有註解與使用者可見字串用繁體中文;commit 訊息用英文
@@ -23,8 +23,8 @@
 ### Task 1: `style_scan.py` 純邏輯層
 
 **Files:**
-- Create: `C:\Claude_code\ass_style_tool\style_scan.py`
-- Test: `C:\Claude_code\tests\test_style_scan.py`
+- Create: `ass_style_tool\style_scan.py`
+- Test: `tests\test_style_scan.py`
 
 **Interfaces:**
 - Consumes: `ass_style.load_subs(path)`、`ass_style.get_play_res(subs)`(既有)
@@ -36,7 +36,7 @@
 
 - [ ] **Step 1: 寫失敗的測試**
 
-建立 `C:\Claude_code\tests\test_style_scan.py`:
+建立 `tests\test_style_scan.py`:
 
 ```python
 from __future__ import annotations
@@ -130,7 +130,7 @@ Expected: FAIL — `ModuleNotFoundError: No module named 'ass_style_tool.style_s
 
 - [ ] **Step 3: 寫實作**
 
-建立 `C:\Claude_code\ass_style_tool\style_scan.py`:
+建立 `ass_style_tool\style_scan.py`:
 
 ```python
 """字幕檔樣式的掃描與彙整(純邏輯,不依賴 Qt)。
@@ -230,8 +230,8 @@ git commit -m "feat: add pure-logic subtitle style scanning layer"
 ### Task 2: `scan_folder()` 帶入樣式掃描、進度與取消
 
 **Files:**
-- Modify: `C:\Claude_code\ass_style_tool\batch_runner.py`(`ScanResult` 與 `scan_folder`)
-- Test: `C:\Claude_code\tests\test_batch_runner.py`(既有檔案,附加測試)
+- Modify: `ass_style_tool\batch_runner.py`(`ScanResult` 與 `scan_folder`)
+- Test: `tests\test_batch_runner.py`(既有檔案,附加測試)
 
 **Interfaces:**
 - Consumes: `style_scan.scan_styles`、`style_scan.FileStyles`(Task 1)
@@ -242,7 +242,7 @@ git commit -m "feat: add pure-logic subtitle style scanning layer"
 
 - [ ] **Step 1: 寫失敗的測試**
 
-附加到 `C:\Claude_code\tests\test_batch_runner.py` 末尾。若檔案內尚未 import `write_ass`,在檔案頂端加入 `from tests.test_style_scan import write_ass`(pytest 以 repo root 為 rootdir,可直接 import)。
+附加到 `tests\test_batch_runner.py` 末尾。若檔案內尚未 import `write_ass`,在檔案頂端加入 `from tests.test_style_scan import write_ass`(pytest 以 repo root 為 rootdir,可直接 import)。
 
 ```python
 # ---------- 掃描帶入樣式資訊 / 進度 / 取消 ----------
@@ -383,8 +383,8 @@ git commit -m "feat: collect per-file styles during scan, add progress and cance
 ### Task 3: `ScanWorker` 支援進度與取消
 
 **Files:**
-- Modify: `C:\Claude_code\ass_style_tool\qt\batch_worker.py`(`ScanWorker`,約第 18-27 行)
-- Test: `C:\Claude_code\tests\test_batch_worker.py`(既有檔案,附加測試)
+- Modify: `ass_style_tool\qt\batch_worker.py`(`ScanWorker`,約第 18-27 行)
+- Test: `tests\test_batch_worker.py`(既有檔案,附加測試)
 
 **Interfaces:**
 - Consumes: `batch_runner.scan_folder(folder, progress=..., should_cancel=...)`(Task 2)
@@ -392,7 +392,7 @@ git commit -m "feat: collect per-file styles during scan, add progress and cance
 
 - [ ] **Step 1: 寫失敗的測試**
 
-附加到 `C:\Claude_code\tests\test_batch_worker.py` 末尾:
+附加到 `tests\test_batch_worker.py` 末尾:
 
 ```python
 # ---------- ScanWorker 進度與取消 ----------
@@ -478,8 +478,8 @@ git commit -m "feat: forward scan progress and cancellation through ScanWorker"
 ### Task 4: 「預計」欄文字的純函式
 
 **Files:**
-- Modify: `C:\Claude_code\ass_style_tool\qt\gui_helpers.py`(`PreviewRow` 與 `preview_rows`)
-- Test: `C:\Claude_code\tests\test_gui_helpers.py`(既有檔案,附加測試)
+- Modify: `ass_style_tool\qt\gui_helpers.py`(`PreviewRow` 與 `preview_rows`)
+- Test: `tests\test_gui_helpers.py`(既有檔案,附加測試)
 
 **Interfaces:**
 - Consumes: `style_scan.FileStyles`(Task 1)、`ass_style.compute_applied_values`、`scale_engine.fmt_num`、`scale_engine.ScaleOptions`(皆為既有)
@@ -491,7 +491,7 @@ git commit -m "feat: forward scan progress and cancellation through ScanWorker"
 
 - [ ] **Step 1: 寫失敗的測試**
 
-附加到 `C:\Claude_code\tests\test_gui_helpers.py` 末尾:
+附加到 `tests\test_gui_helpers.py` 末尾:
 
 ```python
 # ---------- 「預計」欄文字 ----------
@@ -697,8 +697,8 @@ git commit -m "feat: add planned-change column text for apply and scale modes"
 ### Task 5: `StylePicker` 側欄元件(含核心不變式)
 
 **Files:**
-- Create: `C:\Claude_code\ass_style_tool\qt\style_picker.py`
-- Test: `C:\Claude_code\tests\test_style_picker.py`
+- Create: `ass_style_tool\qt\style_picker.py`
+- Test: `tests\test_style_picker.py`
 
 **Interfaces:**
 - Consumes: 無(純 Qt 元件)
@@ -710,7 +710,7 @@ git commit -m "feat: add planned-change column text for apply and scale modes"
 
 - [ ] **Step 1: 寫失敗的測試**
 
-建立 `C:\Claude_code\tests\test_style_picker.py`:
+建立 `tests\test_style_picker.py`:
 
 ```python
 from __future__ import annotations
@@ -782,7 +782,7 @@ Expected: FAIL — `ModuleNotFoundError: No module named 'ass_style_tool.qt.styl
 
 - [ ] **Step 3: 寫實作**
 
-建立 `C:\Claude_code\ass_style_tool\qt\style_picker.py`:
+建立 `ass_style_tool\qt\style_picker.py`:
 
 ```python
 """側欄的目標樣式勾選清單。
@@ -912,8 +912,8 @@ git commit -m "feat: add StylePicker sidebar widget that never drops user select
 ### Task 6: 字幕檔分頁整合(側欄清單、預計欄、自動掃描)
 
 **Files:**
-- Modify: `C:\Claude_code\ass_style_tool\qt\subtitle_tab.py`
-- Test: `C:\Claude_code\tests\test_subtitle_tab.py`(既有檔案,附加測試)
+- Modify: `ass_style_tool\qt\subtitle_tab.py`
+- Test: `tests\test_subtitle_tab.py`(既有檔案,附加測試)
 
 **Interfaces:**
 - Consumes: `StylePicker`(Task 5)、`apply_plan_text` / `scale_plan_text` / `preview_rows`(Task 4)、`ScanResult.styles`(Task 2)
@@ -924,7 +924,7 @@ git commit -m "feat: add StylePicker sidebar widget that never drops user select
 
 - [ ] **Step 1: 寫失敗的測試**
 
-附加到 `C:\Claude_code\tests\test_subtitle_tab.py` 末尾:
+附加到 `tests\test_subtitle_tab.py` 末尾:
 
 ```python
 # ---------- 目標樣式清單與預計欄 ----------
@@ -1184,9 +1184,9 @@ git commit -m "feat: wire style picker, plan column and lazy auto-scan into subt
 ### Task 7: 主視窗切分頁觸發掃描、樣式編輯器移除目標欄位
 
 **Files:**
-- Modify: `C:\Claude_code\ass_style_tool\qt\main_window.py`
-- Modify: `C:\Claude_code\ass_style_tool\qt\style_editor.py`
-- Test: `C:\Claude_code\tests\test_main_window.py`、`C:\Claude_code\tests\test_style_editor.py`(既有檔案,附加測試)
+- Modify: `ass_style_tool\qt\main_window.py`
+- Modify: `ass_style_tool\qt\style_editor.py`
+- Test: `tests\test_main_window.py`、`tests\test_style_editor.py`(既有檔案,附加測試)
 
 **Interfaces:**
 - Consumes: `SubtitleTab.auto_scan_once()`(Task 6)
@@ -1194,7 +1194,7 @@ git commit -m "feat: wire style picker, plan column and lazy auto-scan into subt
 
 - [ ] **Step 1: 寫失敗的測試**
 
-附加到 `C:\Claude_code\tests\test_style_editor.py` 末尾:
+附加到 `tests\test_style_editor.py` 末尾:
 
 ```python
 # ---------- 目標 Style 欄位已移出樣式編輯器 ----------
@@ -1223,7 +1223,7 @@ def test_loading_profile_keeps_its_target_names(qapp):
     assert editor.get_values()["target_style_names"] == "CHT, CHS"
 ```
 
-附加到 `C:\Claude_code\tests\test_main_window.py` 末尾:
+附加到 `tests\test_main_window.py` 末尾:
 
 ```python
 # ---------- 切分頁自動掃描 ----------
@@ -1336,8 +1336,8 @@ git commit -m "feat: scan a tab's folder on first show, drop target style field 
 ### Task 8: 封裝分頁整合
 
 **Files:**
-- Modify: `C:\Claude_code\ass_style_tool\qt\mux_tab.py`
-- Test: `C:\Claude_code\tests\test_mux_tab.py`(既有檔案,附加測試)
+- Modify: `ass_style_tool\qt\mux_tab.py`
+- Test: `tests\test_mux_tab.py`(既有檔案,附加測試)
 
 **Interfaces:**
 - Consumes: `StylePicker`(Task 5)、`style_scan.scan_styles` / `summarize`(Task 1)
@@ -1345,7 +1345,7 @@ git commit -m "feat: scan a tab's folder on first show, drop target style field 
 
 - [ ] **Step 1: 寫失敗的測試**
 
-附加到 `C:\Claude_code\tests\test_mux_tab.py` 末尾:
+附加到 `tests\test_mux_tab.py` 末尾:
 
 ```python
 # ---------- 目標樣式清單 ----------
@@ -1490,8 +1490,8 @@ git commit -m "feat: add style picker and lazy auto-scan to mux tab"
 ### Task 9: MKV 分頁整合(範本檔按需讀取)
 
 **Files:**
-- Modify: `C:\Claude_code\ass_style_tool\qt\mkv_tab.py`
-- Test: `C:\Claude_code\tests\test_mkv_tab.py`(既有檔案,附加測試)
+- Modify: `ass_style_tool\qt\mkv_tab.py`
+- Test: `tests\test_mkv_tab.py`(既有檔案,附加測試)
 
 **Interfaces:**
 - Consumes: `StylePicker`(Task 5)、`style_scan.scan_styles`(Task 1)、既有的 `mkv_io` 抽取函式
@@ -1501,7 +1501,7 @@ git commit -m "feat: add style picker and lazy auto-scan to mux tab"
 
 - [ ] **Step 1: 寫失敗的測試**
 
-附加到 `C:\Claude_code\tests\test_mkv_tab.py` 末尾:
+附加到 `tests\test_mkv_tab.py` 末尾:
 
 ```python
 # ---------- 範本檔樣式讀取 ----------
@@ -1679,10 +1679,10 @@ git commit -m "feat: read style names from a template file in the MKV tab"
 ### Task 10: 「預計 / 結果」欄的狀態轉換
 
 **Files:**
-- Modify: `C:\Claude_code\ass_style_tool\qt\subtitle_tab.py`
-- Modify: `C:\Claude_code\ass_style_tool\qt\mux_tab.py`(加同一欄)
-- Modify: `C:\Claude_code\ass_style_tool\qt\mkv_tab.py`(只加「結果」,無預告)
-- Test: `C:\Claude_code\tests\test_subtitle_tab.py`、`C:\Claude_code\tests\test_mux_tab.py`
+- Modify: `ass_style_tool\qt\subtitle_tab.py`
+- Modify: `ass_style_tool\qt\mux_tab.py`(加同一欄)
+- Modify: `ass_style_tool\qt\mkv_tab.py`(只加「結果」,無預告)
+- Test: `tests\test_subtitle_tab.py`、`tests\test_mux_tab.py`
 
 **Interfaces:**
 - Consumes: 既有的 `BatchWorker.file_done = Signal(str, str)`(檔名, 狀態)、`MuxWorker` / `MkvWorker` 的對應訊號
@@ -1692,7 +1692,7 @@ git commit -m "feat: read style names from a template file in the MKV tab"
 
 - [ ] **Step 1: 寫失敗的測試**
 
-附加到 `C:\Claude_code\tests\test_subtitle_tab.py` 末尾:
+附加到 `tests\test_subtitle_tab.py` 末尾:
 
 ```python
 # ---------- 預計 / 結果 的狀態轉換 ----------

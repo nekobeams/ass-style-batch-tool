@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- 工作目錄/repo root:`C:\Claude_code`;git branch 由執行者依 subagent-driven 流程建立(從 master HEAD 分出)
+- 工作目錄/repo root:專案根目錄;git branch 由執行者依 subagent-driven 流程建立(從 master HEAD 分出)
 - **環境重點**:`python` 是壞的 Windows Store stub,一律用 `py`:`py -m pytest tests -v`
 - Python 3.9+ 相容;各檔案已有 `from __future__ import annotations`
 - 測試絕不寫真實使用者 QSettings(registry/使用者設定檔):一律用 `QSettings(str(tmp_path / "t.ini"), QSettings.Format.IniFormat)` 注入暫存檔
@@ -550,7 +550,7 @@ Run: `py -c "import ass_style_tool.qt.main_window; print('ok')"`
 Expected: `ok`
 
 ```powershell
-$p = Start-Process -FilePath "py" -ArgumentList "-m","ass_style_tool" -WorkingDirectory "C:\Claude_code" -PassThru
+$p = Start-Process -FilePath "py" -ArgumentList "-m","ass_style_tool" -WorkingDirectory $PWD -PassThru
 Start-Sleep -Seconds 3
 if ($p.HasExited) { Write-Output "FAIL exit=$($p.ExitCode)" } else { Write-Output "OK"; Stop-Process -Id $p.Id }
 ```

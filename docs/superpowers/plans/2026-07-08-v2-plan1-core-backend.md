@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- 工作目錄/repo root:`C:\Claude_code`,git branch 由執行者依 subagent-driven 流程建立
+- 工作目錄/repo root:專案根目錄,git branch 由執行者依 subagent-driven 流程建立
 - **環境重點**:這台機器 `python` 是壞的 Windows Store stub,一律用 `py`:`py -m pytest tests -v`
 - Python 3.9+ 相容;每個新模組頂端加 `from __future__ import annotations`
 - 不動 v1 核心模組(profile/resolution/ass_style/episode_match/batch_runner)與其 62 個既有測試

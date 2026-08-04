@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- 工作目錄/repo root:`C:\Claude_code`,git branch 由執行者依 subagent-driven 流程建立
+- 工作目錄/repo root:專案根目錄,git branch 由執行者依 subagent-driven 流程建立
 - **環境重點**:`python` 是壞的 Windows Store stub,一律用 `py`:`py -m pytest tests -v`、`py -m ass_style_tool`
 - Python 3.9+ 相容;每個新模組頂端加 `from __future__ import annotations`
 - Qt 自動化測試一律用 offscreen 平台:測試透過 `tests/conftest.py` 在 import Qt 前設 `os.environ["QT_QPA_PLATFORM"]="offscreen"` 並提供共用 `qapp` fixture
@@ -992,7 +992,7 @@ Expected: 輸出 `ok`,無例外
 
 ```powershell
 foreach ($mod in @("ass_style_tool", "ass_style_tool.qt")) {
-  $p = Start-Process -FilePath "py" -ArgumentList "-m",$mod -WorkingDirectory "C:\Claude_code" -PassThru
+  $p = Start-Process -FilePath "py" -ArgumentList "-m",$mod -WorkingDirectory $PWD -PassThru
   Start-Sleep -Seconds 3
   if ($p.HasExited) { Write-Output "FAIL $mod exit=$($p.ExitCode)" } else { Write-Output "OK $mod"; Stop-Process -Id $p.Id }
 }

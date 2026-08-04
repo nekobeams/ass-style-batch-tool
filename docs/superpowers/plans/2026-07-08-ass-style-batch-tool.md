@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- 工作目錄/repo root:`C:\Claude_code`,所有指令從此目錄執行
+- 工作目錄/repo root:專案根目錄,所有指令從此目錄執行
 - Python 3.9+;每個模組頂端加 `from __future__ import annotations`
 - 依賴:`pysubs2>=1.6`、`charset-normalizer>=3.0`、`tkinterdnd2`(選配,缺少時 GUI 退回按鈕模式)、`pytest`(開發用)
 - **絕不改寫** `[Script Info]` 的 `PlayResX`/`PlayResY`/`ScaledBorderAndShadow` 標頭,只修改目標 Style 行
@@ -28,7 +28,7 @@
 ## File Structure
 
 ```
-C:\Claude_code\
+專案根目錄\
 ├── ass_style_tool\
 │   ├── __init__.py        # 空檔,標記 package
 │   ├── __main__.py        # python -m ass_style_tool 進入點

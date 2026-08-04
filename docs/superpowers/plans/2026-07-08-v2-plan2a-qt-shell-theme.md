@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- 工作目錄/repo root:`C:\Claude_code`,git branch 由執行者依 subagent-driven 流程建立
+- 工作目錄/repo root:專案根目錄,git branch 由執行者依 subagent-driven 流程建立
 - **環境重點**:這台機器 `python` 是壞的 Windows Store stub,一律用 `py`:`py -m pytest tests -v`、`py -m pip ...`、`py -m ass_style_tool.qt`
 - Python 3.9+ 相容;每個新模組頂端加 `from __future__ import annotations`
 - 依賴新增:`PySide6>=6.6`(Qt 6.5+ 才有 `QStyleHints.colorScheme()`,故下限 6.6)
@@ -610,7 +610,7 @@ Expected: 輸出 `qt import ok`,無例外
 在背景啟動視窗約 3 秒後關閉,確認啟動不崩潰:
 
 ```powershell
-$p = Start-Process -FilePath "py" -ArgumentList "-m","ass_style_tool.qt" -WorkingDirectory "C:\Claude_code" -PassThru
+$p = Start-Process -FilePath "py" -ArgumentList "-m","ass_style_tool.qt" -WorkingDirectory $PWD -PassThru
 Start-Sleep -Seconds 3
 if ($p.HasExited) { Write-Output "FAIL: 啟動即退出,exit=$($p.ExitCode)" } else { Write-Output "OK: 視窗持續執行"; Stop-Process -Id $p.Id }
 ```
