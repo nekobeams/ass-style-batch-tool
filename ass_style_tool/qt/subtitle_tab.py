@@ -219,6 +219,15 @@ class SubtitleFileTab(QWidget):
         self._scan_worker = ScanWorker(Path(folder))
         self._scan_worker.moveToThread(self._scan_thread)
         self._scan_thread.started.connect(self._scan_worker.run)
+        # 銷毀時機交給 Qt,不要留給 Python GC:worker 的 affinity 在這條
+        # 執行緒上,thread.finished 是唯一能安全刪掉它的時機——Qt 在
+        # QThreadPrivate::finish() 裡發完 finished 之後,會緊接著替這條
+        # 執行緒送出一輪 DeferredDelete,所以 worker 的 C++ 物件會在
+        # wait() 回來之前就確定銷毀。反過來在 wait() 之後才呼叫
+        # worker.deleteLater() 是無效的:那時事件迴圈已經停了,刪除事件
+        # 永遠不會被處理(等於洩漏)。見 _on_scan_finished() 的收尾說明,
+        # 跟 mkv_tab.py/mux_tab.py 同一組修正、同一個理由。
+        self._scan_thread.finished.connect(self._scan_worker.deleteLater)
         self._scan_worker.progress.connect(self._on_progress)
         self._scan_worker.finished.connect(self._on_scan_finished)
         self._scan_thread.start()
@@ -239,6 +248,16 @@ class SubtitleFileTab(QWidget):
         if self._scan_thread is not None:
             self._scan_thread.quit()
             self._scan_thread.wait()
+            # deleteLater() 的重點不是「盡快刪掉」,而是把這個 QThread 的
+            # 所有權從 Python 手上交給 Qt:只設 = None 的話,分頁與執行緒
+            # /worker 之間的訊號連線構成參照循環,refcount 歸不了零,C++
+            # 物件最後是被 Python 的分代 GC 回收的——GC 的時機不可控,可
+            # 能落在 Qt 正在派送事件的中途,與 widget 銷毀交錯,造成
+            # Windows heap corruption(0xc0000374)。呼叫過 deleteLater()
+            # 之後 GC 就再也不是銷毀者,改由 Qt 的事件迴圈負責。
+            # 此時執行緒已經 wait() 過、不再運轉,QThread 物件本身的
+            # affinity 在 GUI 執行緒,刪除事件送得到,與 worker 的情況不同。
+            self._scan_thread.deleteLater()
         # 一定要在 populate_preview()(內部會呼叫 _update_run_enabled()/
         # _update_dry_run_enabled())之前把這兩個清空:這兩個函式把
         # self._scan_thread is not None 算進「忙碌」,如果 populate_preview
@@ -502,6 +521,9 @@ class SubtitleFileTab(QWidget):
             self._worker = BatchWorker(self._scan, payload, self._output_dir())
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)
+        # 見 _on_scan() 的說明:worker 的銷毀要綁在 thread.finished 上,
+        # 不能等 Python GC,也不能在 wait() 之後才 deleteLater()。
+        self._thread.finished.connect(self._worker.deleteLater)
         self._worker.progress.connect(self._on_progress)
         self._worker.file_done.connect(
             lambda name, status: self.log.emit(f"[{status}] {name}"))
@@ -535,6 +557,9 @@ class SubtitleFileTab(QWidget):
         if self._thread is not None:
             self._thread.quit()
             self._thread.wait()
+            # 見 _on_scan_finished():把 QThread 的所有權交給 Qt,不要留給
+            # GC。
+            self._thread.deleteLater()
         self._thread = None
         self._worker = None
         self.scan_button.setEnabled(True)
@@ -558,6 +583,20 @@ class SubtitleFileTab(QWidget):
             if thread is not None:
                 thread.quit()
                 thread.wait()
+                # 見 _on_scan_finished():把 QThread 的所有權交給 Qt,不要
+                # 留給 GC。
+                thread.deleteLater()
+        # wait() 回來的當下,綁在 thread.finished 上的 worker.deleteLater()
+        # 已經讓 worker 的 C++ 物件銷毀完畢,所以參照都必須放掉——留著就是
+        # 一個指向已銷毀 C++ 物件的空殼 wrapper,之後任何人再去 touch 它
+        # (例如又呼叫一次 shutdown() 裡的 worker.cancel())就會炸
+        # RuntimeError。_on_finished()/_on_scan_finished() 這兩條正常收尾
+        # 路徑在批次/掃描執行中呼叫 shutdown() 時並不會跑,跟
+        # mkv_tab.py/mux_tab.py 的 shutdown() 同一個理由,同一個補法。
+        self._thread = None
+        self._worker = None
+        self._scan_thread = None
+        self._scan_worker = None
 
     # ---------- 設定持久化 ----------
     def save_settings(self, settings: QSettings) -> None:
