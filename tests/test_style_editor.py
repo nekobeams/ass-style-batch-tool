@@ -4,6 +4,35 @@ from ass_style_tool.profile import Profile
 from ass_style_tool.profile_fields import DEFAULT_VALUES, values_from_profile
 
 
+def test_ass_to_qcolor_maps_channels_in_order(qapp):
+    """ASS 色碼是 &HAABBGGRR;三個色版刻意用互不相同的數值,避免通道
+    順序寫反(例如 R/B 對調)時測試還碰巧通過。"""
+    from ass_style_tool.qt.style_editor import _ass_to_qcolor
+
+    color = _ass_to_qcolor("&H80FF8040")
+    assert (color.red(), color.green(), color.blue()) == (0x40, 0x80, 0xFF)
+
+
+def test_qcolor_to_ass_roundtrips_color_and_alpha(qapp):
+    from ass_style_tool.qt.style_editor import _ass_to_qcolor, _qcolor_to_ass
+
+    original = "&H80FF8040"
+    color = _ass_to_qcolor(original)
+    # _ass_to_qcolor 刻意丟棄 alpha(QColor 只吃 r/g/b),所以要餵回原始
+    # 字串取回 alpha——這正是 _qcolor_to_ass 第二個參數存在的理由。
+    assert _qcolor_to_ass(color, original) == original
+
+
+def test_qcolor_to_ass_falls_back_to_zero_alpha_on_invalid_source(qapp):
+    """換色時如果欄位裡原本的文字打到一半是無效色碼,parse_ass_color
+    會丟 ValueError——不該讓整個換色動作跟著失敗,只是 alpha 退回 0。"""
+    from PySide6.QtGui import QColor
+    from ass_style_tool.qt.style_editor import _qcolor_to_ass
+
+    color = QColor(0x40, 0x80, 0xFF)
+    assert _qcolor_to_ass(color, "not-a-color") == "&H00FF8040"
+
+
 def test_get_values_roundtrip(qapp):
     from ass_style_tool.qt.style_editor import StyleEditor
     editor = StyleEditor()

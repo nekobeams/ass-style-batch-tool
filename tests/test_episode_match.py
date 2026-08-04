@@ -108,6 +108,19 @@ def test_match_ambiguous_two_subs_same_episode():
     assert [r.status for r in results] == ["ambiguous", "ambiguous"]
 
 
+def test_match_video_with_unrecognized_episode_is_silently_skipped():
+    """影片清單裡混入抓不到集數的檔名(NCOP/NCED/Menu 這類 fansub 常見
+    的附加內容)時,該檔案只是不進候選名單,不應影響其他集數正常配對,
+    也不應讓 match_pairs 拋例外或誤判成 ambiguous。"""
+    results = match_pairs(
+        _paths("[A] Show [01].ass"),
+        _paths("[B] Show - 01 [x].mkv", "[B] Show NCOP [x].mkv",
+               "[B] Show Menu [x].mkv"),
+    )
+    assert results[0].status == "matched"
+    assert results[0].video_path == Path("[B] Show - 01 [x].mkv")
+
+
 # ---------- SRT 支援 ----------
 
 def test_sub_exts_includes_srt():

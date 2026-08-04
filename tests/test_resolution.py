@@ -46,6 +46,50 @@ def test_aspect_match_within_tolerance():
     assert aspect_mismatch((1920, 1080), (1919, 1080)) is False
 
 
+def test_aspect_mismatch_exactly_at_tolerance_is_not_mismatch():
+    """相對誤差『剛好等於』tolerance 時不算 mismatch(實作用嚴格 `>`)。
+
+    寫死的浮點字面值(例如 0.05)在二進位浮點下不可靠——實測
+    21/20 與 1/1 的相對誤差其實是 0.050000000000000044,不是乾淨的
+    0.05,直接拿字面值當 tolerance 測邊界會測到浮點雜訊而非真正的
+    邊界行為。這裡改成先用函式本身的公式反推出誤差值,再把它原封
+    不動地當 tolerance 丟回去——保證兩邊比較的是同一個浮點數,誤差
+    等於 tolerance 時是否真的被視為「不算超標」。
+    """
+    ref, video = (21, 20), (1, 1)
+    ref_ratio = ref[0] / ref[1]
+    video_ratio = video[0] / video[1]
+    diff = abs(ref_ratio - video_ratio) / video_ratio
+
+    assert aspect_mismatch(ref, video, tolerance=diff) is False
+
+
+def test_aspect_mismatch_just_above_tolerance_is_mismatch():
+    """誤差比 tolerance 大『浮點能表示的最小一格』時,必須算 mismatch。"""
+    import math
+
+    ref, video = (21, 20), (1, 1)
+    ref_ratio = ref[0] / ref[1]
+    video_ratio = video[0] / video[1]
+    diff = abs(ref_ratio - video_ratio) / video_ratio
+    just_below_diff = math.nextafter(diff, -math.inf)
+
+    assert aspect_mismatch(ref, video, tolerance=just_below_diff) is True
+
+
+def test_aspect_mismatch_just_below_tolerance_is_not_mismatch():
+    """誤差比 tolerance 小『浮點能表示的最小一格』時,不算 mismatch。"""
+    import math
+
+    ref, video = (21, 20), (1, 1)
+    ref_ratio = ref[0] / ref[1]
+    video_ratio = video[0] / video[1]
+    diff = abs(ref_ratio - video_ratio) / video_ratio
+    just_above_diff = math.nextafter(diff, math.inf)
+
+    assert aspect_mismatch(ref, video, tolerance=just_above_diff) is False
+
+
 class FakeCompleted:
     def __init__(self, returncode: int, stdout: str = ""):
         self.returncode = returncode
