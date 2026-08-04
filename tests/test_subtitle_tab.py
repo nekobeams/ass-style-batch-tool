@@ -379,6 +379,106 @@ def _scan_with_default_style():
                                           (1920, 1080))})
 
 
+# ---------- 試算預覽(_on_dry_run,不寫檔) ----------
+
+_GOOD_ASS = """[Script Info]
+ScriptType: v4.00+
+PlayResX: 1280
+PlayResY: 720
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,Arial,40,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,1,2,10,10,10,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:01.00,0:00:03.00,Default,,0,0,0,,{\\fs40}測試字幕一
+"""
+
+
+def test_on_dry_run_logs_scale_report_and_writes_nothing(qapp, tmp_path):
+    """試算預覽要把倍率、每個 Style 的舊/新字級、inline \\fs 修改數都
+    印進 log,而且——這是這個按鈕存在的理由——完全不寫檔。"""
+    from ass_style_tool.batch_runner import ScanResult
+    from ass_style_tool.episode_match import MatchResult
+
+    sub_path = tmp_path / "good.ass"
+    original_bytes = _GOOD_ASS.encode("utf-8")
+    sub_path.write_bytes(original_bytes)
+
+    tab = _tab()
+    tab.scale_mode_radio.setChecked(True)
+    tab._scan = ScanResult(
+        matches=[MatchResult(sub_path=sub_path, episode=1, status="no_video")],
+        warnings=[])
+    logs: list[str] = []
+    tab.log.connect(logs.append)
+
+    tab._on_dry_run()
+
+    assert sub_path.read_bytes() == original_bytes, "試算預覽不該寫檔"
+    joined = "\n".join(logs)
+    assert "=== 試算預覽(不寫檔)===" in joined
+    assert "[試算] good.ass(倍率 1.250)" in joined
+    assert "    Default: 40 → 50" in joined
+    assert "    inline \\fs 將修改 1 處" in joined
+
+
+def test_on_dry_run_reports_per_file_error_and_continues_to_next_file(qapp, tmp_path):
+    """一批檔案裡有一個讀取/縮放失敗,不該讓整個試算預覽中斷——後面
+    的檔案還是要照跑,錯誤只針對該檔顯示。"""
+    from ass_style_tool.batch_runner import ScanResult
+    from ass_style_tool.episode_match import MatchResult
+
+    bad_path = tmp_path / "bad.ass"
+    bad_path.write_bytes(b"this is not a valid ass file at all")
+    good_path = tmp_path / "good.ass"
+    good_path.write_bytes(_GOOD_ASS.encode("utf-8"))
+
+    tab = _tab()
+    tab.scale_mode_radio.setChecked(True)
+    tab._scan = ScanResult(
+        matches=[
+            MatchResult(sub_path=bad_path, episode=1, status="no_video"),
+            MatchResult(sub_path=good_path, episode=2, status="no_video"),
+        ],
+        warnings=[])
+    logs: list[str] = []
+    tab.log.connect(logs.append)
+
+    tab._on_dry_run()
+
+    joined = "\n".join(logs)
+    assert "[error] bad.ass:" in joined
+    # 壞檔沒有讓整批停下來:好檔的報告仍然照樣印出。
+    assert "[試算] good.ass(倍率 1.250)" in joined
+
+
+def test_on_dry_run_reports_scale_option_error_without_touching_files(qapp, tmp_path):
+    """縮放參數本身有誤(例如倍率欄位空著)時,提前顯示錯誤並返回,
+    不該去讀任何檔案。"""
+    from ass_style_tool.batch_runner import ScanResult
+    from ass_style_tool.episode_match import MatchResult
+
+    sub_path = tmp_path / "good.ass"
+    sub_path.write_bytes(_GOOD_ASS.encode("utf-8"))
+
+    tab = _tab()
+    tab.scale_mode_radio.setChecked(True)
+    tab.scale_panel.factor_edit.setText("")  # 空著 → get_options() 拋 ScaleError
+    tab._scan = ScanResult(
+        matches=[MatchResult(sub_path=sub_path, episode=1, status="no_video")],
+        warnings=[])
+    logs: list[str] = []
+    tab.log.connect(logs.append)
+
+    tab._on_dry_run()
+
+    joined = "\n".join(logs)
+    assert joined.startswith("參數錯誤:")
+    assert "試算預覽" not in joined  # 提前 return,沒有進到逐檔迴圈
+
+
 def test_run_button_enabled_in_scale_mode_without_style_selection(qapp):
     """縮放模式不看側欄的目標樣式勾選(ScaleWorker 只吃 ScalePanel.get_options())。"""
     tab = _tab()
