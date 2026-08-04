@@ -6,8 +6,9 @@ from pathlib import Path
 import pysubs2
 import pytest
 
-from ass_style_tool.profile import (Profile, TargetStyle, color_to_ass,
-                                    load_profile, parse_ass_color,
+from ass_style_tool.profile import (Profile, TargetStyle, ass_color_to_rgb,
+                                    color_to_ass, load_profile,
+                                    parse_ass_color, rgb_to_ass_color,
                                     save_profile)
 
 
@@ -55,6 +56,29 @@ def test_parse_ass_color_invalid_raises():
 def test_color_roundtrip():
     original = "&H12345678"
     assert color_to_ass(parse_ass_color(original)) == original
+
+
+# ---------- ass_color_to_rgb / rgb_to_ass_color(從 style_editor.py 的
+# _ass_to_qcolor/_qcolor_to_ass 抽出的演算法本體,不依賴 Qt) ----------
+
+def test_ass_color_to_rgb_drops_alpha_and_keeps_channel_order():
+    """三個色版故意用不同數值,避免通道順序寫反(例如 R/B 對調)時測試
+    還碰巧通過。"""
+    assert ass_color_to_rgb("&H80FF8040") == (0x40, 0x80, 0xFF)
+
+
+def test_rgb_to_ass_color_roundtrips_color_and_alpha():
+    original = "&H80FF8040"
+    rgb = ass_color_to_rgb(original)
+    # ass_color_to_rgb 刻意丟棄 alpha,所以要餵回原始字串取回 alpha——
+    # 這正是 rgb_to_ass_color 第二個參數存在的理由。
+    assert rgb_to_ass_color(rgb, original) == original
+
+
+def test_rgb_to_ass_color_falls_back_to_zero_alpha_on_invalid_source():
+    """換色時如果欄位裡原本的文字打到一半是無效色碼,parse_ass_color
+    會丟 ValueError——不該讓整個換色動作跟著失敗,只是 alpha 退回 0。"""
+    assert rgb_to_ass_color((0x40, 0x80, 0xFF), "not-a-color") == "&H00FF8040"
 
 
 def test_profile_save_load_roundtrip(tmp_path):
