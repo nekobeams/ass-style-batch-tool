@@ -23,12 +23,13 @@ jobs:
       #
       # 這裡曾經分兩段跑(--ignore=tests/test_mkv_tab.py 加上單獨跑該檔),
       # 用來規避整套一起跑時約 50% 機率觸發的 Qt 原生層 teardown heap
-      # corruption(0xc0000374)。根因已修:mkv_tab.py/mux_tab.py 收尾
-      # 執行緒時直接把參照設成 None,而分頁與 QThread/worker 之間的訊號
-      # 連線構成參照循環,refcount 歸不了零——C++ 物件實際上是被 Python
-      # 的分代 GC 回收的,時機不可控,會落在 Qt 正在派送事件的中途。
-      # 現在改成 thread.finished → worker.deleteLater(worker 在 wait()
-      # 回來前就確定銷毀)加上收尾時的 thread.deleteLater(把 QThread 的
-      # 所有權從 GC 交給 Qt),銷毀時機不再由 GC 決定。
+      # corruption(0xc0000374)。根因已修:mkv_tab.py/mux_tab.py/
+      # subtitle_tab.py 這三個分頁收尾執行緒時直接把參照設成 None,而
+      # 分頁與 QThread/worker 之間的訊號連線構成參照循環,refcount 歸不了
+      # 零——C++ 物件實際上是被 Python 的分代 GC 回收的,時機不可控,會
+      # 落在 Qt 正在派送事件的中途。現在改成 thread.finished →
+      # worker.deleteLater(worker 在 wait() 回來前就確定銷毀)加上收尾時
+      # 的 thread.deleteLater(把 QThread 的所有權從 GC 交給 Qt),銷毀
+      # 時機不再由 GC 決定。
       - name: Run tests
         run: python -m pytest tests -q
