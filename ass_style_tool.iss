@@ -2,7 +2,7 @@
 ; AppId 一經發佈絕不可再更改(否則使用者升級會被視為全新安裝,留下舊版殘留)
 
 #define MyAppName "Subtitle Style Batch Tool"
-#define MyAppVersion "1.0"
+#define MyAppVersion "1.0.1"
 #define MyAppExeName "ass_style_tool.exe"
 
 [Setup]
