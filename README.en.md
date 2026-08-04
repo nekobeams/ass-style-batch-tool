@@ -23,6 +23,18 @@ Subtitle files collected from different fansub groups often disagree on resoluti
 
 The style-name list is *scanned from your files*, not something you have to look up in another program first.
 
+## How it works, briefly
+
+Set up your style (font, size, colour, outline, shadow, alignment, margins) and a **base resolution** in the *Style & Preview* tab; save it as a reusable JSON profile. Then, in whichever tab suits the job:
+
+- **Subtitle files** — pick a folder (it scans automatically), tick the target style names the scan found, choose in-place (with `.bak` backup) or output-to-folder, check the per-episode "what will change" column, and run.
+- **MKV** — pick a folder of MKVs, use *修改既有軌道…* ("modify existing tracks") to select which embedded subtitle tracks to restyle by **language + track name** (not track index, so an extra audio track in one episode won't shift the target), then run.
+- **Mux** — pick a video folder and a subtitle folder, they're paired by episode number (unmatched rows can be assigned manually from a dropdown), choose whether to style the subtitles first, set the new track's language/name/default/forced flags, and mux.
+
+Double-clicking any table row loads that episode into the embedded mpv player so you can see the styled result before committing.
+
+Requires MKVToolNix for the MKV and Mux tabs.
+
 ## Download
 
 Windows installer on the [Releases](../../releases) page. It auto-detects existing ffmpeg/MKVToolNix installs and only offers to install what's missing; libmpv (for the preview) is always bundled.
