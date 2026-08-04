@@ -22,15 +22,28 @@ def _qt_widget_cleanup():
     測試建立的 widget 若留到直譯器關閉才由 Qt 以未定順序銷毀,
     會造成間歇性的原生層 teardown 崩潰(全套測試實測,exit 127
     且無 traceback)。在 QApplication 仍存活時確定性銷毀可根除。
+
+    這裡不能只呼叫 processEvents():整套測試 session 從頭到尾都沒有進過
+    app.exec(),全程停在 Qt 的「event loop level 0」——processEvents()
+    在這個層級不保證會把 deleteLater() 排進去的 DeferredDelete 事件真的
+    清掉(實測過,offscreen 平台、PySide6 6.11.1:deleteLater() 之後跑兩次
+    processEvents(),isValid() 仍是 True)。沒被真正清掉的 widget 就會像
+    QThread/worker 那組 bug 一樣,銷毀時機被動交給 Python 的分代 GC——
+    在 CI 上(windows-latest、Python 3.11.9)造成間歇性的 heap corruption
+    (0xc0000374),事後對照過:同一台機器、同一顆直譯器,原本的兩次
+    processEvents() 寫法連跑 15 次崩潰 7 次,換成 sendPostedEvents()
+    後連跑 15 次 0 次崩潰。sendPostedEvents(None, DeferredDelete) 直接
+    強制把這輪排隊的刪除事件清空,不必依賴進到哪個 event loop 層級。
     """
     yield
+    from PySide6.QtCore import QEvent
     from PySide6.QtWidgets import QApplication
     app = QApplication.instance()
     if app is not None:
         for widget in app.topLevelWidgets():
             widget.deleteLater()
         app.processEvents()
-        app.processEvents()  # deleteLater 需要第二輪事件處理才真正銷毀
+        app.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 
 
 @pytest.fixture(autouse=True)
