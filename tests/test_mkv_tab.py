@@ -1330,3 +1330,169 @@ def test_shutdown_waits_for_preview_extract_thread(qapp, monkeypatch):
     thread.wait.assert_called_once()
     assert tab._preview_extract_thread is None
     assert tab._preview_extract_worker is None
+
+
+# ---------- 回歸:QThread/worker 銷毀時機不再交給 Python GC ----------
+#
+# 背景:四組背景執行緒(軌道掃描、送進預覽、讀取樣式名稱、批次處理)原本
+# 收尾時是 quit()/wait() 之後直接把 Python 參照設成 None——C++ 端 worker/
+# QThread 的實際銷毀時機因此落到 Python 的分代 GC 手上:分頁與執行緒/
+# worker 之間的訊號連線構成參照循環,單靠 refcount 歸不了零。GC 動手的
+# 時機不可控,可能落在 Qt 正在派送事件的中途,在 CI 上造成間歇性的
+# Windows heap corruption(0xc0000374)。
+#
+# 修法是兩處成對:建立時 thread.finished.connect(worker.deleteLater)
+#(worker 在 wait() 回來之前就確定銷毀),收尾時額外呼叫
+# thread.deleteLater()(把 QThread 的所有權從 GC 交給 Qt)。這裡直接檢查
+# worker 的 C++ 物件在收尾之後是否真的已經銷毀,而不只是 Python 參照被
+# 清空——退回舊寫法(只設 = None)的話,這裡會抓到 isValid() 仍是 True
+#(因為缺了 thread.finished -> deleteLater 這條線,worker 根本不會在
+# wait() 回來前被刪除)。
+
+def _cpp_object_destroyed(obj) -> bool:
+    from shiboken6 import isValid
+    return not isValid(obj)
+
+
+def test_track_scan_worker_cpp_object_destroyed_after_teardown(
+        qapp, monkeypatch):
+    import time
+    from ass_style_tool.qt.batch_worker import MkvScanWorker
+
+    captured = {}
+
+    def factory(paths, mkvmerge, list_fn=None):
+        # list_fn 回傳空清單:_on_track_scan_done() 的 any(...) 檢查會擋下
+        # 開啟 SelectTracksDialog(那是真正的 modal exec(),會卡住測試)。
+        worker = MkvScanWorker(paths, mkvmerge, list_fn=lambda p, m: [])
+        captured["worker"] = worker
+        return worker
+
+    monkeypatch.setattr("ass_style_tool.qt.mkv_tab.MkvScanWorker", factory)
+
+    tab = _tab(monkeypatch)
+    tab.populate(FILES)
+    tab._on_modify_tracks()
+
+    deadline = time.monotonic() + 5.0
+    while tab._scan_thread is not None and time.monotonic() < deadline:
+        qapp.processEvents()
+    assert tab._scan_thread is None, "軌道掃描沒有跑完"
+
+    assert _cpp_object_destroyed(captured["worker"])
+
+
+def test_preview_extract_worker_cpp_object_destroyed_after_teardown(
+        qapp, monkeypatch):
+    import time
+    from ass_style_tool.qt.batch_worker import PreviewExtractWorker
+
+    captured = {}
+
+    def factory(mkv_path, track_id, out_path, mkvextract):
+        worker = PreviewExtractWorker(
+            mkv_path, track_id, out_path, mkvextract,
+            extract_fn=lambda mkv, track_id, out_path, mkvextract: True)
+        captured["worker"] = worker
+        return worker
+
+    monkeypatch.setattr("ass_style_tool.qt.mkv_tab.PreviewExtractWorker",
+                        factory)
+
+    tab = _tab(monkeypatch)
+    tab.populate(FILES)
+    tab._files_tracks = dict(TRACKS)
+    tab.file_table.setCurrentCell(0, 0)
+    tab._on_send_preview()
+
+    deadline = time.monotonic() + 5.0
+    while tab._preview_extract_thread is not None and time.monotonic() < deadline:
+        qapp.processEvents()
+    assert tab._preview_extract_thread is None, "_on_send_preview 沒有跑完"
+
+    assert _cpp_object_destroyed(captured["worker"])
+
+
+def test_template_worker_cpp_object_destroyed_after_teardown(
+        qapp, monkeypatch, tmp_path):
+    import time
+    from ass_style_tool.style_scan import FileStyles
+    from ass_style_tool.qt.batch_worker import TemplateStyleWorker
+
+    captured = {}
+
+    def factory(mkv_path, mkvmerge, mkvextract, out_dir):
+        worker = TemplateStyleWorker(
+            mkv_path, mkvmerge, mkvextract, out_dir,
+            extract_fn=lambda mkv, mkvmerge, mkvextract, out_dir:
+                TemplateExtraction(path=tmp_path / "t.ass"),
+            scan_fn=lambda path: FileStyles(path, {"Default": 48.0}))
+        captured["worker"] = worker
+        return worker
+
+    monkeypatch.setattr("ass_style_tool.qt.mkv_tab.TemplateStyleWorker",
+                        factory)
+
+    tab = _tab(monkeypatch)
+    tab.populate(FILES)
+    tab.read_template_styles()
+
+    deadline = time.monotonic() + 5.0
+    while tab._template_thread is not None and time.monotonic() < deadline:
+        qapp.processEvents()
+    assert tab._template_thread is None, "read_template_styles 沒有跑完"
+
+    assert _cpp_object_destroyed(captured["worker"])
+
+
+def test_batch_worker_cpp_object_destroyed_after_teardown(qapp, monkeypatch):
+    import time
+    from ass_style_tool.mkv_batch import MkvFileReport
+    from ass_style_tool.qt.batch_worker import MkvWorker
+
+    captured = {}
+
+    def factory(jobs, operation, tools, output_dir):
+        def fake_process(mkv_path, tracks, operation, tools, out_path=None,
+                         progress_cb=None):
+            return MkvFileReport(mkv_path, "ok")
+        worker = MkvWorker(jobs, operation, tools, output_dir,
+                           process_fn=fake_process)
+        captured["worker"] = worker
+        return worker
+
+    monkeypatch.setattr("ass_style_tool.qt.mkv_tab.MkvWorker", factory)
+
+    tab = _tab(monkeypatch)
+    tab.populate(FILES)
+    tab._files_tracks = dict(TRACKS)
+    tab.replace_radio.setChecked(True)   # 免選輸出資料夾
+    tab._start_batch()
+
+    deadline = time.monotonic() + 5.0
+    while tab._thread is not None and time.monotonic() < deadline:
+        qapp.processEvents()
+    assert tab._thread is None, "批次沒有跑完"
+
+    assert _cpp_object_destroyed(captured["worker"])
+
+
+def test_shutdown_clears_batch_thread_references(qapp, monkeypatch):
+    """shutdown() 原本只清 _template_*/_preview_extract_* 的參照,漏了
+    _thread/_worker——批次執行緒是被 shutdown() 開頭那個 quit()+wait()
+    迴圈收掉的,_on_finished() 這條正常收尾路徑並不會跑,若不在這裡補上,
+    _worker 會是一個指向已銷毀 C++ 物件的空殼 wrapper,之後任何人再去
+    touch 它(例如又呼叫一次 shutdown() 裡的 worker.cancel())就會炸
+    RuntimeError。"""
+    from unittest.mock import Mock
+    tab = _tab(monkeypatch)
+    thread, worker = Mock(), Mock()
+    tab._thread = thread
+    tab._worker = worker
+
+    tab.shutdown()
+
+    thread.quit.assert_called_once()
+    thread.wait.assert_called_once()
+    assert tab._thread is None
+    assert tab._worker is None

@@ -1205,3 +1205,144 @@ def test_plan_column_still_repaints_when_not_running(qapp, monkeypatch):
 
     assert tab.table.item(0, 5).text() != before
     assert "直接封裝" in tab.table.item(0, 5).text()
+
+
+# ---------- 回歸:QThread/worker 銷毀時機不再交給 Python GC ----------
+#
+# 背景:三組背景執行緒(配對掃描、修改既有軌道掃描、封裝批次)原本收尾時
+# 是 quit()/wait() 之後直接把 Python 參照設成 None——C++ 端 worker/
+# QThread 的實際銷毀時機因此落到 Python 的分代 GC 手上:分頁與執行緒/
+# worker 之間的訊號連線構成參照循環,單靠 refcount 歸不了零。GC 動手的
+# 時機不可控,可能落在 Qt 正在派送事件的中途,在 CI 上造成間歇性的
+# Windows heap corruption(0xc0000374)。
+#
+# 修法是兩處成對:建立時 thread.finished.connect(worker.deleteLater)
+#(worker 在 wait() 回來之前就確定銷毀),收尾時額外呼叫
+# thread.deleteLater()(把 QThread 的所有權從 GC 交給 Qt)。這裡直接檢查
+# worker 的 C++ 物件在收尾之後是否真的已經銷毀,而不只是 Python 參照被
+# 清空——退回舊寫法(只設 = None)的話,這裡會抓到 isValid() 仍是 True
+#(因為缺了 thread.finished -> deleteLater 這條線,worker 根本不會在
+# wait() 回來前被刪除)。與 test_mkv_tab.py 同一組回歸,道理相同。
+
+def _cpp_object_destroyed(obj) -> bool:
+    from shiboken6 import isValid
+    return not isValid(obj)
+
+
+def test_scan_worker_cpp_object_destroyed_after_teardown(
+        qapp, monkeypatch, tmp_path):
+    import time
+    from ass_style_tool.qt.batch_worker import MuxScanWorker
+
+    captured = {}
+
+    def factory(video_folder, subtitle_folder):
+        worker = MuxScanWorker(video_folder, subtitle_folder,
+                               pair_fn=lambda videos, subs: [],
+                               scan_styles_fn=lambda p: None)
+        captured["worker"] = worker
+        return worker
+
+    monkeypatch.setattr("ass_style_tool.qt.mux_tab.MuxScanWorker", factory)
+
+    tab = _tab(monkeypatch)
+    tab.video_edit.setText(str(tmp_path))
+    tab.subtitle_edit.setText(str(tmp_path))
+    tab._on_scan()
+
+    deadline = time.monotonic() + 5.0
+    while tab._scan_thread is not None and time.monotonic() < deadline:
+        qapp.processEvents()
+    assert tab._scan_thread is None, "配對掃描沒有跑完"
+
+    assert _cpp_object_destroyed(captured["worker"])
+
+
+def test_track_scan_worker_cpp_object_destroyed_after_teardown(
+        qapp, monkeypatch):
+    import time
+    from ass_style_tool.qt.batch_worker import TrackScanWorker
+
+    captured = {}
+
+    def factory(video_paths, mkvmerge, list_fn=None):
+        # list_fn 回傳空清單:_on_track_scan_done() 的 any(...) 檢查會擋下
+        # 開啟 ModifyTracksDialog(那是真正的 modal exec(),會卡住測試)。
+        worker = TrackScanWorker(video_paths, mkvmerge,
+                                 list_fn=lambda p, m: [])
+        captured["worker"] = worker
+        return worker
+
+    monkeypatch.setattr("ass_style_tool.qt.mux_tab.TrackScanWorker", factory)
+
+    tab = _tab(monkeypatch)
+    tab.populate(PAIRS)
+    tab._on_modify_tracks()
+
+    deadline = time.monotonic() + 5.0
+    while tab._track_scan_thread is not None and time.monotonic() < deadline:
+        qapp.processEvents()
+    assert tab._track_scan_thread is None, "軌道掃描沒有跑完"
+
+    assert _cpp_object_destroyed(captured["worker"])
+
+
+def test_mux_worker_cpp_object_destroyed_after_teardown(qapp, monkeypatch):
+    import time
+    from ass_style_tool.mkv_batch import MkvFileReport
+    from ass_style_tool.qt.batch_worker import MuxWorker
+
+    captured = {}
+
+    def factory(pairs, meta, operation, tools, output_dir, edits=None):
+        def fake_process(pair, meta, operation, tools, out_path=None,
+                         progress_cb=None, edits=None):
+            return MkvFileReport(pair.video_path, "ok")
+        worker = MuxWorker(pairs, meta, operation, tools, output_dir,
+                           process_fn=fake_process, edits=edits)
+        captured["worker"] = worker
+        return worker
+
+    monkeypatch.setattr("ass_style_tool.qt.mux_tab.MuxWorker", factory)
+
+    tab = _tab(monkeypatch)
+    tab.populate(PAIRS)
+    tab.replace_radio.setChecked(True)     # 免選輸出資料夾
+    tab._on_run()
+
+    deadline = time.monotonic() + 5.0
+    while tab._thread is not None and time.monotonic() < deadline:
+        qapp.processEvents()
+    assert tab._thread is None, "封裝沒有跑完"
+
+    assert _cpp_object_destroyed(captured["worker"])
+
+
+def test_shutdown_clears_batch_and_scan_thread_references(qapp, monkeypatch):
+    """shutdown() 原本沒有清 _thread/_worker/_scan_thread/_scan_worker 的
+    參照——這些執行緒是被 shutdown() 開頭那個 quit()+wait() 迴圈收掉的,
+    _on_finished()/_on_scan_done() 這兩條正常收尾路徑並不會跑,若不在這裡
+    補上,會留著指向已銷毀 C++ 物件的空殼 wrapper,之後任何人再去 touch
+    它(例如又呼叫一次 shutdown() 裡的 worker.cancel())就會炸
+    RuntimeError。_track_scan_* 那組本來就有清(見
+    test_shutdown_closes_orphaned_track_scan_dialog),這裡補的是另外
+    兩組。"""
+    from unittest.mock import Mock
+    tab = _tab(monkeypatch)
+    thread, worker = Mock(), Mock()
+    scan_thread, scan_worker = Mock(), Mock()
+    tab._thread = thread
+    tab._worker = worker
+    tab._scan_thread = scan_thread
+    tab._scan_worker = scan_worker
+
+    tab.shutdown()
+
+    thread.quit.assert_called_once()
+    thread.wait.assert_called_once()
+    scan_thread.quit.assert_called_once()
+    scan_thread.wait.assert_called_once()
+    assert tab._thread is None
+    assert tab._worker is None
+    assert tab._scan_thread is None
+    assert tab._scan_worker is None

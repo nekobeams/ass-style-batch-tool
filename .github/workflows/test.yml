@@ -19,23 +19,16 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      # 測試分兩段跑,684 顆一顆不少。
+      # 整套 684 顆在同一個 process 跑完。
       #
-      # 原因:整套 684 顆擠在同一個 process 跑,在 CI 上約有 50% 機率
-      # 觸發 Qt 原生層 teardown 的 heap corruption(0xc0000374),崩在
-      # test_mkv_tab.py 那 13 顆會起真正 QThread 的測試,或在全部通過
-      # 後的直譯器關閉階段。壓力測試(各 10 次)實測:
-      #   整套一起跑          5/10、5/10、5/10、4/10 崩潰
-      #   只跑 test_mkv_tab   0/10
-      #   整套排除 test_mkv_tab 0/10
-      #   分兩段跑(本設定)   0/10
-      #
-      # 這是規避,不是修好。根因在 mkv_tab.py/mux_tab.py 收尾執行緒時
-      # 直接把參照設成 None、把 C++ 物件的銷毀時機交給 Python GC,
-      # 待另案處理。
-      - name: Run tests (main suite)
-        run: python -m pytest tests --ignore=tests/test_mkv_tab.py -q
-
-      - name: Run tests (mkv tab)
-        if: '!cancelled()'
-        run: python -m pytest tests/test_mkv_tab.py -q
+      # 這裡曾經分兩段跑(--ignore=tests/test_mkv_tab.py 加上單獨跑該檔),
+      # 用來規避整套一起跑時約 50% 機率觸發的 Qt 原生層 teardown heap
+      # corruption(0xc0000374)。根因已修:mkv_tab.py/mux_tab.py 收尾
+      # 執行緒時直接把參照設成 None,而分頁與 QThread/worker 之間的訊號
+      # 連線構成參照循環,refcount 歸不了零——C++ 物件實際上是被 Python
+      # 的分代 GC 回收的,時機不可控,會落在 Qt 正在派送事件的中途。
+      # 現在改成 thread.finished → worker.deleteLater(worker 在 wait()
+      # 回來前就確定銷毀)加上收尾時的 thread.deleteLater(把 QThread 的
+      # 所有權從 GC 交給 Qt),銷毀時機不再由 GC 決定。
+      - name: Run tests
+        run: python -m pytest tests -q

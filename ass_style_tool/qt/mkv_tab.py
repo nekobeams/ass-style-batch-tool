@@ -428,6 +428,14 @@ class MkvTab(QWidget):
         self._scan_worker = MkvScanWorker(files, self._tools.mkvmerge)
         self._scan_worker.moveToThread(self._scan_thread)
         self._scan_thread.started.connect(self._scan_worker.run)
+        # 銷毀時機交給 Qt,不要留給 Python GC:worker 的 affinity 在這條
+        # 執行緒上,thread.finished 是唯一能安全刪掉它的時機——Qt 在
+        # QThreadPrivate::finish() 裡發完 finished 之後,會緊接著替這條
+        # 執行緒送出一輪 DeferredDelete,所以 worker 的 C++ 物件會在
+        # wait() 回來之前就確定銷毀。反過來在 wait() 之後才呼叫
+        # worker.deleteLater() 是無效的:那時事件迴圈已經停了,刪除事件
+        # 永遠不會被處理(等於洩漏)。見 _finish_scan() 的收尾說明。
+        self._scan_thread.finished.connect(self._scan_worker.deleteLater)
         self._scan_worker.finished.connect(self._on_track_scan_done)
         self._scan_worker.cancelled.connect(self._on_track_scan_cancelled)
         self._scan_dialog = ScanProgressDialog(self)
@@ -454,6 +462,16 @@ class MkvTab(QWidget):
         if self._scan_thread is not None:
             self._scan_thread.quit()
             self._scan_thread.wait()
+            # deleteLater() 的重點不是「盡快刪掉」,而是把這個 QThread 的
+            # 所有權從 Python 手上交給 Qt:只設 = None 的話,分頁與執行緒
+            # /worker 之間的訊號連線構成參照循環,refcount 歸不了零,C++
+            # 物件最後是被 Python 的分代 GC 回收的——GC 的時機不可控,可
+            # 能落在 Qt 正在派送事件的中途,與 widget 銷毀交錯,造成
+            # Windows heap corruption(0xc0000374)。呼叫過 deleteLater()
+            # 之後 GC 就再也不是銷毀者,改由 Qt 的事件迴圈負責。
+            # 此時執行緒已經 wait() 過、不再運轉,QThread 物件本身的
+            # affinity 在 GUI 執行緒,刪除事件送得到,與 worker 的情況不同。
+            self._scan_thread.deleteLater()
         self._scan_thread = None
         self._scan_worker = None
         self.scan_button.setEnabled(True)
@@ -551,6 +569,10 @@ class MkvTab(QWidget):
         self._preview_extract_worker.moveToThread(self._preview_extract_thread)
         self._preview_extract_thread.started.connect(
             self._preview_extract_worker.run)
+        # 見 _start_track_scan() 的說明:worker 的銷毀要綁在 thread.finished
+        # 上,不能等 Python GC,也不能在 wait() 之後才 deleteLater()。
+        self._preview_extract_thread.finished.connect(
+            self._preview_extract_worker.deleteLater)
         self._preview_extract_worker.finished.connect(
             self._on_preview_extract_done)
         self._preview_extract_thread.start()
@@ -564,6 +586,8 @@ class MkvTab(QWidget):
         if self._preview_extract_thread is not None:
             self._preview_extract_thread.quit()
             self._preview_extract_thread.wait()
+            # 見 _finish_scan():把 QThread 的所有權交給 Qt,不要留給 GC。
+            self._preview_extract_thread.deleteLater()
         self._preview_extract_thread = None
         self._preview_extract_worker = None
         self.preview_button.setEnabled(True)
@@ -602,6 +626,9 @@ class MkvTab(QWidget):
             files[0], mkvmerge, mkvextract, self._preview_dir)
         self._template_worker.moveToThread(self._template_thread)
         self._template_thread.started.connect(self._template_worker.run)
+        # 見 _start_track_scan() 的說明:worker 的銷毀要綁在 thread.finished
+        # 上,不能等 Python GC,也不能在 wait() 之後才 deleteLater()。
+        self._template_thread.finished.connect(self._template_worker.deleteLater)
         self._template_worker.finished.connect(self._on_template_styles_done)
         self._template_thread.start()
 
@@ -616,6 +643,8 @@ class MkvTab(QWidget):
         if self._template_thread is not None:
             self._template_thread.quit()
             self._template_thread.wait()
+            # 見 _finish_scan():把 QThread 的所有權交給 Qt,不要留給 GC。
+            self._template_thread.deleteLater()
         self._template_thread = None
         self._template_worker = None
         self.read_styles_button.setEnabled(True)
@@ -719,6 +748,9 @@ class MkvTab(QWidget):
         self._worker = MkvWorker(jobs, operation, self._tools, output_dir)
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)
+        # 見 _start_track_scan() 的說明:worker 的銷毀要綁在 thread.finished
+        # 上,不能等 Python GC,也不能在 wait() 之後才 deleteLater()。
+        self._thread.finished.connect(self._worker.deleteLater)
         self._worker.progress.connect(self._on_progress)
         self._worker.file_progress.connect(self.file_progress.setValue)
         self._worker.file_done.connect(
@@ -743,6 +775,8 @@ class MkvTab(QWidget):
         if self._thread is not None:
             self._thread.quit()
             self._thread.wait()
+            # 見 _finish_scan():把 QThread 的所有權交給 Qt,不要留給 GC。
+            self._thread.deleteLater()
         self._thread = None
         self._worker = None
         self.scan_button.setEnabled(True)
@@ -764,6 +798,11 @@ class MkvTab(QWidget):
             if thread is not None:
                 thread.quit()
                 thread.wait()
+                # 見 _finish_scan():把 QThread 的所有權交給 Qt,不要留給
+                # GC。_scan_thread 底下的 _finish_scan() 會再收一次,重複
+                # 呼叫沒問題——Qt 6 的 deleteLater() 自帶 de-bounce,第二
+                # 次直接 return,不會排出第二個刪除事件。
+                thread.deleteLater()
         # 沒有這行的話,取消/掃描完成時開出的模態 ScanProgressDialog 會留在
         # 畫面上、_scan_dialog 也留著沒清——套件化的 console=False 版本裡,
         # 主視窗關閉後 quitOnLastWindowClosed 因為這個還可見的對話框而永遠
@@ -772,8 +811,13 @@ class MkvTab(QWidget):
         # _closing 讓 _on_template_styles_done()/_on_preview_extract_done()
         # 提早 return,所以那兩條路徑的收尾不會執行——這裡補上,跟
         # _finish_scan() 之於掃描 worker 是同一個道理:上面的迴圈已經
-        # quit()+wait() 過了,只差把參照放掉,不要留著已收掉的 QThread
-        # 與它的 worker(最終審查 Minor)。
+        # quit()+wait()+deleteLater() 過了,只差把參照放掉,不要留著已收掉
+        # 的 QThread 與它的 worker(最終審查 Minor)。
+        # _thread/_worker 原本漏在這裡沒放掉:批次執行緒是被上面的迴圈收
+        # 掉的,_on_finished() 這條正常收尾路徑並不會跑,所以跟其他三組
+        # 一樣要在這裡補上。
+        self._thread = None
+        self._worker = None
         self._template_thread = None
         self._template_worker = None
         self._preview_extract_thread = None
