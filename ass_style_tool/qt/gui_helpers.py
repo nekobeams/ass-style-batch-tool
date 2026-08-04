@@ -35,6 +35,11 @@ PENDING_TEXT = "處理中…"
 # 把還卡著 PENDING_TEXT 的列換成這個明確標記(Task 10 review Finding 2)。
 CANCELLED_TEXT = "⊘ 未執行(已取消)"
 
+# 封裝分頁 direct 模式(原字幕直接封,不套用樣式)成功時的結果文字,
+# 不能沿用 RESULT_ICONS["ok"]——那句話在 direct 模式底下是錯的。
+# 供下面 result_text_for() 使用,從 mux_tab.py 抽到這裡。
+_RESULT_DIRECT_TEXT = "✓ 已封裝(原字幕直接封,未套用樣式)"
+
 
 @dataclass
 class PreviewRow:
@@ -161,6 +166,22 @@ def describe_track_match(tracks: Optional[List[SubtitleTrack]]) -> str:
     if len(tracks) == 1:
         return f"✓ 軌 {tracks[0].track_id}"
     return "⚠ " + "、".join(f"軌 {t.track_id}" for t in tracks)
+
+
+def result_text_for(status: str, was_direct: bool) -> str:
+    """封裝分頁「結果」欄文字:direct 模式(原字幕直接封)不套用任何
+    樣式,不能沿用套用模式共用的 RESULT_ICONS["ok"]("✓ 已套用")
+    ——那句話在 direct 模式底下是錯的,使用者會誤以為樣式真的被套用了。
+    direct 旗標只在 status == "ok" 時才有意義,失敗/略過不受影響。
+
+    從 mux_tab.py 的 _set_row_result() 抽出。
+    """
+    # 已知、接受的缺口:縮放模式若縮放係數算出來剛好等於不縮放
+    # (no-op scale),這裡仍回傳泛用的 RESULT_ICONS["ok"]——要準確判斷
+    # 需要進一步檢視 report 內容,不在這個函式的職責範圍。
+    if status == "ok" and was_direct:
+        return _RESULT_DIRECT_TEXT
+    return RESULT_ICONS.get(status, status)
 
 
 def scale_plan_text(file_styles: Optional[FileStyles],

@@ -311,3 +311,32 @@ def test_describe_track_match_multiple_tracks_lists_all_ids():
     from ass_style_tool.qt.gui_helpers import describe_track_match
     text = describe_track_match([_track(2), _track(5)])
     assert text == "⚠ 軌 2、軌 5"
+
+
+# ---------- result_text_for(從 mux_tab.py 抽出) ----------
+
+def test_result_text_for_ok_direct_mode_shows_direct_marker():
+    """direct 模式(原字幕直接封)不套用樣式,結果文字要跟套用模式的
+    「✓ 已套用」分開,不然使用者會誤以為樣式真的被套用了。"""
+    from ass_style_tool.qt.gui_helpers import result_text_for
+    assert result_text_for("ok", was_direct=True) == "✓ 已封裝(原字幕直接封,未套用樣式)"
+
+
+def test_result_text_for_ok_non_direct_mode_uses_result_icons():
+    from ass_style_tool.qt.gui_helpers import RESULT_ICONS, result_text_for
+    assert result_text_for("ok", was_direct=False) == RESULT_ICONS["ok"]
+
+
+def test_result_text_for_non_ok_status_ignores_direct_flag():
+    """direct 旗標只在 status == "ok" 時才有意義:失敗/略過不會因為
+    是不是 direct 模式而改變顯示文字。"""
+    from ass_style_tool.qt.gui_helpers import RESULT_ICONS, result_text_for
+    assert result_text_for("error", was_direct=True) == RESULT_ICONS["error"]
+    assert result_text_for("skipped", was_direct=True) == RESULT_ICONS["skipped"]
+
+
+def test_result_text_for_unknown_status_falls_back_to_status_itself():
+    """跟既有 RESULT_ICONS.get(status, status) 的既定行為一致:未知狀態
+    直接把狀態字串印出來,不要讓呼叫端看到 KeyError。"""
+    from ass_style_tool.qt.gui_helpers import result_text_for
+    assert result_text_for("weird_status", was_direct=False) == "weird_status"

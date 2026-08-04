@@ -24,7 +24,7 @@ from ..tools import mkvextract_path, mkvmerge_path
 from ..track_edit import TrackEdit
 from .batch_worker import MuxScanWorker, MuxWorker, TrackScanWorker
 from .gui_helpers import (CANCELLED_TEXT, PENDING_TEXT, RESULT_ICONS,
-                          apply_plan_text, scale_plan_text)
+                          apply_plan_text, result_text_for, scale_plan_text)
 from .layout_helpers import (action_row, group, main_splitter, page_layout,
                              settings_sidebar)
 from .modify_tracks_dialog import ModifyTracksDialog
@@ -57,8 +57,10 @@ _RESULT_UNSTYLED_TEXT = "✓ 已封裝(未套用樣式,找不到目標 Style)"
 # 那條「套用模式但目標樣式沒找到」的路徑是兩回事,worker 也不會為這個
 # case 送出任何特殊訊息可供辨識(沒有嘗試就沒有「找不到」這回事)。
 # 但這件事分頁自己在派工前就已經確定知道(哪個 radio 被勾),不必、也
-# 不該等 worker 訊息才判斷——用這個模式本身當真正的訊號。
-_RESULT_DIRECT_TEXT = "✓ 已封裝(原字幕直接封,未套用樣式)"
+# 不該等 worker 訊息才判斷——用這個模式本身當真正的訊號。對應的結果
+# 文字(_RESULT_DIRECT_TEXT)連同這條判斷本身已經抽到
+# gui_helpers.result_text_for(),這裡只負責把 _run_was_direct 這個
+# 快照傳過去(見下面 _set_row_result 為什麼要傳快照而不是即時讀 radio)。
 # 常見字幕語言清單移到 ..languages(與 modify_tracks_dialog 的軌道語言欄
 # 共用,避免同一份清單在兩處各自維護)。_LANGUAGES 這個名字繼續保留、
 # re-export,既有呼叫端與測試都是這樣引用的。
@@ -623,26 +625,15 @@ class MuxTab(QWidget):
         # 任何東西時才會出現,report.status 仍是 "ok"),清成 None 避免
         # 誤套到下一個檔案的 message 上。
         self._last_ok_name = name if status == "ok" else None
-        if status == "ok" and self._run_was_direct:
-            # Finding 4(最終審查 Batch A3):direct 模式從不套用樣式,
-            # 這個判斷分頁自己就確定知道,不必等 worker 訊息(那條路徑
-            # 只在套用模式底下才會被觸發,見 _RESULT_DIRECT_TEXT 上面的
-            # 說明)。
-            #
-            # Finding 1(最終審查 Batch A4):讀的是 _run_was_direct(這批
-            # 工作派工當下 _on_run() 記下的模式),不是即時的
-            # direct_mode_radio.isChecked()——這顆 radio 在批次跑的期間
-            # 並未被停用,使用者中途切換模式時,即時讀取會把這批工作實際
-            # 派工的模式(可能已套用樣式)誤判成另一個模式,產生錯誤的
-            # 結果標記(反過來也一樣:direct 模式派工、中途切成套用模式,
-            # 會誤標成「已套用」)。
-            #
-            # 已知、接受的缺口:縮放模式若縮放係數算出來剛好等於不縮放
-            # (no-op scale),結果欄目前仍沿用泛用的 RESULT_ICONS["ok"]
-            # ——要準確判斷需要進一步檢視 report 內容,這批不處理。
-            text = _RESULT_DIRECT_TEXT
-        else:
-            text = RESULT_ICONS.get(status, status)
+        # Finding 1(最終審查 Batch A4):傳的是 _run_was_direct(這批工作
+        # 派工當下 _on_run() 記下的模式),不是即時的
+        # direct_mode_radio.isChecked()——這顆 radio 在批次跑的期間並未
+        # 被停用,使用者中途切換模式時,即時讀取會把這批工作實際派工的
+        # 模式(可能已套用樣式)誤判成另一個模式,產生錯誤的結果標記
+        # (反過來也一樣:direct 模式派工、中途切成套用模式,會誤標成
+        # 「已套用」)。哪個狀態該顯示什麼文字的判斷本身在
+        # gui_helpers.result_text_for()(Finding 4,最終審查 Batch A3)。
+        text = result_text_for(status, was_direct=self._run_was_direct)
         # 用檔名比對回表格列:這只有在資料夾掃描不遞迴(不會有兩個影片檔
         # 同名)的前提下才安全——future 若改成遞迴掃描,這裡的比對邏輯
         # 也要一併換成完整路徑,否則同名檔案的結果會被誤套到錯的列。
