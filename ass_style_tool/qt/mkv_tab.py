@@ -28,7 +28,7 @@ from ..track_select import TrackKey, all_keys, resolve_tracks
 from .batch_worker import (MkvScanWorker, MkvWorker, PreviewExtractWorker,
                           TemplateStyleWorker)
 from .gui_helpers import (CANCELLED_TEXT, PENDING_TEXT, RESULT_ICONS,
-                          describe_track_match)
+                          describe_track_match, run_button_enabled)
 from .layout_helpers import (action_row, group, main_splitter, page_layout,
                              settings_sidebar)
 from .scale_panel import ScalePanel
@@ -360,13 +360,13 @@ class MkvTab(QWidget):
         「套用樣式」模式下沒勾任何目標樣式等於這批不會改到任何東西,不該
         讓使用者按下去;「縮放字級」模式不吃這個勾選(scale_panel 已經自
         己給齊所有需要的參數),維持原本只看有沒有檔案的邏輯。跟字幕檔/
-        封裝分頁(subtitle_tab.py / mux_tab.py)是同一套語意。
+        封裝分頁是同一套骨架,共用 gui_helpers.run_button_enabled()。
         """
-        gated_by_styles = (self.apply_mode_radio.isChecked()
-                           and not self.style_picker.selected())
-        self.run_button.setEnabled(
-            bool(self._files) and self.tools_available
-            and self._thread is None and not gated_by_styles)
+        self.run_button.setEnabled(run_button_enabled(
+            ready=bool(self._files) and self.tools_available,
+            busy=self._thread is not None,
+            requires_styles=self.apply_mode_radio.isChecked(),
+            styles_selected=bool(self.style_picker.selected())))
 
     # ---------- 規則 ----------
     def _apply_keys(self, keys: Optional[Set[TrackKey]]) -> None:
