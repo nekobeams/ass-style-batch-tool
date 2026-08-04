@@ -2,7 +2,11 @@
 ; AppId 一經發佈絕不可再更改(否則使用者升級會被視為全新安裝,留下舊版殘留)
 
 #define MyAppName "Subtitle Style Batch Tool"
-#define MyAppVersion "1.0.1"
+; 版本號的單一來源是根目錄的 VERSION 檔,pyproject.toml 也讀同一個檔
+; ([tool.setuptools.dynamic] version)。不要在這裡另外寫死版本號。
+#define VerHandle FileOpen(AddBackslash(SourcePath) + "VERSION")
+#define MyAppVersion FileRead(VerHandle)
+#expr FileClose(VerHandle)
 #define MyAppExeName "ass_style_tool.exe"
 
 [Setup]

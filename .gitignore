@@ -17,3 +17,6 @@ dist/
 # Inno Setup:使用者自備的第三方二進位來源、編譯輸出
 installer_payload/
 installer_dist/
+
+# setuptools 建置中繼資料(pip install . / build 時產生)
+*.egg-info/
