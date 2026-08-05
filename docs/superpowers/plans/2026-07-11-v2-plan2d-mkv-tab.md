@@ -1,7 +1,5 @@
 # v2 Plan 2d — MKV 分頁 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** 完成「MKV」分頁——掃描資料夾列出每個 MKV 的 ASS 字幕軌(勾選)、一鍵選整季同類型軌、抽軌→套用樣式或縮放字級→重封裝(其他軌與字型附件原封保留)、輸出到新資料夾或取代原檔(驗證後覆蓋)、mkvmerge 進度、取消、以及「送進預覽」一鍵把 MKV+選定軌載入預覽分頁。
 
 **Architecture:** `mkv_batch.py` 是純邏輯批次協調(單檔管線:抽取→轉換→重封裝→驗證取代),所有外部程序函式可注入,完整 TDD;`MkvWorker`/`MkvScanWorker` 是薄薄的 QThread 包裝;`qt/mkv_tab.py` 用 QTreeWidget(檔案→軌)呈現,操作模式沿用既有 ScalePanel 與 StyleEditor 的 profile。輸出檔名衝突保護直接內建於 worker(比照 BatchWorker/ScaleWorker 的既有 `seen_basenames` 模式)。
@@ -12,7 +10,7 @@
 
 ## Global Constraints
 
-- 工作目錄/repo root:專案根目錄,git branch 由執行者依 subagent-driven 流程建立
+- 工作目錄/repo root:專案根目錄,git branch 由執行者自行建立
 - **環境重點**:`python` 是壞的 Windows Store stub,一律用 `py`:`py -m pytest tests -v`
 - Python 3.9+ 相容;每個新模組頂端加 `from __future__ import annotations`
 - **測試絕不可真的執行 mkvmerge/mkvextract**:`mkv_batch` 的外部程序函式全部以參數注入,測試傳假函式;worker 測試注入假 `process_fn`;GUI 測試用假軌道資料

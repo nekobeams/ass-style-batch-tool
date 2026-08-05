@@ -1,7 +1,5 @@
 # 主題樣式深化(方案 B)Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** 讓清單看得出列與列的分隔與選取狀態,並補上目前完全沒樣式的捲動條/群組框/進度條;深淺兩個主題視覺結構一致。
 
 **Architecture:** 兩塊。`theme.py` 把兩份平行的 QSS 字串改成「一份共用 `string.Template` 樣板 + 每主題一組 `_Palette` 配色」,並把樣板擴充到涵蓋清單列、選取、hover、分頁強調線、強調按鈕、捲動條、群組框、進度條;另外在 8 個控件端各加一行樣式標記(交錯底色開關與強調按鈕屬性),因為這兩者無法只靠 QSS 生效。

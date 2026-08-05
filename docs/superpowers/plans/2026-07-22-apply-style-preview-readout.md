@@ -1,7 +1,5 @@
 # 套用樣式「換算對照」讀出 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** 在「樣式與預覽」分頁加一個即時「換算對照」讀出區,讓使用者一眼看懂 profile 基準值如何依檔案畫布縮放成實際套用值,並看到與影片的比例關係。
 
 **Architecture:** 三層。(1) 把縮放數學抽成純函式 `compute_applied_values`,`apply_profile` 改用它,保證預覽數字與寫檔數字一致。(2) 新增純資料組裝函式 `build_readout`,把 profile + 檔案 PlayRes + 原字幕值 + 影片解析度組成一份可直接呈現的 `ReadoutData`(含白話說明、比例檢查、三欄對照)。(3) `PreviewPanel` 接上 UI,沿用既有 300ms 防抖訊號即時刷新。

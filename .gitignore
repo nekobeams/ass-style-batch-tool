@@ -5,7 +5,7 @@ __pycache__/
 coverage.json
 htmlcov/
 
-# 工作流程暫存(subagent ledger/報告)與本地測試資料
+# 工作流程暫存與本地測試資料
 .superpowers/
 demo_subs/
 

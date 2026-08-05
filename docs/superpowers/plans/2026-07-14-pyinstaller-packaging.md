@@ -1,12 +1,10 @@
 # PyInstaller 打包(Plan 3 第一階段)Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
->
-> **注意:Task 3 是控制器親自執行的任務,不外包 subagent。** PyInstaller 打包產物依賴完整本機環境(libmpv DLL、PySide6 hook),subagent 環境不保證一致。Task 1、2 是一般 TDD subagent 任務。
+> **注意:Task 3 必須在完整的本機環境執行。** PyInstaller 打包產物依賴完整本機環境(libmpv DLL、PySide6 hook),隔離環境不保證一致。Task 1、2 是一般的 TDD 任務。
 
 **Goal:** 把程式改造成可用 PyInstaller onedir 打包成一個雙擊即啟動、功能正常的可執行資料夾。
 
-**Architecture:** 兩處程式碼改造(工具目錄偵測 frozen-aware、profile 儲存改用 %APPDATA% 並首次自動搬移舊資料),外加一個手刻的 PyInstaller `.spec` 檔;打包/啟動驗證由控制器手動執行並依實際結果疊代 `.spec`。
+**Architecture:** 兩處程式碼改造(工具目錄偵測 frozen-aware、profile 儲存改用 %APPDATA% 並首次自動搬移舊資料),外加一個手刻的 PyInstaller `.spec` 檔;打包/啟動驗證在本機手動執行,並依實際結果疊代 `.spec`。
 
 **Tech Stack:** PyInstaller(onedir)、PySide6、python-mpv/libmpv、pytest。
 
@@ -14,7 +12,7 @@
 
 ## Global Constraints
 
-- 工作目錄/repo root:專案根目錄;git branch 由執行者依 subagent-driven 流程建立(從 master HEAD 分出)
+- 工作目錄/repo root:專案根目錄;git branch 由執行者自行建立(從 master HEAD 分出)
 - **環境重點**:`python` 是壞的 Windows Store stub,一律用 `py`:`py -m pytest tests -v`;打包用 `py -m PyInstaller`
 - Python 3.9+ 相容;各檔案已有 `from __future__ import annotations`
 - **測試絕不污染真實使用者環境**:profile 改用 `%APPDATA%` 後,測試必須用 conftest autouse fixture 把 `APPDATA` 重導到 tmp,絕不寫入真實 `%APPDATA%`(比照先前 QSettings 用 IniFormat tmp 檔避免污染 registry 的做法)
@@ -337,7 +335,7 @@ git commit -m "feat: store profiles under %APPDATA% with one-time legacy migrati
 
 ---
 
-### Task 3: PyInstaller spec + 打包/啟動驗證(控制器親自執行,不外包 subagent)
+### Task 3: PyInstaller spec + 打包/啟動驗證(需在本機環境執行)
 
 **Files:**
 - Modify: `requirements.txt`(移除 tkinterdnd2)
@@ -348,7 +346,7 @@ git commit -m "feat: store profiles under %APPDATA% with one-time legacy migrati
 - Consumes: Task 1 的 `bundled_tools_dir()`(frozen 時 = `dist/ass_style_tool/tools/`)、Task 2 的 `%APPDATA%` profile
 - Produces: `dist/ass_style_tool/ass_style_tool.exe`(可雙擊啟動的 onedir 產物)
 
-> **執行方式**:此任務由控制器(你)親自執行,不派 subagent——打包依賴完整本機環境(libmpv DLL、PySide6 hook),且需要實際啟動 GUI 逐項驗證。步驟為疊代式(build → 啟動 → 若失敗調 spec → 重 build),非固定 TDD。
+> **執行方式**:此任務需在完整的本機環境執行——打包依賴 libmpv DLL、PySide6 hook,且需要實際啟動 GUI 逐項驗證。步驟為疊代式(build → 啟動 → 若失敗調 spec → 重 build),非固定 TDD。
 
 - [ ] **Step 1: 移除死依賴 tkinterdnd2**
 

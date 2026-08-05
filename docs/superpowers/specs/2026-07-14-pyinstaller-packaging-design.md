@@ -7,7 +7,7 @@
 1. **範圍**:只做到 PyInstaller onedir 打包 + 啟動驗證,不含 Inno Setup 安裝程式(Inno Setup 目前未安裝於開發環境,且屬於獨立的下一階段工作)。
 2. **profile 儲存位置**:從 `Path.cwd() / "profiles"` 改成 `%APPDATA%\ass-style-tool\profiles\`——不論安裝在哪裡都有寫入權限,不需要系統管理員權限。
 3. **首次執行自動搬移舊 profile**:若 `%APPDATA%\ass-style-tool\profiles\` 是空的(代表尚未搬移過),且舊位置 `Path.cwd() / "profiles"` 有 `*.json` 檔案,自動複製過去(保留舊檔案,不刪除,避免資料遺失風險)。這主要照顧開發機上既有的使用者資料;全新安裝的機器上 `Path.cwd()/profiles` 通常不存在,此步驟自然是no-op。
-4. **驗收方式**:控制器(而非 subagent)實際執行 `pyinstaller` 打包指令、啟動打包出來的 exe、逐分頁手動驗證。打包產物依賴完整的本機環境(libmpv DLL、PySide6 hook 等),subagent 的環境不保證一致,不適合外包驗證這一步。
+4. **驗收方式**:在本機實際執行 `pyinstaller` 打包指令、啟動打包出來的 exe、逐分頁手動驗證。打包產物依賴完整的本機環境(libmpv DLL、PySide6 hook 等),隔離環境不保證一致,不適合在那裡驗證這一步。
 5. **圖示**:自訂圖示,已生成放在 `assets/icon.ico`(深色圓角方塊 + 兩條字幕行橫條的簡單圖示,7 種尺寸 16~256px)。
 
 ## 改動點
@@ -120,7 +120,7 @@ dist/ass_style_tool/
 
 `%APPDATA%\ass-style-tool\profiles\` 不在打包產物內,是執行期才建立的使用者資料目錄。
 
-## 驗收流程(控制器手動執行,非 subagent)
+## 驗收流程(本機手動執行)
 
 1. `py -m pip install pyinstaller`(開發環境安裝,不進 `requirements.txt`——只有開發打包時需要,不是程式執行期依賴)
 2. `py -m PyInstaller ass_style_tool.spec` 於 repo 根目錄執行
@@ -139,7 +139,7 @@ dist/ass_style_tool/
 - `tools.py` 的 `bundled_tools_dir()`:monkeypatch `sys.frozen`/`sys.executable` 兩種情境各一個測試,確認回傳路徑正確切換
 - `style_editor.py` 的 `profiles_dir()`:改回傳 `%APPDATA%` 路徑後,monkeypatch `os.environ["APPDATA"]` 驗證組合出的路徑正確
 - `migrate_legacy_profiles()`:純函式,好測——(a) target 已有檔案時不搬、(b) legacy 沒有檔案時不搬、(c) legacy 有檔案且 target 是空的時正確複製且不刪原檔、(d) legacy 目錄不存在時不拋例外
-- 實際打包/啟動驗證(上一節)不寫自動化測試——PyInstaller build 產物依賴本機環境,不適合 CI/pytest 化,由控制器手動驗證
+- 實際打包/啟動驗證(上一節)不寫自動化測試——PyInstaller build 產物依賴本機環境,不適合 CI/pytest 化,改為手動驗證
 
 ## 範圍外(留給下一份 spec/plan)
 

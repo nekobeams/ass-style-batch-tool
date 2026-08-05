@@ -9,7 +9,7 @@
 3. **安裝位置**:`Program Files`(需要系統管理員權限提升,Inno Setup 預設 `PrivilegesRequired=admin`)。
 4. **偵測邏輯**:Inno Setup Pascal Script **重新實作**(不與 `tools.py` 共用程式碼,語言不同無法共用)——概念上比照:PATH 查得到 `mkvmerge.exe`/`ffmpeg.exe` 即視為已裝;MKVToolNix 額外查常見安裝目錄(`C:\Program Files\MKVToolNix`、`C:\Program Files (x86)\MKVToolNix`);ffmpeg 沒有標準安裝目錄慣例,只查 PATH。偵測到 → 對應 Component 預設**不勾選**(避免重複下載);沒偵測到 → 預設**勾選**。
 5. **第三方授權文字**:隨附官方 LICENSE 檔(使用者準備二進位時一併放入 `installer_payload/<工具>/LICENSE` 之類的檔案),安裝時複製進安裝目錄下的 `licenses/<工具>/` 子資料夾。
-6. **驗證方式**:先用零位元組假 exe 測試 script 本身的邏輯(Components 勾選狀態、檔案複製路徑、偵測分支);待使用者放入真實二進位後,重新 build 一次驗證真實行為。**此任務由控制器親自執行**(比照 Plan 3 第一階段的 PyInstaller 打包任務),不外包 subagent——需要與已安裝的 Inno Setup、真實系統 registry/PATH 狀態互動,且涉及疊代除錯 Pascal Script。
+6. **驗證方式**:先用零位元組假 exe 測試 script 本身的邏輯(Components 勾選狀態、檔案複製路徑、偵測分支);待使用者放入真實二進位後,重新 build 一次驗證真實行為。**此任務需在本機環境執行**(比照 Plan 3 第一階段的 PyInstaller 打包任務)——需要與已安裝的 Inno Setup、真實系統 registry/PATH 狀態互動,且涉及疊代除錯 Pascal Script。
 
 ## 架構
 

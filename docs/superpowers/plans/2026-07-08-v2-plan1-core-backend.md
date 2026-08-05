@@ -1,7 +1,5 @@
 # v2 Plan 1 — 核心後端模組(tools / mkv_io / preview)Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** 建立 v2 的三個純邏輯後端模組——外部工具偵測(tools)、MKV 字幕軌列舉/抽取/重封裝(mkv_io)、預覽暫存字幕產生(preview)——全部可用 pytest 單元測試,為之後的 PySide6 GUI 計畫提供地基。
 
 **Architecture:** 三個新模組加在既有 `ass_style_tool/` 套件下,不動 v1 任何核心模組。外部程序(ffprobe/mkvmerge/mkvextract)一律以 `subprocess` 呼叫,測試時 monkeypatch。命令列組裝與輸出解析拆成純函式獨立測試;實際跑程序的薄包裝不強制單元測試。
@@ -12,7 +10,7 @@
 
 ## Global Constraints
 
-- 工作目錄/repo root:專案根目錄,git branch 由執行者依 subagent-driven 流程建立
+- 工作目錄/repo root:專案根目錄,git branch 由執行者自行建立
 - **環境重點**:這台機器 `python` 是壞的 Windows Store stub,一律用 `py`:`py -m pytest tests -v`
 - Python 3.9+ 相容;每個新模組頂端加 `from __future__ import annotations`
 - 不動 v1 核心模組(profile/resolution/ass_style/episode_match/batch_runner)與其 62 個既有測試

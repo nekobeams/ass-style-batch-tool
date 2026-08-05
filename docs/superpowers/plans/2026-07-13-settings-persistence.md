@@ -1,7 +1,5 @@
 # 設定持久化 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** 重開程式時記住三個分頁的來源資料夾/輸出模式/輸出資料夾路徑,以及樣式編輯的上次選用 profile;還原時只填路徑文字,不觸發掃描。
 
 **Architecture:** 每個分頁(`SubtitleFileTab`/`MkvTab`/`MuxTab`)與 `StyleEditor` 各自新增 `save_settings(settings)`/`restore_settings(settings)` 方法,用分頁專屬 key 前綴讀寫 `QSettings`。`MainWindow._restore_settings()`/`closeEvent()` 呼叫全部四個分頁的對應方法。還原用 `setText()`/`setChecked()`,不呼叫任何掃描方法,天然不觸發背景執行緒。
@@ -12,7 +10,7 @@
 
 ## Global Constraints
 
-- 工作目錄/repo root:專案根目錄;git branch 由執行者依 subagent-driven 流程建立(從 master HEAD 分出)
+- 工作目錄/repo root:專案根目錄;git branch 由執行者自行建立(從 master HEAD 分出)
 - **環境重點**:`python` 是壞的 Windows Store stub,一律用 `py`:`py -m pytest tests -v`
 - Python 3.9+ 相容;各檔案已有 `from __future__ import annotations`
 - 測試絕不寫真實使用者 QSettings(registry/使用者設定檔):一律用 `QSettings(str(tmp_path / "t.ini"), QSettings.Format.IniFormat)` 注入暫存檔

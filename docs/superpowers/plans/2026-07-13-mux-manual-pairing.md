@@ -1,7 +1,5 @@
 # 封裝分頁——手動配對 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** 讓「封裝」分頁的配對表格每一列都能用下拉選單手動指定/更換字幕檔,手動指定後視同自動配對成功(可勾選封裝)。
 
 **Architecture:** 純 UI 層改動,只碰 `ass_style_tool/qt/mux_tab.py`。新增 `set_row_subtitle` 模型變更 API(更新 `self._pairs[row]` 的 `subtitle_path`/`status`、同步狀態欄與勾選框),再把配對表格第 3 欄(字幕)從唯讀文字改成 `QComboBox`,選單 `activated` 訊號接到 `set_row_subtitle`。下游 `mkv_mux`/`batch_worker`/`process_mux` 完全不變。
@@ -12,7 +10,7 @@
 
 ## Global Constraints
 
-- 工作目錄/repo root:專案根目錄;git branch 由執行者依 subagent-driven 流程建立(從 master HEAD 分出)
+- 工作目錄/repo root:專案根目錄;git branch 由執行者自行建立(從 master HEAD 分出)
 - **環境重點**:`python` 是壞的 Windows Store stub,一律用 `py`:`py -m pytest tests -v`
 - Python 3.9+ 相容;`mux_tab.py` 已有 `from __future__ import annotations`
 - Qt 測試用既有 `tests/conftest.py` 的 offscreen `qapp` fixture;絕不初始化真實 mkvmerge(測試用 monkeypatch `mkvmerge_path`/`mkvextract_path`)

@@ -1,7 +1,5 @@
 # ASS 字幕樣式批次修改工具 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** 建立一個 tkinter GUI 工具,批次把整季 ASS/SSA 字幕檔中指定 Style(如 Default)改成統一的目標樣式,並依各檔 PlayRes 比例縮放數值。
 
 **Architecture:** 六個 Python 模組分層:`profile`(設定檔)→ `resolution`(解析度規則)→ `ass_style`(ASS 讀寫與套用)→ `episode_match`(集數配對)→ `batch_runner`(批次協調)→ `gui`(tkinter 介面)。GUI 只呼叫 `batch_runner` 與 `profile`,核心邏輯全部可脫離 GUI 測試。
