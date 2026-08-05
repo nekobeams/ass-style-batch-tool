@@ -5,6 +5,18 @@ git tag 完全一致),`.github/workflows/release.yml` 發版時會自動擷取
 對應段落當作 GitHub Release notes(見 `.github/scripts/extract_changelog_section.py`
 與 `CLAUDE.md`「發版流程」一節)。
 
+## v1.1.3
+
+2026-08-06
+
+文件整理版本。**程式本身完全沒有改動**,安裝程式的功能與 v1.1.2 相同,
+已經在用 v1.1.2 的人沒有更新的必要。
+
+- 移除 `docs/superpowers/plans/` 底下 21 份實作計畫中的開發工具流程鷹架
+  與相關詞彙,改寫成中性描述(技術理由與設計不變式完整保留)
+- 新增 `docs/superpowers/plans/README.md` 索引,說明這批歷史計畫的性質、
+  以及使用說明與架構設計該去哪裡找
+
 ## v1.1.2
 
 2026-08-06
