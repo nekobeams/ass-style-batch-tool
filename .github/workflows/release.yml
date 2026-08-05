@@ -23,6 +23,7 @@ jobs:
     # (見 vendor-libmpv-v0.41.0-724-g71ebd0840 這個 release 本身的說明)。
     env:
       LIBMPV_VENDOR_URL: https://github.com/${{ github.repository }}/releases/download/vendor-libmpv-v0.41.0-724-g71ebd0840/libmpv-2.dll
+      GH_TOKEN: ${{ github.token }}
 
     steps:
       - uses: actions/checkout@v4
@@ -134,10 +135,24 @@ jobs:
           }
           if ([string]::IsNullOrWhiteSpace($notes)) {
             Write-Output "CHANGELOG.md 沒有 '## $tag' 對應段落(或檔案不存在),改用 tag 的 annotate 訊息"
-            $notes = git tag -l --format='%(contents)' $tag
+            # 不用本機 `git tag -l --format='%(contents)'`——實測撞到:
+            # actions/checkout 對 tag 觸發的 workflow 只保證抓到「tag
+            # 指到的那個 commit」,不保證把 annotated tag 物件本身也抓下
+            # 來;沒抓到的話 %(contents) 會靜默退回顯示底下那個 commit
+            # 的訊息(看起來像「有結果」,實際上是錯的內容——這正是我們
+            # 第一次跑測試 tag 時真的中招的樣子,不是理論推測)。改直接
+            # 問 GitHub API 要 tag 物件本身,不管本機 checkout 抓了什麼
+            # 都保證拿到正確內容。
+            $refInfo = gh api "repos/${{ github.repository }}/git/refs/tags/$tag" 2>$null | ConvertFrom-Json
+            if ($refInfo -and $refInfo.object.type -eq "tag") {
+              $tagObj = gh api "repos/${{ github.repository }}/git/tags/$($refInfo.object.sha)" | ConvertFrom-Json
+              $notes = $tagObj.message
+            } else {
+              Write-Output "tag 是輕量 tag(沒有自己的訊息)或查詢失敗"
+            }
           }
           if ([string]::IsNullOrWhiteSpace($notes)) {
-            Write-Output "tag 也沒有 annotate 訊息(輕量 tag?),用最基本的備援文字"
+            Write-Output "沒有可用的 tag 訊息,用最基本的備援文字"
             $notes = "Release $tag"
           }
           $notes | Out-File -FilePath release_notes.txt -Encoding utf8
@@ -145,8 +160,6 @@ jobs:
           Get-Content release_notes.txt
 
       - name: Create GitHub Release
-        env:
-          GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: |
           gh release create "${{ github.ref_name }}" `
