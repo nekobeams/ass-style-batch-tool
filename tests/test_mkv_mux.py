@@ -378,7 +378,7 @@ def test_process_mux_no_edits_empty_flags(tmp_path):
     assert captured["flags"] == []
 
 
-def test_process_mux_track_scan_failure_degrades(tmp_path):
+def test_process_mux_track_scan_failure_degrades(tmp_path, caplog):
     from ass_style_tool.track_edit import TrackEdit
     captured = {}
 
@@ -393,11 +393,17 @@ def test_process_mux_track_scan_failure_degrades(tmp_path):
     video = tmp_path / "show.mkv"
     video.write_bytes(b"X")
     pair = MuxPair(video, _write_ass(tmp_path), 1, "matched")
-    report = process_mux(
-        pair, _meta(), None, TOOLS, out_path=tmp_path / "o" / "show.mkv",
-        mux_fn=fake_mux, edits={1: TrackEdit(keep=False)},
-        track_list_fn=boom)
+    with caplog.at_level("ERROR", logger="ass_style_tool.mkv_mux"):
+        report = process_mux(
+            pair, _meta(), None, TOOLS, out_path=tmp_path / "o" / "show.mkv",
+            mux_fn=fake_mux, edits={1: TrackEdit(keep=False)},
+            track_list_fn=boom)
     assert captured["flags"] == []
+    # 掃軌失敗不該讓封裝流程跟著失敗(容錯行為不變),但要記下完整
+    # traceback,不然使用者回報「軌道修改套用不到」時完全查不出原因。
+    assert "掃描來源軌道失敗" in caplog.text
+    assert "OSError" in caplog.text
+    assert "scan fail" in caplog.text
     # Fix 5:掃軌失敗導致軌道修改被跳過時,不能靜默——訊息裡要看得出來。
     assert any("讀不到軌道資訊" in m for m in report.messages)
 

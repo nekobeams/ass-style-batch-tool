@@ -9,6 +9,24 @@ def test_theme_modes():
     assert THEME_MODES == ("system", "dark", "light")
 
 
+def test_apply_titlebar_theme_failure_is_logged_as_debug_not_exception(caplog):
+    """DWM 標題列著色是裝飾性功能,失敗(較舊 Windows 建置、視窗控制代碼
+    不正常等)不能讓程式跟著崩,也不必用 exception 等級洗版——但要留
+    debug 記錄,不能真的完全吞掉。用一個 winId() 會丟例外的假 window
+    觸發失敗路徑,不依賴真正的 DWM API 行為。"""
+    from ass_style_tool.qt.theme import apply_titlebar_theme
+
+    class BoomWindow:
+        def winId(self):
+            raise RuntimeError("no native window handle")
+
+    with caplog.at_level("DEBUG", logger="ass_style_tool.qt.theme"):
+        apply_titlebar_theme(BoomWindow(), dark=True)  # 不應拋例外
+
+    assert "套用標題列深色模式失敗" in caplog.text
+    assert caplog.records[-1].levelname == "DEBUG"
+
+
 def test_resolve_explicit_dark():
     assert resolve_theme("dark", system_is_dark=False) == "dark"
 

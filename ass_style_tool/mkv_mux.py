@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import logging
 import os
 import shutil
 import subprocess
@@ -18,6 +19,8 @@ from .episode_match import extract_episode
 from .mkv_batch import (MkvFileReport, MkvTools, identify_ok,
                         transform_track_file)
 from .mkv_io import list_all_tracks
+
+_logger = logging.getLogger(__name__)
 from .subprocess_utils import no_window_kwargs
 from .track_edit import build_source_track_flags
 
@@ -162,6 +165,15 @@ def process_mux(
             try:
                 source_tracks = track_list_fn(video, tools.mkvmerge)
             except Exception:
+                # 這裡不是「選配功能缺失」——mkvmerge 這個時間點已經確定
+                # 存在(tools.mkvmerge 是呼叫端算好傳進來的),掃軌失敗代表
+                # mkvmerge 本身出錯或這個檔案有問題,不是日常會發生的事。
+                # 不改變原本的容錯行為(source_tracks 退回空清單,照常往下
+                # 走,下面的分支會告訴使用者「本檔未套用軌道修改」),只是
+                # 把完整 traceback 記下來,不然使用者回報「這個檔案的軌道
+                # 修改怎麼都套用不到」時完全無從查起。
+                _logger.exception(
+                    "掃描來源軌道失敗:%s", video.name)
                 source_tracks = []
 
         source_flags: List[str] = []

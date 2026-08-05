@@ -1,11 +1,14 @@
 """內嵌 mpv 播放器 widget:載入影片、外掛字幕熱重載、seek;缺 libmpv 時優雅降級。"""
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Optional
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QLabel, QStackedLayout, QWidget
+
+_logger = logging.getLogger(__name__)
 
 
 def _import_mpv():
@@ -104,6 +107,12 @@ class MpvPlayerWidget(QWidget):
         try:
             return self._mpv.time_pos
         except Exception:
+            # 選配功能的預期情況:mpv 在切換影片/尚未把這個屬性填好的
+            # 短暫窗口讀取會丟例外(python-mpv 常見行為),不是程式錯誤,
+            # 每次播放正常操作都可能踩到,用 debug 就好、不要用 exception
+            # 洗版真正需要注意的錯誤。
+            _logger.debug("讀取 mpv 播放位置失敗(可能是屬性尚未就緒)",
+                         exc_info=True)
             return None
 
     def duration(self) -> Optional[float]:
@@ -113,6 +122,9 @@ class MpvPlayerWidget(QWidget):
         try:
             return self._mpv.duration
         except Exception:
+            # 跟 position() 同一個理由:mpv 屬性尚未就緒的預期情況。
+            _logger.debug("讀取 mpv 影片長度失敗(可能是屬性尚未就緒)",
+                         exc_info=True)
             return None
 
     def shutdown(self) -> None:
@@ -120,7 +132,11 @@ class MpvPlayerWidget(QWidget):
             try:
                 self._mpv.terminate()
             except Exception:
-                pass  # 關閉階段的清理失敗不影響程式結束
+                # 選配功能的預期情況:關閉階段 mpv 可能已經處於某種不正常
+                # 狀態(視訊輸出已消失等),不影響程式結束,不用 exception
+                # 等級,但留個 debug 記錄方便日後真的要追這條路徑時有跡可循。
+                _logger.debug("關閉 mpv 時清理失敗(不影響程式結束)",
+                             exc_info=True)
             self._mpv = None
         self._video_path = None
 

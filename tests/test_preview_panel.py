@@ -84,6 +84,29 @@ def test_set_media_without_video_lists_but_no_show(qapp, tmp_path):
     panel.shutdown()
 
 
+def test_probe_unexpected_exception_is_logged_and_degrades_to_no_resolution(
+        qapp, tmp_path, monkeypatch, caplog):
+    """probe_video_resolution() 自己已經對 ffprobe 常見失敗做了防禦,正常
+    不會讓例外傳到這裡——這裡故意讓它丟出沒預期到的例外,驗證:(1) 控制
+    流程不變,仍然安全退回沒有解析度、不影響樣式套用本身;(2) 這種真正
+    異常的情況要留 traceback,不是選配工具缺少那種日常會發生的事。"""
+    import ass_style_tool.qt.preview_panel as pp
+
+    def boom(path):
+        raise RuntimeError("unexpected probe crash")
+
+    monkeypatch.setattr(pp, "probe_video_resolution", boom)
+    player = FakePlayer()
+    panel = _panel(player)
+    video_path = Path("v.mkv")
+    with caplog.at_level("ERROR", logger="ass_style_tool.qt.preview_panel"):
+        panel.set_media(_write_sample(tmp_path), video_path=video_path)  # 不應拋例外
+    assert panel._video_res is None
+    assert "偵測影片解析度時發生未預期的例外" in caplog.text
+    assert "RuntimeError" in caplog.text
+    panel.shutdown()
+
+
 def test_on_style_changed_starts_debounce(qapp, tmp_path, monkeypatch):
     import ass_style_tool.qt.preview_panel as pp
     monkeypatch.setattr(pp, "probe_video_resolution", lambda path: None)

@@ -94,6 +94,67 @@ def test_position_and_duration_read_from_mpv(qapp, monkeypatch):
     assert w.duration() == 90.0
 
 
+class _RaisingPropertyMPV(FakeMPV):
+    """屬性讀取會丟例外的假 mpv——模擬 python-mpv 在屬性尚未就緒時的
+    常見行為(這是選配功能的預期情況,不是程式錯誤)。"""
+
+    @property
+    def time_pos(self):
+        raise RuntimeError("property not ready")
+
+    @time_pos.setter
+    def time_pos(self, value):
+        pass  # FakeMPV.__init__ 會寫一次 self.time_pos = 12.5,吞掉即可
+
+    @property
+    def duration(self):
+        raise RuntimeError("property not ready")
+
+    @duration.setter
+    def duration(self, value):
+        pass
+
+
+def test_position_read_failure_logs_debug_not_exception(qapp, monkeypatch, caplog):
+    from ass_style_tool.qt.player import MpvPlayerWidget
+    _patch_mpv(monkeypatch, SimpleNamespace(MPV=_RaisingPropertyMPV))
+    w = MpvPlayerWidget()
+    w.load_video(Path("v.mkv"))
+    with caplog.at_level("DEBUG", logger="ass_style_tool.qt.player"):
+        assert w.position() is None  # 控制流程不變:安全回 None,不拋例外
+    assert "讀取 mpv 播放位置失敗" in caplog.text
+    assert caplog.records[-1].levelname == "DEBUG"  # 不是 ERROR,選配功能預期情況
+
+
+def test_duration_read_failure_logs_debug_not_exception(qapp, monkeypatch, caplog):
+    from ass_style_tool.qt.player import MpvPlayerWidget
+    _patch_mpv(monkeypatch, SimpleNamespace(MPV=_RaisingPropertyMPV))
+    w = MpvPlayerWidget()
+    w.load_video(Path("v.mkv"))
+    with caplog.at_level("DEBUG", logger="ass_style_tool.qt.player"):
+        assert w.duration() is None
+    assert "讀取 mpv 影片長度失敗" in caplog.text
+    assert caplog.records[-1].levelname == "DEBUG"
+
+
+def test_shutdown_terminate_failure_logs_debug_and_still_clears_mpv(
+        qapp, monkeypatch, caplog):
+    from ass_style_tool.qt.player import MpvPlayerWidget
+
+    class _RaisingTerminateMPV(FakeMPV):
+        def terminate(self):
+            raise RuntimeError("already gone")
+
+    _patch_mpv(monkeypatch, SimpleNamespace(MPV=_RaisingTerminateMPV))
+    w = MpvPlayerWidget()
+    w.load_video(Path("v.mkv"))
+    with caplog.at_level("DEBUG", logger="ass_style_tool.qt.player"):
+        w.shutdown()  # 不應拋例外,控制流程不變
+    assert w._mpv is None  # 清理失敗不影響程式結束:self._mpv 仍被清空
+    assert "關閉 mpv 時清理失敗" in caplog.text
+    assert caplog.records[-1].levelname == "DEBUG"
+
+
 def test_click_toggles_pause(qapp, monkeypatch):
     from PySide6.QtCore import QPointF, Qt, QEvent
     from PySide6.QtGui import QMouseEvent

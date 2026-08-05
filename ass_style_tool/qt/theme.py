@@ -6,9 +6,12 @@
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import asdict, dataclass
 from string import Template
 from typing import Tuple
+
+_logger = logging.getLogger(__name__)
 
 THEME_MODES: Tuple[str, ...] = ("system", "dark", "light")
 
@@ -200,4 +203,8 @@ def apply_titlebar_theme(window, dark: bool) -> None:
             ) == 0:
                 break
     except Exception:
-        pass  # 標題列著色失敗不影響功能
+        # 選配/裝飾性功能的預期情況:DWM 這個屬性值在較舊的 Windows 10
+        # 建置上可能整個不被接受(上面已經試了 20/19 兩個值,這裡是兩個
+        # 都失敗,或呼叫本身在某些環境出錯,例如非原生視窗控制代碼)。
+        # 標題列顏色只是裝飾,不影響任何功能,用 debug 就好。
+        _logger.debug("套用標題列深色模式失敗(不影響功能)", exc_info=True)
