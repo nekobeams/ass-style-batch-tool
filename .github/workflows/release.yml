@@ -1,0 +1,168 @@
+name: Release
+
+# 觸發:push 任何 v* 開頭的 tag。發版流程見 CLAUDE.md「發版流程」一節:
+# 更新 VERSION → commit → 打 annotated tag → push tag,其餘全部自動。
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write   # gh release create 需要
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    # libmpv-2.dll 不在 repo 裡(授權/體積考量,pip 的 python-mpv 套件也
+    # 不附帶這顆 DLL,純 ctypes binding)。CI 從我們自己代管的 vendor
+    # release 資產下載固定版本——不即時抓上游「最新版」,因為 SourceForge
+    # /shinchiro 的建置站台沒有穩定、可程式化呼叫的下載端點(檔名隨每次
+    # 建置變動、沒有正式 API),拿「最新」這件事本身就不可靠。升級 mpv
+    # 版本時,建一個新的 vendor-libmpv-v<版本> release,同步改這裡的網址
+    # (見 vendor-libmpv-v0.41.0-724-g71ebd0840 這個 release 本身的說明)。
+    env:
+      LIBMPV_VENDOR_URL: https://github.com/${{ github.repository }}/releases/download/vendor-libmpv-v0.41.0-724-g71ebd0840/libmpv-2.dll
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # 要讀 tag 的 annotate 訊息(release notes 備援來源)
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pyinstaller   # 打包用,requirements.txt 刻意不收(非執行期依賴)
+
+      - name: Verify tag matches VERSION file
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          if ($tag -notmatch '^v') {
+            Write-Error "tag 沒有 v 前綴:$tag"
+            exit 1
+          }
+          $tagVersion = $tag.Substring(1)
+          $fileVersion = (Get-Content VERSION -Raw).Trim()
+          if ($tagVersion -ne $fileVersion) {
+            Write-Error "版本不一致:tag 版本是 $tagVersion,但 VERSION 檔寫的是 $fileVersion。為避免發錯版本,工作流在這裡中止——請確認 VERSION 檔已 commit 且與這次要打的 tag 版本一致。"
+              exit 1
+          }
+          Write-Output "版本核對通過:$fileVersion"
+
+      # 硬性條件:測試沒過絕不發布。這一步失敗,後面所有步驟(含
+      # gh release create)都不會執行——GitHub Actions 預設行為就是
+      # 上一步非 0 結束碼,整個 job 直接停。
+      - name: Run tests
+        run: python -m pytest tests -q
+
+      - name: Fetch vendored libmpv-2.dll
+        shell: pwsh
+        run: |
+          # 用 python(setup-python 設定好、放在 PATH 上的那個),不要用 py——
+          # 這台 runner 上 py launcher 解析到的是另一顆完全不同版本的
+          # Python(實測撞到:py 給了 3.14.6,但這個 job 其餘步驟全部
+          # 透過 python 用的是 setup-python 裝的 3.11.9,兩邊 site-packages
+          # 不是同一個目錄,DLL 會裝到不會被用到的地方,PyInstaller 那邊
+          # 永遠找不到)。
+          $dest = python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])"
+          $target = Join-Path $dest "libmpv-2.dll"
+          Write-Output "下載 $env:LIBMPV_VENDOR_URL 到 $target"
+          Invoke-WebRequest -Uri $env:LIBMPV_VENDOR_URL -OutFile $target
+          $size = (Get-Item $target).Length
+          Write-Output "完成,大小 $size bytes"
+          if ($size -lt 1MB) {
+            Write-Error "下載到的檔案小到不像真的 DLL(可能下載到錯誤頁面),中止"
+            exit 1
+          }
+
+      - name: PyInstaller build
+        run: python -m PyInstaller ass_style_tool.spec --noconfirm --clean
+
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
+
+      - name: Locate ISCC.exe
+        id: iscc
+        shell: pwsh
+        run: |
+          $candidates = @(
+            "C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
+            "C:\Program Files\Inno Setup 6\ISCC.exe"
+          )
+          $found = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $found) {
+            Write-Output "已知路徑都沒找到,改用搜尋(較慢)"
+            $found = (Get-ChildItem -Path "C:\Program Files*" -Filter "ISCC.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
+          }
+          if (-not $found) {
+            Write-Error "choco install innosetup 之後找不到 ISCC.exe,安裝可能沒有成功"
+            exit 1
+          }
+          Write-Output "ISCC.exe: $found"
+          echo "path=$found" >> $env:GITHUB_OUTPUT
+
+      # 這一步不改動 .iss 的任何打包邏輯,單純呼叫既有腳本——CI 跟你在
+      # 本機手動 `& "...\ISCC.exe" "ass_style_tool.iss"` 是同一個命令,
+      # 差別只在 ISCC.exe 的路徑是這裡動態找出來的。installer_payload/
+      # 底下的 ffmpeg/mkvtoolnix 在 CI 上不存在(那是你自己準備的第三方
+      # 二進位,不進 repo),.iss 的 #if DirExists(...) 設計本來就會在
+      # 資料夾不存在時跳過對應元件、不會編譯失敗——CI 產出的安裝程式因此
+      # 只有 core 元件(缺 ffprobe/MKVToolNix 可選安裝選項),這是已知、
+      # 刻意接受的範圍限制,見 CLAUDE.md「發版流程」一節。
+      - name: Compile installer
+        shell: pwsh
+        run: |
+          & "${{ steps.iscc.outputs.path }}" "ass_style_tool.iss"
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "ISCC 編譯失敗,exit=$LASTEXITCODE"
+            exit 1
+          }
+
+      - name: Resolve release notes
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $notes = ""
+          if (Test-Path "CHANGELOG.md") {
+            $notes = python ".github\scripts\extract_changelog_section.py" "CHANGELOG.md" $tag
+          }
+          if ([string]::IsNullOrWhiteSpace($notes)) {
+            Write-Output "CHANGELOG.md 沒有 '## $tag' 對應段落(或檔案不存在),改用 tag 的 annotate 訊息"
+            # 不用本機 `git tag -l --format='%(contents)'`——實測撞到:
+            # actions/checkout 對 tag 觸發的 workflow 只保證抓到「tag
+            # 指到的那個 commit」,不保證把 annotated tag 物件本身也抓下
+            # 來;沒抓到的話 %(contents) 會靜默退回顯示底下那個 commit
+            # 的訊息(看起來像「有結果」,實際上是錯的內容——這正是我們
+            # 第一次跑測試 tag 時真的中招的樣子,不是理論推測)。改直接
+            # 問 GitHub API 要 tag 物件本身,不管本機 checkout 抓了什麼
+            # 都保證拿到正確內容。
+            $refInfo = gh api "repos/${{ github.repository }}/git/refs/tags/$tag" 2>$null | ConvertFrom-Json
+            if ($refInfo -and $refInfo.object.type -eq "tag") {
+              $tagObj = gh api "repos/${{ github.repository }}/git/tags/$($refInfo.object.sha)" | ConvertFrom-Json
+              $notes = $tagObj.message
+            } else {
+              Write-Output "tag 是輕量 tag(沒有自己的訊息)或查詢失敗"
+            }
+          }
+          if ([string]::IsNullOrWhiteSpace($notes)) {
+            Write-Output "沒有可用的 tag 訊息,用最基本的備援文字"
+            $notes = "Release $tag"
+          }
+          $notes | Out-File -FilePath release_notes.txt -Encoding utf8
+          Write-Output "--- release notes ---"
+          Get-Content release_notes.txt
+
+      - name: Create GitHub Release
+        shell: pwsh
+        run: |
+          gh release create "${{ github.ref_name }}" `
+            "installer_dist\ass-style-tool-setup.exe#安裝程式(Windows)" `
+            --title "${{ github.ref_name }}" `
+            --notes-file release_notes.txt

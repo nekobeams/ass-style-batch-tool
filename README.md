@@ -119,6 +119,8 @@ py -m pytest tests -q
 
 設計文件與各功能的實作計畫在 `docs/superpowers/specs/` 與 `docs/superpowers/plans/`。
 
+**發版**:`.github/workflows/release.yml` 在收到 `v*` tag 時自動 build 並發布(測試沒過就不發布)。流程細節、`CHANGELOG.md` 慣例、CI 產出安裝程式的已知限制見 `CLAUDE.md`「發版流程」一節。
+
 ## 回報問題
 
 畫面上的 log 區只保留最近 5000 行、關閉程式就消失,遇到問題時請改附**日誌檔**:
