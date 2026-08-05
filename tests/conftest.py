@@ -48,6 +48,8 @@ def _qt_widget_cleanup():
 
 @pytest.fixture(autouse=True)
 def _isolate_appdata(tmp_path, monkeypatch):
-    """把 APPDATA 重導到 tmp,確保任何測試(含 StyleEditor 建構時的 profile
-    搬移/讀寫)都不會碰到真實使用者的 %APPDATA%。"""
+    """把 APPDATA/LOCALAPPDATA 都重導到 tmp,確保任何測試(含 StyleEditor
+    建構時的 profile 搬移/讀寫、logging_setup 的日誌檔)都不會碰到真實
+    使用者的 %APPDATA%/%LOCALAPPDATA%。"""
     monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "localappdata"))

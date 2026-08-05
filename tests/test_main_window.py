@@ -298,6 +298,21 @@ def test_save_with_nothing_checked_logs_through_main_window(
         window.deleteLater()
 
 
+def test_append_log_also_reaches_the_logger(qapp, monkeypatch, tmp_path, caplog):
+    """append_log 除了寫進 log_view,同時要 logger.info()——log_view 是
+    純記憶體、5000 行截斷、關程式就消失,這一行是使用者回報問題時唯一
+    能留下診斷紀錄的路徑。用 caplog 驗證真的有經過 logging 模組,而不是
+    只看檔案有沒有內容(那樣測不出「有沒有經過 logging」,只測得出「有
+    沒有 handler 剛好在跑」)。"""
+    window = _window(monkeypatch, tmp_path)
+    try:
+        with caplog.at_level("INFO", logger="ass_style_tool.qt.main_window"):
+            window.append_log("測試訊息 12345")
+        assert "測試訊息 12345" in caplog.text
+    finally:
+        window.deleteLater()
+
+
 def test_load_profile_with_empty_target_style_names_does_not_wedge(
         qapp, tmp_path):
     """Finding 1 half 2:存檔於本批修復之前的 profile(或被手動改壞的

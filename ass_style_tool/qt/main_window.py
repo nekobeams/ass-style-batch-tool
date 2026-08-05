@@ -1,6 +1,7 @@
 """v2 Qt 主視窗外殼:分頁籤、主題切換、log、QSettings 持久化。"""
 from __future__ import annotations
 
+import logging
 from dataclasses import replace
 from typing import List, Optional
 
@@ -17,8 +18,10 @@ from .mux_tab import MuxTab
 from .preview_panel import PreviewPanel
 from .style_editor import StyleEditor
 from .subtitle_tab import SubtitleFileTab
+from ..logging_setup import setup_logging
 
 _MODE_LABELS = {"system": "跟隨系統", "dark": "深色", "light": "淺色"}
+_logger = logging.getLogger(__name__)
 
 
 class MainWindow(QMainWindow):
@@ -263,6 +266,12 @@ class MainWindow(QMainWindow):
     # ---------- log ----------
     def append_log(self, text: str) -> None:
         self.log_view.appendPlainText(text)
+        # 這個 widget 的內容是純記憶體、上限 5000 行、程式關閉就消失
+        # (見上面 setMaximumBlockCount)。同一句話也寫進 logger,落地到
+        # logging_setup.setup_logging() 設定的檔案——使用者回報問題時
+        # 才有東西可以附。介面(這個方法的簽章、四個分頁接的 log 訊號)
+        # 完全不變,只是多這一行,不影響任何呼叫端。
+        _logger.info(text)
 
     # ---------- 設定持久化 ----------
     def _restore_settings(self) -> None:
@@ -297,6 +306,12 @@ class MainWindow(QMainWindow):
 
 def main() -> None:
     import sys
+    # 這裡才是真正的「使用者啟動這支程式」進入點,不是 MainWindow.__init__——
+    # 測試會直接建構 MainWindow() 幾百次,若 setup_logging() 放在 __init__
+    # 裡,每個 widget 測試都會重新設定一次 root logger(雖然設計上是
+    # idempotent、不會壞,但沒有必要,而且會讓「logging 什麼時候被設定」
+    # 這件事跟測試環境是否經過 conftest 的 LOCALAPPDATA 隔離綁死)。
+    setup_logging()
     app = QApplication.instance() or QApplication(sys.argv)
     window = MainWindow()
     window.show()
