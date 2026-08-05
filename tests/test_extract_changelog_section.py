@@ -78,3 +78,27 @@ def test_missing_changelog_file_returns_none(tmp_path):
         sys.argv = ["extract_changelog_section.py", str(missing), "v1.0.0"]
         mod.main()
     assert buf.getvalue() == ""
+
+
+def test_main_prints_valid_utf8_even_when_stdout_is_piped(tmp_path):
+    """實測撞到的 bug:main() 用 print() 印出中文段落時,如果 stdout
+    不是真正的終端機(release.yml 就是這樣——PowerShell 用 `$notes =
+    python ...` 把輸出接起來,等同 pipe),Python 在 Windows 上預設會用
+    系統的 ANSI codepage 編碼(例如 cp950、cp1252),不是 UTF-8——cp1252
+    這種西歐編碼甚至編不進中文字,會直接讓這個 step 在 CI 上失敗或印出
+    亂碼。main() 必須自己把 stdout 固定成 UTF-8,不能依賴呼叫環境的
+    locale。這裡用真正的子行程(不是 capsys/StringIO,那些會繞過作業
+    系統的編碼層,測不出這個問題)驗證輸出位元組確實是合法 UTF-8,且
+    解碼後內容正確。"""
+    import subprocess
+
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text("## v1.0.0\n\n中文內容測試\n", encoding="utf-8")
+
+    result = subprocess.run(
+        [sys.executable, str(_SCRIPTS_DIR / "extract_changelog_section.py"),
+         str(changelog), "v1.0.0"],
+        capture_output=True,
+        check=True,
+    )
+    assert result.stdout.decode("utf-8").strip() == "中文內容測試"

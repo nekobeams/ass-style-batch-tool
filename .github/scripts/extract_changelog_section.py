@@ -25,6 +25,18 @@ def extract_section(changelog_text: str, tag: str) -> str:
 
 
 def main() -> None:
+    # release.yml 透過 PowerShell 用 `$notes = python ... ` 擷取這支
+    # 腳本的輸出,stdout 因此不是真正的終端機,而是被導向/pipe——Python
+    # 在這種情況下(尤其 Windows)預設用系統的 ANSI codepage 編碼輸出,
+    # 不是 UTF-8,英文 locale 的 codepage(例如 cp1252)甚至編不進中文
+    # 字,會讓這個 step 直接壞掉或印出亂碼(實測撞到,不是理論推測——
+    # 見 tests/test_extract_changelog_section.py 的子行程測試)。固定
+    # 用 UTF-8,不依賴呼叫環境的 locale。用 getattr 保護是因為測試會把
+    # sys.stdout 換成 io.StringIO()(redirect_stdout),那種物件沒有
+    # reconfigure()——只有真正的 TextIOWrapper(實際跑成子行程時)才有。
+    reconfigure = getattr(sys.stdout, "reconfigure", None)
+    if reconfigure is not None:
+        reconfigure(encoding="utf-8")
     if len(sys.argv) != 3:
         print(f"用法: {sys.argv[0]} <CHANGELOG.md 路徑> <tag,例如 v1.1.0>",
               file=sys.stderr)
