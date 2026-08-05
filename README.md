@@ -119,6 +119,16 @@ py -m pytest tests -q
 
 設計文件與各功能的實作計畫在 `docs/superpowers/specs/` 與 `docs/superpowers/plans/`。
 
+## 回報問題
+
+畫面上的 log 區只保留最近 5000 行、關閉程式就消失,遇到問題時請改附**日誌檔**:
+
+1. 按主視窗下方的「開啟日誌資料夾」按鈕,或直接到 `%LOCALAPPDATA%\ass-style-batch-tool\logs\` 開啟。
+2. 把裡面的 `app.log`(以及輪替出來的 `app.log.1`/`app.log.2`/`app.log.3`,如果有的話)一併附上。
+3. 描述一下問題發生前做了什麼操作(例如「選好資料夾按開始套用樣式後」),對照日誌裡的時間戳會比較好定位。
+
+日誌只會記錄操作訊息與程式內部狀態(例如檔案名稱、執行到哪一步),不會額外蒐集使用者身分或系統以外的個人資訊。
+
 ## 授權
 
 [GPLv3](LICENSE)。本程式使用 [libmpv](https://github.com/mpv-player/mpv)(GPLv2 或更新版本),安裝程式隨附其授權全文,見 `installer_payload/libmpv/README.txt` 的來源說明。

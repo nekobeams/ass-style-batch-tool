@@ -313,6 +313,29 @@ def test_append_log_also_reaches_the_logger(qapp, monkeypatch, tmp_path, caplog)
         window.deleteLater()
 
 
+def test_open_log_folder_opens_the_actual_log_directory(
+        qapp, monkeypatch, tmp_path):
+    """按下「開啟日誌資料夾」要開對地方——這是這顆按鈕唯一有意義的斷言
+    (跟既有的「開啟輸出資料夾」同一種 OS 整合按鈕,沒有其他判斷邏輯可
+    測);開錯路徑會讓使用者附錯檔案去回報問題。同時驗證資料夾真的被
+    建出來,不會因為還沒建立就靜默沒反應。"""
+    import ass_style_tool.qt.main_window as mw
+
+    log_root = tmp_path / "isolated_localappdata"
+    monkeypatch.setenv("LOCALAPPDATA", str(log_root))
+    opened = []
+    monkeypatch.setattr(mw.os, "startfile", lambda path: opened.append(path))
+
+    window = _window(monkeypatch, tmp_path)
+    try:
+        window._open_log_folder()
+        expected = log_root / "ass-style-batch-tool" / "logs"
+        assert opened == [str(expected)]
+        assert expected.is_dir()
+    finally:
+        window.deleteLater()
+
+
 def test_load_profile_with_empty_target_style_names_does_not_wedge(
         qapp, tmp_path):
     """Finding 1 half 2:存檔於本批修復之前的 profile(或被手動改壞的

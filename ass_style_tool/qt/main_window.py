@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import logging
+import os
+import subprocess
+import sys
 from dataclasses import replace
 from typing import List, Optional
 
@@ -13,12 +16,13 @@ from PySide6.QtWidgets import (QApplication, QLabel, QMainWindow, QMenu,
 
 from .theme import (THEME_MODES, apply_theme, apply_titlebar_theme,
                     resolve_theme, system_is_dark)
+from .layout_helpers import action_row
 from .mkv_tab import MkvTab
 from .mux_tab import MuxTab
 from .preview_panel import PreviewPanel
 from .style_editor import StyleEditor
 from .subtitle_tab import SubtitleFileTab
-from ..logging_setup import setup_logging
+from ..logging_setup import log_dir, setup_logging
 
 _MODE_LABELS = {"system": "跟隨系統", "dark": "深色", "light": "淺色"}
 _logger = logging.getLogger(__name__)
@@ -118,6 +122,17 @@ class MainWindow(QMainWindow):
         self.log_view.setMaximumBlockCount(5000)
         self.log_view.setMaximumHeight(150)
         layout.addWidget(self.log_view)
+
+        # 「開啟日誌資料夾」:log_view 本身是純記憶體、5000 行截斷、關程式
+        # 就消失,使用者回報問題時能附上的只有 logging_setup 寫在
+        # log_dir()/app.log 的檔案。選這個而不是另開「匯出」對話框——
+        # 這支程式從頭到尾沒有選單列,所有動作都是分頁裡的按鈕(跟
+        # 「開啟輸出資料夾」同一套 os.startfile 慣例),開資料夾讓使用者
+        # 自己把 app.log 拖去附加到 issue/訊息,比跳出存檔對話框選路徑
+        # 少一個步驟,對「回報問題」這個使用情境更直接。
+        self.open_log_folder_button = QPushButton("開啟日誌資料夾")
+        self.open_log_folder_button.clicked.connect(self._open_log_folder)
+        layout.addLayout(action_row([self.open_log_folder_button], []))
 
         self._restore_settings()
         # 跟隨系統模式下,監聽系統主題變更即時重套
@@ -272,6 +287,18 @@ class MainWindow(QMainWindow):
         # 才有東西可以附。介面(這個方法的簽章、四個分頁接的 log 訊號)
         # 完全不變,只是多這一行,不影響任何呼叫端。
         _logger.info(text)
+
+    def _open_log_folder(self) -> None:
+        directory = log_dir()
+        # 正常情況下 main() 已經呼叫過 setup_logging(),目錄一定存在;
+        # 這裡還是建一次,防的是使用者手動刪掉這個資料夾之類的邊角情況
+        # ——不建的話按鈕會靜默沒反應,使用者搞不清楚是壞了還是本來就
+        # 沒東西。
+        directory.mkdir(parents=True, exist_ok=True)
+        if sys.platform.startswith("win"):
+            os.startfile(str(directory))  # noqa: S606
+        else:
+            subprocess.Popen(["xdg-open", str(directory)])
 
     # ---------- 設定持久化 ----------
     def _restore_settings(self) -> None:
