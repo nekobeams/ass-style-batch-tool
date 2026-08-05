@@ -17,8 +17,16 @@ build/
 dist/
 *.spec.bak
 
-# Inno Setup:使用者自備的第三方二進位來源、編譯輸出
-installer_payload/
+# Inno Setup:使用者自備的第三方二進位來源、編譯輸出。
+# libmpv 的授權文字例外(COPYING.txt/README.txt,見下面 !) ——那兩個是
+# 純文字、不是二進位,.iss 的 Source 行不是靠 #if DirExists(...) 判斷
+# 存不存在(跟 ffmpeg/mkvtoolnix 不同,libmpv 是固定內建、不是可選元件),
+# 沒有這兩個檔案編譯就直接失敗。CI 沒有人手動放檔案,所以進版控。
+installer_payload/*
+!installer_payload/libmpv/
+installer_payload/libmpv/*
+!installer_payload/libmpv/COPYING.txt
+!installer_payload/libmpv/README.txt
 installer_dist/
 
 # setuptools 建置中繼資料(pip install . / build 時產生)
