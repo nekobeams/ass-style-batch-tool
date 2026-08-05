@@ -1,7 +1,5 @@
 # SRT 字幕輸入支援 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** 讓工具能吃 SRT 字幕輸入,「套用樣式」與「縮放字級」兩種批次模式都支援,輸出一律為 ASS。
 
 **Architecture:** 掃描白名單加 `.srt`;新增共用的輸出檔名正規化函式 `ass_output_name`(`.srt`→`.ass`);套用樣式模式因核心讀寫已格式無關,只需改輸出檔名;縮放模式對非 ASS 來源先用 pysubs2 轉成 ASS 文字再跑既有縮放引擎;輸出資料夾的檔名衝突防護改用正規化後的檔名比對。
@@ -12,7 +10,7 @@
 
 ## Global Constraints
 
-- 工作目錄/repo root:專案根目錄;git branch 由執行者依 subagent-driven 流程建立(從 master HEAD 分出)
+- 工作目錄/repo root:專案根目錄;git branch 由執行者自行建立(從 master HEAD 分出)
 - **環境重點**:`python` 是壞的 Windows Store stub,一律用 `py`:`py -m pytest tests -q`
 - Python 3.9+ 相容;各檔案已有 `from __future__ import annotations`
 - 輸出一律 ASS 內容;輸出檔名規則:`.ass`/`.ssa` 保留原副檔名,`.srt`(及其他非 ASS 家族)正規化成 `.ass`

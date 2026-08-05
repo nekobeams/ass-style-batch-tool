@@ -1,7 +1,5 @@
 # UI 重整實作計畫
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** MKV 分頁只列檔案、字幕軌選擇改由「修改既有軌道…」對話框以「語言+軌名」規則整批控制;資料夾掃描不再遞迴進子資料夾;三個工作分頁改用右側設定側欄的版面(方案 C)。
 
 **Architecture:** 先把可獨立測試的純邏輯(`track_select.py`)與版面共用元件(`layout_helpers.py`)做出來,再依序把三個分頁換成新骨架。MKV 分頁的功能改寫與版面改寫合併在最後一個任務,避免同一個檔案被改寫兩次。`process_mkv` 單檔管線完全不動。

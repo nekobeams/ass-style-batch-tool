@@ -1,7 +1,5 @@
 # v2 Plan 2a — Qt 外殼 + 主題系統 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** 建立 v2 的 PySide6 應用外殼——深色/淺色/跟隨系統三種主題、分頁籤主視窗、log 區、QSettings 持久化——外加兩個可 TDD 的純邏輯輔助模組(主題決策、Profile 欄位轉換),為之後的樣式面板與分頁功能(Plan 2b/2c)鋪路。
 
 **Architecture:** 非 Qt 的純邏輯(主題模式決策、Profile↔欄位字典轉換)抽成獨立可測模組;Qt 部分是薄外殼,以 import 檢查 + 啟動冒煙 + 手動清單驗證。v1 的 tkinter GUI 暫時保留(`py -m ass_style_tool` 仍是舊介面),新 Qt 介面用 `py -m ass_style_tool.qt` 啟動,待 Plan 2b/2c 達到功能對等後再切換進入點並移除舊 GUI。
@@ -12,7 +10,7 @@
 
 ## Global Constraints
 
-- 工作目錄/repo root:專案根目錄,git branch 由執行者依 subagent-driven 流程建立
+- 工作目錄/repo root:專案根目錄,git branch 由執行者自行建立
 - **環境重點**:這台機器 `python` 是壞的 Windows Store stub,一律用 `py`:`py -m pytest tests -v`、`py -m pip ...`、`py -m ass_style_tool.qt`
 - Python 3.9+ 相容;每個新模組頂端加 `from __future__ import annotations`
 - 依賴新增:`PySide6>=6.6`(Qt 6.5+ 才有 `QStyleHints.colorScheme()`,故下限 6.6)

@@ -1,8 +1,6 @@
 # Inno Setup 安裝程式(Plan 3 第二階段)Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
->
-> **注意:本計畫兩個 task 都是控制器親自執行,不外包 subagent。** 需要與已安裝的 Inno Setup(`ISCC.exe`)、真實 Windows registry/PATH 狀態互動,且 Pascal Script 的正確性已由控制器在寫這份計畫前實際編譯/安裝驗證過(見下方「已驗證的技術細節」)。
+> **注意:本計畫兩個 task 都必須在完整的本機環境執行。** 需要與已安裝的 Inno Setup(`ISCC.exe`)、真實 Windows registry/PATH 狀態互動,且 Pascal Script 的正確性已在撰寫本計畫前實際編譯/安裝驗證過(見下方「已驗證的技術細節」)。
 
 **Goal:** 用 Inno Setup 把 `dist/ass_style_tool/`(Plan 3 第一階段的 PyInstaller onedir 產物)包成正式安裝程式,含開始功能表捷徑、解除安裝、ffmpeg/MKVToolNix 可勾選元件(依系統偵測結果決定預設勾選狀態)。
 
@@ -12,7 +10,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-07-14-innosetup-installer-design.md`
 
-## 已驗證的技術細節(寫這份計畫前控制器已實際編譯/安裝測試過,非憑空假設)
+## 已驗證的技術細節(寫這份計畫前已實際編譯/安裝測試過,非憑空假設)
 
 1. **選用元件依系統偵測動態預設勾選/不勾選**:用 `CurPageChanged(CurPageID)` 事件,在 `CurPageID = wpSelectComponents` 時走訪 `WizardForm.ComponentsList.Items`,用 `ItemCaption[I]` 比對元件描述文字,對命中的項目設 `Checked[I] := False`(或維持預設 `True`)。實測:設 `Checked[I] := False` 後,靜默安裝(`/VERYSILENT`)確實不會複製該元件的檔案;不設則確實會複製——雙向都驗證過。
 2. **選用元件在來源資料夾不存在時完全不出現**:用 ISPP 前處理器 `#if DirExists("installer_payload\ffmpeg")` 包住對應的 `[Components]` 與 `[Files]` 行。實測:資料夾不存在且**沒有** `#if` 保護時,`ISCC.exe` 會噴 `Error ... No files found matching "...\installer_payload\ffmpeg\*.exe"` 並中止編譯;包上 `#if` 保護後編譯正常成功、略過該區塊。
@@ -20,7 +18,7 @@
 
 ## Global Constraints
 
-- 工作目錄/repo root:專案根目錄;直接在 `master` 上做(此計畫兩個 task 都是控制器執行,不建 subagent 分支——但仍遵照專案慣例,若後續要走完整 subagent-driven 流程可先 `git checkout -b feature/innosetup-installer`)
+- 工作目錄/repo root:專案根目錄;直接在 `master` 上做(此計畫兩個 task 都需在本機環境執行;若要遵照專案慣例走分支流程,可先 `git checkout -b feature/innosetup-installer`)
 - `ISCC.exe` 路徑:`%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe`
 - **執行編譯出的安裝程式一律用 PowerShell,不要用 Bash/Git Bash**(見上方已驗證細節 3)
 - AppId 固定:`{{A6F1AE07-C85D-4E18-B33C-08AA18A17BF4}`(已產生,寫死進 script,讓重跑安裝程式視為升級而非全新安裝——之後任何版本都不可以再改這個值)
@@ -187,7 +185,7 @@ begin
 end;
 ```
 
-**注意 `PrivilegesRequired=lowest`(暫時,非最終值)**:spec 決定正式安裝程式要 `admin`(裝進 Program Files)。但 `admin` 會讓 Windows 在執行安裝程式當下跳出 UAC 提升對話框——這是原生系統對話框,無法用任何命令列靜默旗標繞過,控制器(AI agent)沒有辦法互動點擊。所以 Task 1 全程用 `lowest` 编譯測試(邏輯驗證不受權限層級影響,`/DIR=` 覆蓋到 `%TEMP%` 底下用 `lowest` 就能正常靜默安裝);Step 10 commit 前才切回 `admin` 作為最終正式版本,並在計畫最後提醒使用者親自做一次真正的雙擊安裝手動確認(見 Task 1 末尾備註)。
+**注意 `PrivilegesRequired=lowest`(暫時,非最終值)**:spec 決定正式安裝程式要 `admin`(裝進 Program Files)。但 `admin` 會讓 Windows 在執行安裝程式當下跳出 UAC 提升對話框——這是原生系統對話框,無法用任何命令列靜默旗標繞過,自動化流程沒有辦法互動點擊。所以 Task 1 全程用 `lowest` 编譯測試(邏輯驗證不受權限層級影響,`/DIR=` 覆蓋到 `%TEMP%` 底下用 `lowest` 就能正常靜默安裝);Step 10 commit 前才切回 `admin` 作為最終正式版本,並在計畫最後提醒使用者親自做一次真正的雙擊安裝手動確認(見 Task 1 末尾備註)。
 
 - [ ] **Step 3: 建立假檔測試 payload**
 

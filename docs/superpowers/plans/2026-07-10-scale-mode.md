@@ -1,7 +1,5 @@
 # 縮放字級模式 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** 新增「縮放字級」批次模式——保持原樣式不變,只把所有 Style 的 Fontsize(與 Outline/Shadow、inline `\fs`)等比縮放,逐行處理保留原編碼/換行/註解;整合進 GUI 的「字幕檔」分頁作為與「套用樣式」並列的操作模式,含試算預覽(dry-run)。
 
 **Architecture:** 新的 `scale_engine.py` 是獨立的逐行縮放引擎(不用 pysubs2,因為要保留檔案原貌只改數值)。GUI 端新增 `ScalePanel` widget 與 `ScaleWorker`,掛進既有 `SubtitleFileTab` 的操作模式切換;掃描、輸出模式、進度/取消全部沿用現有機制。
@@ -12,7 +10,7 @@
 
 ## Global Constraints
 
-- 工作目錄/repo root:專案根目錄,git branch 由執行者依 subagent-driven 流程建立
+- 工作目錄/repo root:專案根目錄,git branch 由執行者自行建立
 - **環境重點**:`python` 是壞的 Windows Store stub,一律用 `py`:`py -m pytest tests -v`
 - Python 3.9+ 相容;每個新模組頂端加 `from __future__ import annotations`
 - 引擎**不得**使用 pysubs2(會重排整檔);逐行處理,只改必要數值,不動註解(`;` 開頭)、其他 section、`[Script Info]` 的 PlayResX/PlayResY

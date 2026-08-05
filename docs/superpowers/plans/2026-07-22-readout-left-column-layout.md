@@ -1,7 +1,5 @@
 # 換算對照讀出移至左欄 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** 把「換算對照」讀出從右側預覽面板搬到左側樣式編輯區底部,並把整個左欄包進捲動區,讓小視窗出捲軸而非裁切欄位。
 
 **Architecture:** 三塊,顯示與資料來源解耦。新增純顯示元件 `ReadoutView`(收 `ReadoutData` 渲染);`PreviewPanel` 改成算好 `ReadoutData` 後用 `readout_changed` 訊號送出、不再自己放讀出 widget;`StyleEditor` 把全部內容包進 `QScrollArea` 並在底部嵌 `ReadoutView`;`main_window` 一行把訊號接到左欄。

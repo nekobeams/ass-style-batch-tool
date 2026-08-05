@@ -1,7 +1,5 @@
 # MKV 掃描進度對話框 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** 讓「MKV」分頁掃描時彈出可取消的進度小視窗,取代目前掃描期間畫面像當掉、且無法中斷的狀況。
 
 **Architecture:** 三塊。`MkvScanWorker` 先收集檔案清單取得總數、逐檔發 `progress`,並加上 `cancel()` 與獨立的 `cancelled` 訊號(取消時丟棄部分結果);新增純顯示的 modal `ScanProgressDialog`(不確定→確定兩段式進度、X/Esc 等同取消);`MkvTab` 把兩者接起來,並用共用收尾函式處理「完成」與「取消」兩條結束路徑。

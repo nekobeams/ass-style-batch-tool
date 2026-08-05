@@ -1,7 +1,5 @@
 # v2 Plan 2e — 封裝字幕進 MKV(Mux 分頁)Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** 新增「封裝」分頁——把外部 `.ass` 字幕檔 mux 進 MKV。選影片資料夾 + 字幕資料夾,依集數自動配對,設定軌資訊(語言/軌名/default/forced),可選封裝前先套用樣式或縮放,批次 mkvmerge 產生帶字幕的新 MKV(或驗證後取代原檔),進度/取消。
 
 **Architecture:** `mkv_mux.py` 純邏輯(配對、mkvmerge 命令組裝、單檔 mux 管線),復用 `mkv_batch.transform_track_file`(封裝前處理)與 `mkv_batch.identify_ok`(取代驗證)、`episode_match`(配對);`MuxScanWorker`/`MuxWorker` 是薄 QThread 包裝(輸出檔名衝突保護內建);`qt/mux_tab.py` 用兩個資料夾輸入 + 配對表格。外部程序全部注入,測試不執行真實 mkvmerge。
@@ -12,7 +10,7 @@
 
 ## Global Constraints
 
-- 工作目錄/repo root:專案根目錄,git branch 由執行者依 subagent-driven 流程建立
+- 工作目錄/repo root:專案根目錄,git branch 由執行者自行建立
 - **環境重點**:`python` 是壞的 Windows Store stub,一律用 `py`:`py -m pytest tests -v`
 - Python 3.9+ 相容;每個新模組頂端加 `from __future__ import annotations`
 - 測試絕不執行真實 mkvmerge:`mkv_mux` 的 mux/verify 函式參數注入,worker 測試注入假 process_fn/list_fn,配對用假路徑

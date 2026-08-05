@@ -1,7 +1,5 @@
 # v2 Plan 2b — 樣式面板 + 字幕檔分頁 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** 把 v1 的散裝字幕批次流程完整搬進 PySide6 介面——樣式編輯面板(含色彩選擇器、profile 存讀、字型未安裝警告)與「字幕檔」分頁(選/拖資料夾、掃描預覽表格、背景執行緒批次 + 進度 + 取消、輸出模式、開啟輸出資料夾),達到 v1 功能對等後切換 `py -m ass_style_tool` 進入點到 Qt 並移除舊 tkinter GUI。
 
 **Architecture:** 非 Qt 的純邏輯(預覽表格列建構、字型缺失判斷)抽成可測函式;Qt widget 用 offscreen QApplication 做自動化測試(取/設值、Profile 產生、表格填列),視覺與互動用手動清單。批次執行復用 v1 已測的 `batch_runner.process_file`,由 QThread worker 逐檔呼叫以支援「取消」,進度/log 經 Qt signal 回主執行緒。
@@ -12,7 +10,7 @@
 
 ## Global Constraints
 
-- 工作目錄/repo root:專案根目錄,git branch 由執行者依 subagent-driven 流程建立
+- 工作目錄/repo root:專案根目錄,git branch 由執行者自行建立
 - **環境重點**:`python` 是壞的 Windows Store stub,一律用 `py`:`py -m pytest tests -v`、`py -m ass_style_tool`
 - Python 3.9+ 相容;每個新模組頂端加 `from __future__ import annotations`
 - Qt 自動化測試一律用 offscreen 平台:測試透過 `tests/conftest.py` 在 import Qt 前設 `os.environ["QT_QPA_PLATFORM"]="offscreen"` 並提供共用 `qapp` fixture

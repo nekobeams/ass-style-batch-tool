@@ -1,7 +1,5 @@
 # Modify Old Tracks Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** 讓「封裝」分頁在封入外部 `.ass` 的同一次,依使用者設定修改來源 MKV 既有軌道(保留/丟棄、預設/forced、語言/軌名)。
 
 **Architecture:** 五塊。`mkv_io` 加列出所有軌道;新純邏輯模組 `track_edit` 把「每軌設定」轉成 mkvmerge 旗標(含 per-video 過濾安全網);`mkv_mux` 的命令/管線接受這些旗標;新 `ModifyTracksDialog` 收集設定;封裝分頁加按鈕與掃描並把設定經 `MuxWorker` 傳進 `process_mux`。

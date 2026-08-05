@@ -1,7 +1,5 @@
 # 樣式可見化與流程優化 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** 讓使用者在工具內直接看見這批字幕檔有哪些樣式名、預計會被改成什麼,不必再開 Subtitle Edit 查完再回來填。
 
 **Architecture:** 新增一層純邏輯的樣式掃描模組(`style_scan.py`),由 `scan_folder()` 在既有的檔名配對與 ffprobe 之後多跑一輪解析,結果掛在 `ScanResult.styles`。GUI 端新增側欄的可勾選樣式清單元件(`style_picker.py`)取代樣式編輯器裡的自由文字欄位,並在主表格加一欄「預計 / 結果」。掃描本身補上進度回報與取消。
@@ -1659,7 +1657,7 @@ Expected: PASS
 Run: `py -m pytest tests -q`
 Expected: PASS
 
-- [ ] **Step 6: 手動冒煙(控制者親自執行,不外包)**
+- [ ] **Step 6: 手動冒煙測試**
 
 ```bash
 py -m ass_style_tool
@@ -1794,6 +1792,6 @@ git commit -m "feat: transition the plan column to per-file results during a run
 ## 完成後
 
 1. 全套測試:`py -m pytest tests -q`
-2. 用 superpowers:requesting-code-review 做全分支最終審查(opus,merge-base 為本計畫第一個 commit 之前)
-3. 修完 findings 後用 superpowers:finishing-a-development-branch 合回 master
+2. 全分支最終程式碼審查(merge-base 取本計畫第一個 commit 之前)
+3. 修完審查發現的問題後合回 master
 4. **重新打包**(`dist/` 與 `installer_dist/` 目前停在 2026-07-28 16:53,不含本計畫的任何改動)

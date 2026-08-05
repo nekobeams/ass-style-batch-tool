@@ -1,7 +1,5 @@
 # 軌道資訊面板 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** 讓「修改既有軌道」對話框顯示所選軌道在**每一部**已配對影片的實際狀況,並讓套用時不會把設定套到別的檔案裡同 ID 但不同類型的軌道上。
 
 **Architecture:** 四塊。新增 `TrackScanWorker`(沿用 `MkvScanWorker` 已驗證的進度/取消模式)掃描整批影片;新增純邏輯模組 `track_info.py` 把「某軌 ID 在各檔案的狀況」組成可直接呈現的資料;`TrackEdit` 加 `track_type` 讓 `build_source_track_flags` 做型別比對;對話框改吃整批 map 並加上唯讀資訊表格,封裝分頁改成非同步掃描後才開對話框。

@@ -1,7 +1,5 @@
 # v2 Plan 2c — mpv 即時預覽 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** 在「樣式與預覽」分頁右側內嵌 mpv 播放器——載入影片與字幕後,改樣式欄位 300ms 防抖自動熱重載字幕(所見即播放器渲染),字幕行清單點擊跳轉時間點;缺 libmpv 時優雅降級不影響其他功能。
 
 **Architecture:** `player.py` 是薄薄的 mpv 包裝 widget(`_import_mpv()` 獨立函式供測試 monkeypatch,缺 libmpv 時所有操作安全 no-op);`preview_panel.py` 負責預覽協調(防抖計時器 → 既有 `preview.render_preview_ass` 產生暫存 .ass → 播放器 `sub-add`/`sub-reload`),播放器以鴨子型別注入,offscreen 測試用假播放器驗證行為。字幕行清單的資料整理是純函式(進 `gui_helpers.py`)。
@@ -12,7 +10,7 @@
 
 ## Global Constraints
 
-- 工作目錄/repo root:專案根目錄,git branch 由執行者依 subagent-driven 流程建立
+- 工作目錄/repo root:專案根目錄,git branch 由執行者自行建立
 - **環境重點**:`python` 是壞的 Windows Store stub,一律用 `py`:`py -m pytest tests -v`
 - Python 3.9+ 相容;每個新模組頂端加 `from __future__ import annotations`
 - **測試絕不可真的初始化 mpv**(offscreen 下嵌入視窗會不穩):player 的測試一律 monkeypatch `_import_mpv`;preview_panel 的測試注入假播放器。真實播放驗證走手動冒煙。
