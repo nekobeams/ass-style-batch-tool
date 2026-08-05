@@ -5,6 +5,19 @@ git tag 完全一致),`.github/workflows/release.yml` 發版時會自動擷取
 對應段落當作 GitHub Release notes(見 `.github/scripts/extract_changelog_section.py`
 與 `CLAUDE.md`「發版流程」一節)。
 
+## v1.1.2
+
+2026-08-06
+
+測試版:第一次驗證「release notes 從 `CHANGELOG.md` 對應段落自動擷取」
+這條路徑真的能在 CI 上跑通(之前都是走 tag 訊息 fallback,因為
+`CHANGELOG.md` 直到 v1.1.1 之後才存在)。沒有應用程式層面的功能變化。
+
+- 新增 `CHANGELOG.md`,記錄 v1.0.0~v1.1.1 的版本歷史
+- 修正 `extract_changelog_section.py` 在 Windows 非終端機環境(CI 的
+  PowerShell 擷取輸出)下,印出中文段落會用系統 ANSI codepage 誤編碼
+  的問題,固定輸出為 UTF-8
+
 ## v1.1.1
 
 2026-08-05
