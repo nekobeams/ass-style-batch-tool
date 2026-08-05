@@ -140,10 +140,12 @@ def test_restore_profile_setting_missing_file_is_silent(qapp, monkeypatch, tmp_p
     assert editor.profile_combo.currentData() is None
 
 
-def test_restore_profile_setting_corrupt_file_is_silent(qapp, monkeypatch, tmp_path):
+def test_restore_profile_setting_corrupt_file_is_silent(
+        qapp, monkeypatch, tmp_path, caplog):
     """style/profile 指向的檔案存在(會被 findData 找到)但內容損毀時,
     restore_settings 不應拋出例外(對照手動載入按鈕會彈出 QMessageBox,
-    啟動流程不可有互動對話框擋住)。"""
+    啟動流程不可有互動對話框擋住)。控制流程不變;新加的是失敗要進日誌。
+    """
     from PySide6.QtCore import QSettings
     from ass_style_tool.qt.style_editor import StyleEditor
 
@@ -158,12 +160,15 @@ def test_restore_profile_setting_corrupt_file_is_silent(qapp, monkeypatch, tmp_p
     editor = StyleEditor()
     monkeypatch.setattr(editor, "profiles_dir", lambda: profiles_dir)
     editor._refresh_profile_list()  # corrupt.json 存在於目錄中,會出現在下拉選單
-    editor.restore_settings(settings)  # 不應拋例外
+    with caplog.at_level("ERROR", logger="ass_style_tool.qt.style_editor"):
+        editor.restore_settings(settings)  # 不應拋例外
 
     # findData 找到了該路徑,combo 會選到它,但 load_profile_from 失敗被吞掉,
     # 欄位維持先前狀態(建構時的 DEFAULT_VALUES),不會是損毀資料。
     assert editor.profile_combo.currentData() == str(bad_path)
     assert editor._edits["fontname"].text() == DEFAULT_VALUES["fontname"]
+    assert "啟動時還原上次使用的 profile 失敗" in caplog.text
+    assert str(bad_path) in caplog.text
 
 
 # ---------- profiles_dir 改用 %APPDATA% ----------
@@ -212,6 +217,24 @@ def test_migrate_noop_when_legacy_empty(tmp_path):
     legacy.mkdir()
     target = tmp_path / "target"
     assert migrate_legacy_profiles(legacy, target) == 0
+
+
+def test_migrate_failure_does_not_block_startup_but_is_logged(
+        qapp, monkeypatch, caplog):
+    """StyleEditor 建構期呼叫 migrate_legacy_profiles() 失敗(例如權限、
+    磁碟問題)不該讓整個程式打不開,這件事本來就是既有行為;這裡驗證的
+    是新加的部分——traceback 要進日誌,不能真的完全吞掉。"""
+    import ass_style_tool.qt.style_editor as mod
+
+    def boom(legacy_dir, target_dir):
+        raise OSError("permission denied")
+
+    monkeypatch.setattr(mod, "migrate_legacy_profiles", boom)
+    with caplog.at_level("ERROR", logger="ass_style_tool.qt.style_editor"):
+        editor = mod.StyleEditor()  # 不應拋例外
+    assert "搬移舊版 profile 失敗" in caplog.text
+    assert "OSError" in caplog.text
+    assert "permission denied" in caplog.text
 
 
 def test_style_editor_wraps_content_in_scrollarea_with_readout(qapp):

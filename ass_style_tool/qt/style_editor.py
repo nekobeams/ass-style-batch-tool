@@ -1,6 +1,7 @@
 """樣式編輯面板:欄位、色彩選擇器、profile 存讀、字型未安裝警告。"""
 from __future__ import annotations
 
+import logging
 import os
 import shutil
 from dataclasses import replace
@@ -41,6 +42,8 @@ _COLOR_FIELDS = [
     ("外框色", "outline_colour"),
     ("陰影色", "back_colour"),
 ]
+
+_logger = logging.getLogger(__name__)
 
 
 def migrate_legacy_profiles(legacy_dir: Path, target_dir: Path) -> int:
@@ -186,7 +189,11 @@ class StyleEditor(QWidget):
         try:
             migrate_legacy_profiles(Path.cwd() / "profiles", self.profiles_dir())
         except Exception:
-            pass  # 搬移失敗不阻擋啟動;profile 清單以現有內容開始
+            # 搬移失敗不阻擋啟動;profile 清單以現有內容開始(控制流程不變)。
+            # 但複製檔案在啟動這個時間點失敗不是常態(權限、磁碟問題居多),
+            # 記下 traceback,不然使用者回報「以前存的樣式都不見了」時
+            # 完全無從查起。
+            _logger.exception("搬移舊版 profile 失敗")
         self._refresh_profile_list()
 
         for edit in self._edits.values():
@@ -373,4 +380,9 @@ class StyleEditor(QWidget):
             try:
                 self.load_profile_from(path)
             except Exception:
-                pass
+                # 啟動流程不可被互動對話框擋住(手動載入按鈕失敗會彈
+                # QMessageBox,這裡不行),控制流程不變。但這代表使用者
+                # 上次存下的 profile 檔案這次讀不到了(損毀、被刪、格式
+                # 壞掉),值得留下 traceback——不然「我的樣式設定怎麼
+                # 不見了」這種回報完全查不出是檔案本身壞了還是別的問題。
+                _logger.exception("啟動時還原上次使用的 profile 失敗:%s", path)

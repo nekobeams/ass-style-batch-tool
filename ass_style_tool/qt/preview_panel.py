@@ -1,6 +1,7 @@
 """預覽面板:mpv 播放器 + 字幕行清單 + 樣式變更 300ms 防抖熱重載。"""
 from __future__ import annotations
 
+import logging
 import tempfile
 from pathlib import Path
 from typing import Callable, Optional
@@ -20,6 +21,7 @@ from .player import MpvPlayerWidget
 
 DEBOUNCE_MS = 300
 POLL_MS = 250
+_logger = logging.getLogger(__name__)
 
 
 class PreviewPanel(QWidget):
@@ -121,6 +123,14 @@ class PreviewPanel(QWidget):
         try:
             self._video_res = probe_video_resolution(self._video_path)
         except Exception:
+            # probe_video_resolution() 自己已經對 ffprobe 常見的失敗模式
+            # (找不到執行檔、逾時、輸出解析不出來)做了防禦,正常情況下
+            # 根本不會讓例外傳到這裡——這裡真的接到東西,代表發生了
+            # probe_video_resolution() 沒預期到的狀況,不是「選配工具缺
+            # 少」那種日常會發生的事,值得留完整 traceback。控制流程不變
+            # (仍然回 None,長寬比警告照常跳過,不影響樣式套用本身)。
+            _logger.exception(
+                "偵測影片解析度時發生未預期的例外:%s", self._video_path)
             self._video_res = None
 
     # ---------- 檔案選擇 ----------
