@@ -64,7 +64,13 @@ jobs:
       - name: Fetch vendored libmpv-2.dll
         shell: pwsh
         run: |
-          $dest = py -c "import sysconfig; print(sysconfig.get_paths()['purelib'])"
+          # 用 python(setup-python 設定好、放在 PATH 上的那個),不要用 py——
+          # 這台 runner 上 py launcher 解析到的是另一顆完全不同版本的
+          # Python(實測撞到:py 給了 3.14.6,但這個 job 其餘步驟全部
+          # 透過 python 用的是 setup-python 裝的 3.11.9,兩邊 site-packages
+          # 不是同一個目錄,DLL 會裝到不會被用到的地方,PyInstaller 那邊
+          # 永遠找不到)。
+          $dest = python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])"
           $target = Join-Path $dest "libmpv-2.dll"
           Write-Output "下載 $env:LIBMPV_VENDOR_URL 到 $target"
           Invoke-WebRequest -Uri $env:LIBMPV_VENDOR_URL -OutFile $target
@@ -124,7 +130,7 @@ jobs:
           $tag = "${{ github.ref_name }}"
           $notes = ""
           if (Test-Path "CHANGELOG.md") {
-            $notes = py ".github\scripts\extract_changelog_section.py" "CHANGELOG.md" $tag
+            $notes = python ".github\scripts\extract_changelog_section.py" "CHANGELOG.md" $tag
           }
           if ([string]::IsNullOrWhiteSpace($notes)) {
             Write-Output "CHANGELOG.md 沒有 '## $tag' 對應段落(或檔案不存在),改用 tag 的 annotate 訊息"
