@@ -9,6 +9,9 @@ htmlcov/
 .superpowers/
 demo_subs/
 
+# Claude Code 的本機設定(權限允許清單等,因人/因機而異,不進版控)
+.claude/settings.local.json
+
 # 本機開發用外部工具(ffprobe 等);打包安裝程式時另行處理來源
 ass_style_tool/tools/
 
